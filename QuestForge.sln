@@ -2,6 +2,8 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QuestForge.Schema", "QuestForge.Schema\QuestForge.Schema.csproj", "{EFAE5A1C-28D6-4A4A-97A3-06A02A7BC4DF}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QuestForge.Schema.Tests", "QuestForge.Schema.Tests\QuestForge.Schema.Tests.csproj", "{36FED8B3-BBEB-4714-897F-189216D642EB}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
