@@ -1,7 +1,7 @@
 # Phase 1 Implementation Plan: Schema Validator + CI
 
 **Status:** ready to implement
-**Input docs:** SCHEMA.md (full spec), NEXT_STEPS.md §Phase 1
+**Input docs:** docs/SCHEMA.md (full spec), docs/NEXT_STEPS.md §Phase 1
 **Output:** broken PR → CI red. Fixed PR → CI green.
 **Architect review:** incorporated (2026-05-14)
 
@@ -25,6 +25,76 @@ Three repos, strict build order:
 ```
 
 **Build order:** Schema types first → tools repo with validator → data repo with CI.
+
+---
+
+## Architectural decisions (read before coding)
+
+### Records vs classes for the Step hierarchy
+
+Leaf value types (`Position3`, `DialogueChoice`, `NpcLocation`, etc.) use `record`. The `Step` base type and all 20 concrete step subtypes use **`class`**, not `record`. Reasons:
+
+1. Positional records require every subtype to re-declare all inherited constructor parameters (9 fields on `Step` × 20 subtypes = 180 repeated declarations). Classes avoid this with properties.
+2. `[JsonPolymorphic]` on a record base type has subtleties with source-gen ordering that classes avoid.
+3. Mutability for default-value properties is cleaner with classes.
+
+```csharp
+// CORRECT — Step is a class
+public class Step
+{
+    public string Id { get; init; } = default!;
+    public string? Zone { get; init; }
+    public ExpectValue? Expect { get; init; }
+    // ... etc
+}
+
+public class TravelStep : Step
+{
+    public TravelDestination Destination { get; init; } = default!;
+    public RouteHint? RouteHint { get; init; }
+}
+
+// CORRECT — value types use record
+public record Position3(float X, float Y, float Z);
+public record DialogueChoice(string Type, string? Prompt = null, string? Answer = null);
+```
+
+### ValidationContext carries metadata only — scope lives in StructuralValidator
+
+`ValidationContext` is immutable metadata (file path, quest ID). The scope stack (sequence number, branch depth) lives as a private field inside `StructuralValidator`. This prevents the scope state from leaking between validators in the pipeline.
+
+```csharp
+public record ValidationContext(string FilePath, uint QuestId);
+
+// Scope tracking is private to StructuralValidator
+private readonly Stack<ValidationScope> _scopes = new();
+```
+
+### StructuralValidator does exactly two passes
+
+Pass 1 (pre-pass): Walk the entire step tree, collect `Dictionary<string, ValidationScope>` (step ID → scope). This is also where duplicate IDs are detected.
+
+Pass 2 (validation pass): Walk again, validate all rules. `goto` target resolution and cross-branch checks use the pre-pass map.
+
+This is intentional and must be implemented in this order. Tests for goto rules depend on the pre-pass having run.
+
+### QuestLoader returns a homogeneous type through the pipeline
+
+`QuestLoader` returns `(QuestDefinition? Quest, IReadOnlyList<ValidationError> Errors)` so everything in the pipeline speaks `IEnumerable<ValidationError>`. No `Result<T>` type needed.
+
+```csharp
+public static (QuestDefinition? Quest, IReadOnlyList<ValidationError> Errors) LoadQuest(string filePath)
+```
+
+If `Errors` is non-empty, `Quest` may be null (parse failure) or non-null (successfully parsed but with structural errors appended by validators). The CLI aggregates errors from all files.
+
+### CLI accepts a root directory
+
+```
+qf-validate [rootDir] [--format text|json] [--fail-on-warning]
+```
+
+The CLI discovers `<rootDir>/quests/**/*.json` and `<rootDir>/fragments/**/*.json` automatically. The `rootDir` defaults to the current directory. This matches the GitHub Actions invocation: `qf-validate . --format json`.
 
 ---
 
@@ -55,24 +125,18 @@ Add to `QuestForge.sln`:
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="System.Text.Json" Version="*" />
-  </ItemGroup>
 </Project>
 ```
 
 ### 1.2 C# type definitions
 
-All types use `record` (immutable) with source-generated System.Text.Json serialization.
-
 #### 1.2.1 Root source-gen context
 
-Register every type that participates in serialization — including all derived step and recover types. Missing registrations cause silent runtime failure, not compile errors.
+Register every type that participates in serialization. Missing registrations cause silent runtime failure at the point of first use, not at compile time.
 
 ```csharp
 [JsonSerializable(typeof(QuestDefinition))]
 [JsonSerializable(typeof(FragmentDefinition))]
-// Explicit registration for all derived Step types (required for source-gen + JsonPolymorphic)
 [JsonSerializable(typeof(TravelStep))]
 [JsonSerializable(typeof(TalkStep))]
 [JsonSerializable(typeof(InteractObjectStep))]
@@ -93,7 +157,6 @@ Register every type that participates in serialization — including all derived
 [JsonSerializable(typeof(AwaitUserStep))]
 [JsonSerializable(typeof(BranchStep))]
 [JsonSerializable(typeof(FragmentStep))]
-// Explicit registration for all derived RecoverAction types
 [JsonSerializable(typeof(RetryRecoverAction))]
 [JsonSerializable(typeof(GotoRecoverAction))]
 [JsonSerializable(typeof(UseReturnRecoverAction))]
@@ -107,83 +170,89 @@ Register every type that participates in serialization — including all derived
 internal partial class QuestForgeJsonContext : JsonSerializerContext { }
 ```
 
-**Mandatory gate:** before writing any validator tests, write a round-trip serialization test for every step type. If a type isn't correctly registered, the test fails at this gate — not mid-validator-development.
+**Mandatory gate:** write a round-trip serialization test for every step type before writing any validator tests. This gate catches registration gaps that would otherwise fail at runtime.
 
-#### 1.2.2 Shared types
+#### 1.2.2 Shared value types (records)
 
 ```csharp
 public record Position3(float X, float Y, float Z);
-
 public record NpcLocation(uint NpcId, int Zone, Position3 Position);
+public record TravelDestination(int Zone, Position3? Position = null, uint? AetheryteId = null);
+public record RouteHint(string? Aetheryte = null, string[]? Aethernet = null);
+public record DialogueChoice(string Type, string? Prompt = null, string? Answer = null);
+// Type: "list"|"yesno"|"talk" — validated structurally
+public record DutyTrigger(string Kind, int Zone, Position3 Position,
+    uint? NpcId = null, uint? InteractableId = null);
+public record BranchCase(string When, Step[] Steps = default!);
+public record ChainNext(string When, uint? QuestId);
+public record PrerequisiteRef(uint QuestId, string State);  // "complete"|"accepted"
+public record FragmentParameter(string Name, string Type, bool Required = true);
+public record RetryConfig(int? MaxAttempts = null, int? Timeout = null, string? Backoff = null);
+public record Preconditions(int? MinGearCondition = null);
+public record RewardOverride(string Strategy, uint? ItemId = null);
 ```
 
 #### 1.2.3 QuestDefinition (root)
 
 ```csharp
-public record QuestDefinition(
-    string SchemaVersion,
-    uint Id,
-    string Name,
-    string Expansion,        // "arr"|"heavensward"|"stormblood"|"shadowbringers"|"endwalker"|"dawntrail"
-    string Category,         // "msq"|"class"|"job"
-    bool Enabled,
-    SupportStatus SupportStatus,         // required per schema
-    string LastVerifiedPatch,            // required per schema
-    Requirements Requirements,           // required per schema
-    NpcLocation AcceptFrom,              // required per schema
-    Chain? Chain = null,
-    RewardOverride? RewardOverride = null,
-    string[]? Contributors = null,
-    string? Notes = null,
-    QuestSequence[] Sequences = default! // see null-guard note below
-);
+public class QuestDefinition
+{
+    public string SchemaVersion { get; init; } = default!;
+    public uint Id { get; init; }
+    public string Name { get; init; } = default!;
+    public string Expansion { get; init; } = default!;   // "arr"|"heavensward"|...
+    public string Category { get; init; } = default!;    // "msq"|"class"|"job"
+    public bool Enabled { get; init; } = true;
+    public SupportStatus? SupportStatus { get; init; }   // required — validator checks non-null
+    public string? LastVerifiedPatch { get; init; }      // required — validator checks non-null
+    public Requirements? Requirements { get; init; }     // required — validator checks non-null
+    public NpcLocation? AcceptFrom { get; init; }        // required — validator checks non-null
+    public Chain? Chain { get; init; }
+    public RewardOverride? RewardOverride { get; init; }
+    public string[]? Contributors { get; init; }
+    public string? Notes { get; init; }
+    public QuestSequence[] Sequences { get; init; } = [];
+}
 ```
 
-**Note on `default!` arrays:** `default!` suppresses the nullable warning but the runtime value is `null` if the JSON key is absent. Every validator code path that iterates these arrays must null-check first. Failure to do so produces `NullReferenceException` instead of a clean validation error. Pattern: `foreach (var seq in quest.Sequences ?? [])`.
+**Why required fields are nullable in C#:** Making them nullable lets deserialization succeed even when absent, giving the validator a chance to emit a clean `structural/required-field-missing` error. Non-nullable required fields would throw `JsonException` first (caught as `structural/json-parse-error`), producing worse user messages. The validator explicitly null-checks each required field.
 
-**Note on required fields:** `SupportStatus`, `LastVerifiedPatch`, `Requirements`, `AcceptFrom` are `required: yes` in the schema table (SCHEMA.md §2.1). They are non-nullable in the C# record but may arrive as null if absent from JSON. The validator must check these for null explicitly and emit `structural/required-field-missing` for each.
+**Null-guard pattern for arrays:** `foreach (var seq in quest.Sequences)` — `Sequences` defaults to `[]` so no null-check needed. For arrays using `default!` elsewhere, use `foreach (var item in arr ?? [])`.
 
-#### 1.2.4 Supporting metadata types
+#### 1.2.4 Supporting metadata classes
 
 ```csharp
-public record SupportStatus(
-    string Implementation,       // "complete"|"partial"|"none"
-    string[] KnownIssues,
-    bool? MinigameSkippable = null  // computed by validator from step contents; authors may omit or set
-                                    // validator always recomputes and overwrites — never an error
-);
+public class SupportStatus
+{
+    public string Implementation { get; init; } = default!;  // "complete"|"partial"|"none"
+    public string[] KnownIssues { get; init; } = [];
+    public bool? MinigameSkippable { get; init; }  // computed by validator; authors may set or omit
+}
 
-public record Requirements(
-    int? MinLevel = null,
-    int? MaxLevel = null,
-    string? RequiredJob = null,
-    string? RequiredStartingClass = null,
-    PrerequisiteRef[] Prereqs = default!
-);
+public class Requirements
+{
+    public int? MinLevel { get; init; }
+    public int? MaxLevel { get; init; }
+    public string? RequiredJob { get; init; }
+    public string? RequiredStartingClass { get; init; }
+    public PrerequisiteRef[] Prereqs { get; init; } = [];
+}
 
-public record PrerequisiteRef(uint QuestId, string State);  // "complete"|"accepted"
+public class Chain
+{
+    public uint[] Previous { get; init; } = [];
+    public ChainNext[] Next { get; init; } = [];
+}
 
-public record Chain(
-    uint[] Previous,
-    ChainNext[] Next         // non-nullable; null if JSON key absent — must null-guard
-);
-
-public record ChainNext(string When, uint? QuestId);
-
-public record RewardOverride(string Strategy, uint? ItemId = null);
+public class QuestSequence
+{
+    public int Sequence { get; init; }
+    public string? SkipIf { get; init; }
+    public Step[] Steps { get; init; } = [];
+}
 ```
 
-#### 1.2.5 Sequences and steps
-
-```csharp
-public record QuestSequence(
-    int Sequence,
-    string? SkipIf = null,
-    Step[] Steps = default!   // null-guard required
-);
-```
-
-#### 1.2.6 Step — polymorphic discriminated union
+#### 1.2.5 Step base class and subtypes
 
 ```csharp
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
@@ -207,139 +276,107 @@ public record QuestSequence(
 [JsonDerivedType(typeof(AwaitUserStep),         "await-user")]
 [JsonDerivedType(typeof(BranchStep),            "branch")]
 [JsonDerivedType(typeof(FragmentStep),          "fragment")]
-public abstract record Step(
-    string Id,
-    string? Zone = null,
-    ExpectValue? Expect = null,
-    ExpectValue? SkipIf = null,
-    float? StopDistance = null,
-    RecoverConfig? Recover = null,
-    RetryConfig? Retry = null,
-    Preconditions? Preconditions = null,
-    string? Notes = null
-);
+public class Step
+{
+    public string Id { get; init; } = default!;
+    public string? Zone { get; init; }
+    public ExpectValue? Expect { get; init; }
+    public ExpectValue? SkipIf { get; init; }
+    public float? StopDistance { get; init; }
+    public RecoverConfig? Recover { get; init; }
+    public RetryConfig? Retry { get; init; }
+    public Preconditions? Preconditions { get; init; }
+    public string? Notes { get; init; }
+}
+
+public class TravelStep : Step
+{
+    public TravelDestination Destination { get; init; } = default!;
+    public RouteHint? RouteHint { get; init; }
+}
+
+public class TalkStep : Step
+{
+    public NpcLocation? Target { get; init; }
+    public NpcLocation[]? Targets { get; init; }
+    public string? TargetOrder { get; init; }           // "sequential"|"any"|"nearest-first"
+    public DialogueChoice[] DialogueChoices { get; init; } = [];
+}
+
+public class DutyStep : Step
+{
+    public string Kind { get; init; } = default!;       // "regular"|"spd"
+    public uint? DutyId { get; init; }
+    public NpcLocation? EntryNpc { get; init; }
+    public DutyTrigger? Trigger { get; init; }
+    public string? FallbackOverride { get; init; }
+}
+
+public class BranchStep : Step
+{
+    public BranchCase[] Branches { get; init; } = [];
+}
+
+public class FragmentStep : Step
+{
+    public string Ref { get; init; } = default!;
+    public Dictionary<string, JsonElement>? Params { get; init; }
+}
+
+public class CutsceneStep : Step
+{
+    public string Skip { get; init; } = "ifAllowed";    // "never"|"ifAllowed"
+}
+
+public class MinigameStep : Step
+{
+    public string Kind { get; init; } = default!;       // "sniping"|"memory"|"aiming"|...
+    public string Skip { get; init; } = "ifAllowed";    // "never"|"ifAllowed"|"always"
+}
+
+public class AwaitUserStep : Step
+{
+    public string Reason { get; init; } = default!;     // ≤200 chars
+}
+
+// Remaining types: InteractObjectStep, PickupItemStep, AcceptStep, TurnInStep,
+// CombatStep, SayChatMessageStep, UseEmoteStep, UseItemStep, UseActionStep,
+// EquipGearForQuestStep, EquipBestGearStep, ChangeJobStep — follow the same pattern.
 ```
 
-#### 1.2.7 ExpectValue — string OR structured (requires custom converter)
-
-`expect` is either a bare string predicate or `{"all":[...]}` / `{"any":[...]}`.
+#### 1.2.6 ExpectValue — custom JSON converter
 
 ```csharp
 [JsonConverter(typeof(ExpectValueConverter))]
-public abstract record ExpectValue;
+public abstract class ExpectValue { }
 
-public record PredicateExpect(string Predicate) : ExpectValue;
-public record AllExpect(string[] All)           : ExpectValue;
-public record AnyExpect(string[] Any)           : ExpectValue;
+public class PredicateExpect : ExpectValue { public string Predicate { get; init; } = default!; }
+public class AllExpect : ExpectValue       { public string[] All { get; init; } = []; }
+public class AnyExpect : ExpectValue       { public string[] Any { get; init; } = []; }
 ```
 
-**`ExpectValueConverter` must handle all failure cases explicitly** (see Given-When-Then in §3):
-- Unknown object key → `JsonException` with message naming the invalid keys
-- Object with both `all` and `any` → `JsonException`
-- Array token → `JsonException`
-- Empty object `{}` → `JsonException`
-- `all`/`any` array containing non-strings → `JsonException`
-- `null` token → return null (field is `ExpectValue?`)
+`ExpectValueConverter` dispatches on the JSON token:
+- String token → `PredicateExpect`
+- Object with `"all"` key → `AllExpect`
+- Object with `"any"` key → `AnyExpect`
+- `null` token → `null` (field is nullable)
+- Anything else → `JsonException` with a message describing the valid forms
 
-**Implementation sequencing note:** `ExpectValueConverter` must be implemented and fully tested *before* any `Step` subtypes are defined with `ExpectValue?` fields. You cannot write step deserialization tests until the converter works.
+Read path and write path must both be implemented (write path serializes `PredicateExpect` as a bare string, structured forms as objects).
 
-#### 1.2.8 Concrete step types
+**Implementation sequencing:** `ExpectValueConverter` must be implemented and fully tested *before* any `Step` subtypes are written. You cannot write step deserialization tests until the converter works.
 
-```csharp
-public record TravelStep(
-    string Id,
-    TravelDestination Destination,
-    RouteHint? RouteHint = null,
-    // + inherited Step fields
-) : Step(Id);
-
-public record TravelDestination(int Zone, Position3? Position = null, uint? AetheryteId = null);
-public record RouteHint(string? Aetheryte = null, string[]? Aethernet = null);
-
-public record TalkStep(
-    string Id,
-    NpcLocation? Target = null,
-    NpcLocation[]? Targets = null,
-    string? TargetOrder = null,          // "sequential"|"any"|"nearest-first"
-    DialogueChoice[] DialogueChoices = default!,
-    // + inherited Step fields
-) : Step(Id);
-
-public record DialogueChoice(
-    string Type,                         // "list"|"yesno"|"talk" — validated structurally
-    string? Prompt = null,
-    string? Answer = null
-);
-
-public record DutyStep(
-    string Id,
-    string Kind,                         // "regular"|"spd" — required; no default
-    uint? DutyId = null,
-    NpcLocation? EntryNpc = null,
-    DutyTrigger? Trigger = null,
-    string? FallbackOverride = null,
-    // + inherited Step fields
-) : Step(Id);
-
-public record DutyTrigger(
-    string Kind,                         // "npc"|"object"
-    int Zone,
-    Position3 Position,
-    uint? NpcId = null,
-    uint? InteractableId = null
-);
-
-public record BranchStep(
-    string Id,
-    BranchCase[] Branches,               // last entry's When must be "default"
-    // + inherited Step fields
-) : Step(Id);
-
-public record BranchCase(string When, Step[] Steps);
-
-public record FragmentStep(
-    string Id,
-    string Ref,
-    Dictionary<string, JsonElement>? Params = null,
-    // + inherited Step fields
-) : Step(Id);
-
-public record CutsceneStep(
-    string Id,
-    string Skip = "ifAllowed",           // "never"|"ifAllowed"
-    // + inherited Step fields
-) : Step(Id);
-
-public record MinigameStep(
-    string Id,
-    string Kind,                         // "sniping"|"memory"|"aiming"|"rhythm"|"selection"|"other"
-    string Skip = "ifAllowed",           // "never"|"ifAllowed"|"always"
-    // + inherited Step fields
-) : Step(Id);
-
-public record AwaitUserStep(
-    string Id,
-    string Reason,                       // ≤200 chars
-    // + inherited Step fields
-) : Step(Id);
-
-// Remaining step types follow the same pattern (InteractObjectStep, PickupItemStep,
-// AcceptStep, TurnInStep, CombatStep, SayChatMessageStep, UseEmoteStep,
-// UseItemStep, UseActionStep, EquipGearForQuestStep, EquipBestGearStep, ChangeJobStep)
-```
-
-**SCHEMA.md documentation bug (§10):** The worked example has a `duty` step with no `kind` field. This is incorrect — `Kind` is required. The example should have `"kind": "regular"`. Fix the example when writing the first quest file.
-
-#### 1.2.9 Recovery types
+#### 1.2.7 Recovery types
 
 ```csharp
-public record RecoverConfig(
-    RecoverAction? OnTimeout = null,
-    RecoverAction? OnObstacle = null,
-    RecoverAction? OnAdapterError = null,
-    RecoverAction? OnPostconditionFailed = null,
-    RecoverAction? OnPlayerDefeated = null
-);
+public class RecoverConfig
+{
+    public RecoverAction? OnTimeout { get; init; }
+    public RecoverAction? OnObstacle { get; init; }
+    public RecoverAction? OnAdapterError { get; init; }
+    public RecoverAction? OnPostconditionFailed { get; init; }
+    public RecoverAction? OnPlayerDefeated { get; init; }
+}
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "action")]
 [JsonDerivedType(typeof(RetryRecoverAction),       "retry")]
@@ -348,34 +385,26 @@ public record RecoverConfig(
 [JsonDerivedType(typeof(UseTeleportRecoverAction), "useTeleport")]
 [JsonDerivedType(typeof(AwaitUserRecoverAction),   "awaitUser")]
 [JsonDerivedType(typeof(AbandonRecoverAction),     "abandon")]
-public abstract record RecoverAction;
+public abstract class RecoverAction { }
 
-public record RetryRecoverAction(int? MaxAttempts = null, string? Backoff = null)    : RecoverAction;
-public record GotoRecoverAction(string StepId)                                       : RecoverAction;
-public record UseReturnRecoverAction(bool ThenRetry = false)                         : RecoverAction;
-public record UseTeleportRecoverAction(uint AetheryteId, bool ThenRetry = false)     : RecoverAction;
-public record AwaitUserRecoverAction(string Reason)                                  : RecoverAction;
-public record AbandonRecoverAction                                                   : RecoverAction;
-
-public record RetryConfig(int? MaxAttempts = null, int? Timeout = null, string? Backoff = null);
-public record Preconditions(int? MinGearCondition = null);
+public class RetryRecoverAction       : RecoverAction { public int? MaxAttempts { get; init; } public string? Backoff { get; init; } }
+public class GotoRecoverAction        : RecoverAction { public string StepId { get; init; } = default!; }
+public class UseReturnRecoverAction   : RecoverAction { public bool ThenRetry { get; init; } }
+public class UseTeleportRecoverAction : RecoverAction { public uint AetheryteId { get; init; } public bool ThenRetry { get; init; } }
+public class AwaitUserRecoverAction   : RecoverAction { public string Reason { get; init; } = default!; }
+public class AbandonRecoverAction     : RecoverAction { }
 ```
 
-#### 1.2.10 FragmentDefinition
+#### 1.2.8 FragmentDefinition
 
 ```csharp
-public record FragmentDefinition(
-    string SchemaVersion,
-    string FragmentId,
-    FragmentParameter[] Parameters,
-    Step[] Steps
-);
-
-public record FragmentParameter(
-    string Name,
-    string Type,             // "position"|"npcId"|"itemId"|"string"
-    bool Required = true
-);
+public class FragmentDefinition
+{
+    public string SchemaVersion { get; init; } = default!;
+    public string FragmentId { get; init; } = default!;
+    public FragmentParameter[] Parameters { get; init; } = [];
+    public Step[] Steps { get; init; } = [];
+}
 ```
 
 ---
@@ -388,15 +417,13 @@ public record FragmentParameter(
 questforge-tools/
   questforge-tools.sln
   Directory.Build.props
-  QuestForge.Schema/           ← copied from questforge repo (Phase 1); NuGet ref in Phase 3
-  QuestForge.Tools.Validator/  ← validation logic (testable library)
-  qf-validate/                 ← CLI entry point (console app)
-  QuestForge.Tools.Tests/      ← xUnit tests
+  QuestForge.Schema/               ← copied from questforge repo (Phase 1); NuGet in Phase 3
+  QuestForge.Tools.Validator/      ← validation logic
+  QuestForge.Tools.Validator.Tests/← xUnit tests
+  qf-validate/                     ← CLI entry point
 ```
 
-### 2.2 `IFragmentRegistry` — required interface before writing validator tests
-
-Fragment validation cannot be implemented without a corpus. `StructuralValidator` needs access to all fragment files to resolve `fragment-not-found` and validate parameters. This is injected at construction time:
+### 2.2 `IFragmentRegistry`
 
 ```csharp
 public interface IFragmentRegistry
@@ -405,78 +432,34 @@ public interface IFragmentRegistry
     IReadOnlyCollection<string> AllFragmentRefs { get; }
 }
 
-// In-memory implementation for tests
-public class InMemoryFragmentRegistry : IFragmentRegistry
+public class InMemoryFragmentRegistry(IEnumerable<FragmentDefinition> fragments) : IFragmentRegistry
 {
-    private readonly Dictionary<string, FragmentDefinition> _fragments;
-    public InMemoryFragmentRegistry(IEnumerable<FragmentDefinition> fragments) { ... }
-    public bool TryGetFragment(string fragmentRef, out FragmentDefinition? fragment) { ... }
-    public IReadOnlyCollection<string> AllFragmentRefs => _fragments.Keys;
+    private readonly Dictionary<string, FragmentDefinition> _map =
+        fragments.ToDictionary(f => f.FragmentId);
+
+    public bool TryGetFragment(string fragmentRef, out FragmentDefinition? fragment)
+        => _map.TryGetValue(fragmentRef, out fragment);
+
+    public IReadOnlyCollection<string> AllFragmentRefs => _map.Keys;
 }
 
-// File-backed implementation for the CLI
+// File-backed for the CLI
 public class FileFragmentRegistry : IFragmentRegistry
 {
-    // Loads all .json files from the fragments/ directory on construction
+    // Loads all *.json files under <rootDir>/fragments/ on construction
 }
 ```
 
-**This interface must be designed and committed before any validator tests are written.** Tests that exercise fragment rules depend on `InMemoryFragmentRegistry`.
-
-### 2.3 `ValidationContext` — scope tracking design
-
-Every validation error must carry the step's location in the quest tree. This requires tracking scope during recursive descent:
+### 2.3 Validation types
 
 ```csharp
-public class ValidationContext
-{
-    public string FilePath { get; }
-    public uint QuestId { get; }
-
-    // Scope stack: (sequenceNumber, branchStepId?, branchCaseIndex?)
-    private readonly Stack<ValidationScope> _scopes = new();
-
-    public void PushSequence(int sequenceNumber) { ... }
-    public void PushBranch(string branchStepId, int caseIndex) { ... }
-    public void Pop() { ... }
-
-    public ValidationScope CurrentScope => _scopes.TryPeek(out var s) ? s : ValidationScope.Root;
-
-    // Builds a human-readable location string: "seq:1/branch:fight-or-flee/case:0"
-    public string Location => string.Join("/", _scopes.Select(s => s.ToString()));
-}
-
-public record ValidationScope(int SequenceNumber, string? BranchStepId = null, int? BranchCaseIndex = null);
-```
-
-`goto` cross-branch detection works by comparing the scope of the step containing the `goto` with the scope of the target step ID. If the scopes differ (different `BranchStepId` or the target is in the outer sequence), the goto is cross-branch.
-
-### 2.4 Validator architecture
-
-```
-QuestForge.Tools.Validator/
-  ValidationError.cs         — record + Severity enum
-  ValidationContext.cs       — scope tracking
-  IFragmentRegistry.cs       — fragment corpus interface
-  IValidator.cs              — Validate(QuestDefinition, ValidationContext) → IEnumerable<ValidationError>
-  Validators/
-    StructuralValidator.cs   ← Phase 1 (§8.1 rules)
-    GameDataValidator.cs     ← Phase 2+ stub (returns empty)
-    PredicateValidator.cs    ← Phase 2 stub (returns empty)
-  ValidatorPipeline.cs       — composes validators, aggregates results
-```
-
-```csharp
-public interface IValidator
-{
-    IEnumerable<ValidationError> Validate(QuestDefinition quest, ValidationContext ctx);
-}
+public record ValidationContext(string FilePath, uint QuestId);
 
 public record ValidationError(
     string Code,
     string Message,
     string FilePath,
-    string Location,         // from ValidationContext (e.g., "seq:1/branch:fight-or-flee/case:0")
+    string Location,    // e.g. "seq:1/branch:fight-or-flee/case:0"
     string? StepId = null,
     Severity Severity = Severity.Error
 );
@@ -484,80 +467,120 @@ public record ValidationError(
 public enum Severity { Error, Warning }
 ```
 
-### 2.5 Deserialization error handling
+### 2.4 Validator architecture
 
-Deserialization failures (wrong token type, missing required field, unknown `type` discriminator) throw `JsonException` before the validator runs. The CLI must catch these and report them as structured errors — not unhandled exceptions:
+```csharp
+public interface IValidator
+{
+    IEnumerable<ValidationError> Validate(QuestDefinition quest, ValidationContext ctx);
+}
+
+public class StructuralValidator(IFragmentRegistry fragments) : IValidator
+{
+    // Pass 1: build step-ID → scope map (also detects duplicates)
+    // Pass 2: validate all rules using the map from pass 1
+    // Scope stack is private — not shared with other validators
+    private readonly Stack<ValidationScope> _scopes = new();
+
+    public IEnumerable<ValidationError> Validate(QuestDefinition quest, ValidationContext ctx)
+    {
+        var (idMap, duplicates) = BuildStepIdMap(quest);  // Pass 1
+        return ValidateAllRules(quest, ctx, idMap, duplicates);  // Pass 2
+    }
+}
+
+// Push/Pop must always be paired with try/finally
+// Example pattern used throughout StructuralValidator:
+//   _scopes.Push(new ValidationScope(seq.Sequence));
+//   try { /* validate steps */ }
+//   finally { _scopes.Pop(); }
+
+public class ValidatorPipeline(IEnumerable<IValidator> validators)
+{
+    public IEnumerable<ValidationError> Validate(QuestDefinition quest, ValidationContext ctx)
+        => validators.SelectMany(v => v.Validate(quest, ctx));
+}
+```
+
+### 2.5 QuestLoader — homogeneous return type
 
 ```csharp
 public static class QuestLoader
 {
-    public static Result<QuestDefinition> LoadQuest(string filePath)
+    public static (QuestDefinition? Quest, IReadOnlyList<ValidationError> Errors)
+        LoadQuest(string filePath)
     {
         try
         {
             var json = File.ReadAllText(filePath);
             var quest = JsonSerializer.Deserialize(json, QuestForgeJsonContext.Default.QuestDefinition);
-            return quest is null
-                ? Result.Error(new ValidationError("structural/json-null", "File produced null on deserialization", filePath, "root"))
-                : Result.Ok(quest);
+            if (quest is null)
+                return (null, [new ValidationError("structural/json-null",
+                    "File produced null on deserialization", filePath, "root")]);
+            return (quest, []);
         }
         catch (JsonException ex)
         {
-            return Result.Error(new ValidationError(
-                "structural/json-parse-error",
-                $"JSON parse failure: {ex.Message}",
-                filePath,
-                $"line:{ex.LineNumber}"));
+            return (null, [new ValidationError("structural/json-parse-error",
+                $"JSON parse failure: {ex.Message}", filePath, $"line:{ex.LineNumber}")]);
         }
     }
 }
 ```
 
-Deserialization errors are reported alongside, not instead of, validation errors. A file with both a parse error and a structural issue (possible in partially-valid JSON) reports both.
+The CLI aggregates across files:
+```csharp
+var allErrors = new List<ValidationError>();
+foreach (var file in questFiles)
+{
+    var (quest, loadErrors) = QuestLoader.LoadQuest(file);
+    allErrors.AddRange(loadErrors);
+    if (quest is not null)
+        allErrors.AddRange(pipeline.Validate(quest, new ValidationContext(file, quest.Id)));
+}
+```
 
 ### 2.6 Structural validation rules (Phase 1 — complete list)
 
-Each rule is its own private method in `StructuralValidator` for independent testability.
+Each rule is its own private method in `StructuralValidator`.
 
 #### Required field checks
 
 | Rule | Code |
 |---|---|
-| `schemaVersion` present and non-empty | `structural/required-field-missing` |
-| `supportStatus` present | `structural/required-field-missing` |
-| `lastVerifiedPatch` present and non-empty | `structural/required-field-missing` |
-| `requirements` present | `structural/required-field-missing` |
-| `acceptFrom` present | `structural/required-field-missing` |
-| `sequences` non-null and non-empty | `structural/sequences-empty` |
+| `schemaVersion` non-null and non-empty | `structural/required-field-missing` |
+| `supportStatus` non-null | `structural/required-field-missing` |
+| `lastVerifiedPatch` non-null and non-empty | `structural/required-field-missing` |
+| `requirements` non-null | `structural/required-field-missing` |
+| `acceptFrom` non-null | `structural/required-field-missing` |
+| `sequences` non-empty | `structural/sequences-empty` |
 
 #### Sequence rules
 
 | Rule | Code |
 |---|---|
 | At least one sequence with `sequence: 0` | `structural/sequence-zero-missing` |
-| Sequence numbers strictly increasing (adjacent pair check) | `structural/sequence-not-increasing` |
+| Sequence numbers strictly increasing | `structural/sequence-not-increasing` |
 | No duplicate sequence numbers | `structural/sequence-duplicate` |
 
-*Note: sequence 255 being the turn-in sequence is a convention only — not enforced.*
+*Sequence 255 is a convention for the turn-in sequence — not enforced.*
 
-#### Step ID rules
-
-| Rule | Code |
-|---|---|
-| Step IDs match `^[a-z][a-z0-9-]*$` (all steps, including branch sub-steps) | `structural/step-id-invalid-format` |
-| Step IDs unique across entire quest (all levels of nesting) | `structural/step-id-duplicate` |
-
-*Step IDs must be globally unique within a quest — this includes steps nested inside branch sub-sequences at all depths.*
-
-#### Recovery rules
+#### Step ID rules (built during Pass 1)
 
 | Rule | Code |
 |---|---|
-| Recovery `goto` targets an existing step ID | `structural/recovery-goto-unresolved` |
-| Recovery `goto` does not cross scope boundary (same sequence, same branch sub-sequence) | `structural/recovery-goto-cross-branch` |
+| Step IDs match `^[a-z][a-z0-9-]*$` at all nesting levels | `structural/step-id-invalid-format` |
+| Step IDs globally unique within the quest (all nesting levels) | `structural/step-id-duplicate` |
+
+#### Recovery rules (Pass 2, uses Pass 1 map)
+
+| Rule | Code |
+|---|---|
+| `goto` targets an existing step ID | `structural/recovery-goto-unresolved` |
+| `goto` stays within the same scope boundary | `structural/recovery-goto-cross-branch` |
 | `awaitUser` reason ≤ 200 characters | `structural/recover-reason-too-long` |
 
-**Implementation note for goto rules:** Build a complete `Dictionary<string, ValidationScope>` (step ID → scope) in a pre-pass before evaluating any `goto` targets. This pre-pass also enables duplicate-ID detection. Goto checks must be suppressed for any step ID that is duplicated (to avoid spurious `goto-unresolved` errors when the ID exists but is ambiguous).
+**goto suppression:** if a step ID triggered `structural/step-id-duplicate`, suppress both goto rules for that ID.
 
 #### Branch rules
 
@@ -569,72 +592,58 @@ Each rule is its own private method in `StructuralValidator` for independent tes
 
 #### Fragment rules
 
-| Rule | Code | Dependency |
+| Rule | Code | Suppressed when |
 |---|---|---|
-| Fragment reference resolves in registry | `structural/fragment-not-found` | IFragmentRegistry |
-| Fragment required params are provided | `structural/fragment-missing-param` | Suppressed if fragment-not-found |
-| Fragment param values match declared types | `structural/fragment-param-type-mismatch` | Suppressed if fragment-not-found |
-| No nested fragments (fragment files cannot `ref` other fragments) | `structural/fragment-nested` | |
+| Fragment reference resolves in registry | `structural/fragment-not-found` | — |
+| Fragment required params provided | `structural/fragment-missing-param` | fragment-not-found |
+| Fragment param values match declared types | `structural/fragment-param-type-mismatch` | fragment-not-found |
+| Fragment files cannot reference other fragments | `structural/fragment-nested` | — |
 
 #### Step-type-specific rules
 
 | Rule | Code |
 |---|---|
 | `target` and `targets` mutually exclusive | `structural/step-target-conflict` |
-| `duty` with `kind: "regular"` requires `dutyId` and `entryNpc` | `structural/duty-missing-required-field` |
-| `duty` with `kind: "spd"` requires `trigger`, must not have `dutyId` | `structural/duty-invalid-field-for-kind` |
-| `use-item` `target.kind` matches the fields provided | `structural/use-item-target-mismatch` |
+| `duty` `kind: "regular"` requires `dutyId` and `entryNpc` | `structural/duty-missing-required-field` |
+| `duty` `kind: "spd"` requires `trigger`, no `dutyId` | `structural/duty-invalid-field-for-kind` |
+| `use-item` `target.kind` matches provided fields | `structural/use-item-target-mismatch` |
 | `dialogueChoices[*].type` is `"list"`, `"yesno"`, or `"talk"` | `structural/dialogue-choice-type-invalid` |
-| `yesno` choice `answer` is `"yes"` or `"no"` | `structural/dialogue-choice-answer-invalid` |
+| `yesno` `answer` is `"yes"` or `"no"` | `structural/dialogue-choice-answer-invalid` |
 | `cutscene.skip` is `"never"` or `"ifAllowed"` | `structural/cutscene-skip-invalid` |
 | `minigame.kind` is a known value | `structural/minigame-kind-invalid` |
 | `requirements.prereqs[*].state` is `"complete"` or `"accepted"` | `structural/prereq-state-invalid` |
-| `chain.next` last entry is `"when": "default"` (or quest is terminus) | `structural/chain-missing-default` |
-| `chain.next[*].when` is non-empty string | `structural/chain-when-empty` |
+| Last `chain.next` entry is `"when": "default"` or quest is terminus | `structural/chain-missing-default` |
+| `chain.next[*].when` is non-empty | `structural/chain-when-empty` |
 
-#### Notes rules
+#### Notes/length rules
 
 | Rule | Code |
 |---|---|
-| Quest `notes` ≤ 500 characters | `structural/notes-too-long` |
-| Step `notes` ≤ 500 characters | `structural/notes-too-long` |
-| Fragment `notes` (if added) ≤ 500 characters | `structural/notes-too-long` |
+| Quest `notes` ≤ 500 chars | `structural/notes-too-long` |
+| Step `notes` ≤ 500 chars | `structural/notes-too-long` |
 
 #### minigameSkippable
 
-Not a validation rule. The validator computes this field from step contents and overwrites any author-provided value. No error is emitted regardless of what the author writes.
-
-#### Error suppression dependency graph
-
-Some rules must be suppressed when upstream rules fire:
-- `structural/recovery-goto-unresolved` and `structural/recovery-goto-cross-branch` are suppressed for any step ID that triggered `structural/step-id-duplicate`
-- `structural/fragment-missing-param` and `structural/fragment-param-type-mismatch` are suppressed for any fragment ref that triggered `structural/fragment-not-found`
-- Branch depth errors should suppress branch-scope goto checks for the oversized branch (redundant errors)
+Not a validation rule. The validator computes this from step contents and overwrites any author-provided value. No error emitted.
 
 #### Deferred to Phase 2+
 
-Do NOT implement in Phase 1:
-- §8.2 Game-data references (Lumina required)
-- §8.3 Chain `previous`/`next` bidirectionality (requires loading corpus)
-- §8.3 Prerequisite DAG cycle detection
+- §8.2 Game-data references (Lumina)
+- §8.3 Chain bidirectionality, DAG cycle detection
 - §8.4 Predicate validity (Phase 2 parser)
-- §8.5 Recovery `goto` infinite loop detection (graph analysis)
+- §8.5 Goto infinite loop detection
 - §8.6 Patch verification warnings
-- §8.7 Schema version compatibility check
+- §8.7 Schema version compatibility
 
-### 2.7 CLI entry point (`qf-validate`)
+### 2.7 CLI
 
 ```
-qf-validate [path] [--format text|json] [--fail-on-warning]
+qf-validate [rootDir] [--format text|json] [--fail-on-warning]
 
-Arguments:
-  path    Directory (validates all .json files recursively) or single file.
-          Defaults to current directory.
+  rootDir   Root of the quest data repo. Discovers quests/**/*.json and
+            fragments/**/*.json automatically. Defaults to current directory.
 
-Exit codes:
-  0   All files valid (no errors, no warnings — or warnings present but --fail-on-warning not set)
-  1   One or more errors
-  2   One or more warnings with --fail-on-warning
+Exit codes: 0 = clean, 1 = errors, 2 = warnings with --fail-on-warning
 ```
 
 **Text output:**
@@ -648,7 +657,7 @@ WARNING  quests/arr/msq/65657-close-to-home.json  seq:1/branch:fight-or-flee/cas
 2 error(s), 1 warning(s). Validation failed.
 ```
 
-**JSON output** (`--format json`):
+**JSON output (`--format json`):**
 ```json
 {
   "results": [
@@ -667,7 +676,7 @@ WARNING  quests/arr/msq/65657-close-to-home.json  seq:1/branch:fight-or-flee/cas
 
 ---
 
-## Task 3 — `questforge-data` repo: placeholder structure
+## Task 3 — `questforge-data` repo
 
 ### 3.1 Directory layout
 
@@ -677,37 +686,27 @@ questforge-data/
   quests/
     arr/
       msq/
-        66104-close-to-home-gladiator.json   ← first real quest file
+        66104-close-to-home-gladiator.json   ← first quest file (verify NPC IDs in-game)
       class/
-    heavensward/
-    stormblood/
-    shadowbringers/
-    endwalker/
-    dawntrail/
+    heavensward/ stormblood/ shadowbringers/ endwalker/ dawntrail/
   fragments/
     travel/
     common/
-  .github/
-    workflows/
-      validate.yml
+  .github/workflows/validate.yml
 ```
 
-### 3.2 First quest file
+**Note:** `acceptFrom.npcId` for "Close to Home" (66104) must be verified in-game — Wymond (1003987) was the NPC for "Coming to Ul'dah" (66130) and may differ for this quest.
 
-Write `66104-close-to-home-gladiator.json` (Gladiator variant of "Close to Home", Ul'dah). This is a short quest: accept from Wymond → visit Gladiators' Guild → turn in. Use actual values from the spike (`acceptFrom.npcId: 1003987`, zone 182 for the new-player instance).
+### 3.2 GitHub Actions workflow
 
-### 3.3 GitHub Actions workflow
-
-**Phase 1 approach: `dotnet run` via submodule.** Do not publish a NuGet package as a prerequisite — that adds scope and will stall Phase 1. Use a checked-out `questforge-tools` submodule and `dotnet run` directly. Switch to the global tool approach when the NuGet feed is set up in Phase 3.
+Phase 1 uses `dotnet run` + submodule. NuGet publishing is Phase 3.
 
 ```yaml
 name: Validate quest data
 
 on:
   pull_request:
-    paths:
-      - 'quests/**'
-      - 'fragments/**'
+    paths: ['quests/**', 'fragments/**']
 
 jobs:
   validate:
@@ -715,16 +714,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true   # questforge-tools as a submodule
+          submodules: true
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.x'
 
       - name: Validate
-        run: |
-          dotnet run --project questforge-tools/qf-validate -- quests/ fragments/ --format json > results.json
+        run: dotnet run --project questforge-tools/qf-validate -- . --format json > results.json
         continue-on-error: true
 
       - name: Annotate PR
@@ -732,16 +729,12 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const results = JSON.parse(fs.readFileSync('results.json', 'utf8'));
-            for (const err of results.results) {
-              if (err.severity === 'error') {
-                core.error(err.message, { file: err.file, title: `[${err.code}]` });
-              } else {
-                core.warning(err.message, { file: err.file, title: `[${err.code}]` });
-              }
+            const { results, summary } = JSON.parse(fs.readFileSync('results.json', 'utf8'));
+            for (const err of results) {
+              const fn = err.severity === 'error' ? core.error : core.warning;
+              fn(err.message, { file: err.file, title: `[${err.code}]` });
             }
-            if (results.summary.errors > 0)
-              core.setFailed(`${results.summary.errors} validation error(s)`);
+            if (summary.errors > 0) core.setFailed(`${summary.errors} error(s)`);
 ```
 
 ---
@@ -750,165 +743,107 @@ jobs:
 
 ### 4.1 `ExpectValueConverter`
 
-**Happy paths:**
+Given `"questSequence(65) >= 3"` → `PredicateExpect { Predicate = "questSequence(65) >= 3" }`
 
-Given JSON `"questSequence(65) >= 3"` (string token) → `PredicateExpect { Predicate = "questSequence(65) >= 3" }`
+Given `{"all": ["questFlag(65, 1)", "questFlag(65, 2)"]}` → `AllExpect { All = [...] }`
 
-Given JSON `{"all": ["questFlag(65, 1)", "questFlag(65, 2)"]}` → `AllExpect { All = ["questFlag(65, 1)", "questFlag(65, 2)"] }`
+Given `{"any": ["questSequence(65) >= 3"]}` → `AnyExpect { Any = [...] }`
 
-Given JSON `{"any": ["questSequence(65) >= 3", "questFlag(65, 5)"]}` → `AnyExpect { Any = ["questSequence(65) >= 3", "questFlag(65, 5)"] }`
+Given `null` token → returns null
 
-Given JSON `null` → returns null (field is `ExpectValue?`)
+Given `{"foo": ["x"]}` → `JsonException` mentioning "Expected 'all' or 'any'"
 
-**Error cases:**
+Given `{"all": ["a"], "any": ["b"]}` → `JsonException` indicating ambiguous form
 
-Given JSON `{"foo": ["something"]}` → `JsonException` with message containing "Expected 'all' or 'any'"
+Given `["questFlag(65, 1)"]` (array token) → `JsonException`
 
-Given JSON `{"all": ["a"], "any": ["b"]}` → `JsonException` indicating ambiguous form
+Given `{}` (empty object) → `JsonException`
 
-Given JSON `["questFlag(65, 1)"]` (array token) → `JsonException` indicating arrays are not valid
-
-Given JSON `{}` (empty object) → `JsonException` indicating missing `all` or `any` key
-
-Given JSON `{"all": [42, "questFlag(65, 1)"]}` → `JsonException` indicating array elements must be strings
-
----
+Given `{"all": [42, "questFlag(65, 1)"]}` → `JsonException` (non-string element)
 
 ### 4.2 `StructuralValidator` — hard cases
 
-**Step ID duplicate suppresses goto check:**
-
-Given: sequence 0 has two steps both with id `"talk-a"`, and a third step has `recover.onObstacle: {action: "goto", stepId: "talk-a"}`
-
-Then: exactly one `structural/step-id-duplicate` for `"talk-a"`. NO `structural/recovery-goto-unresolved`. NO `structural/recovery-goto-cross-branch`.
-
----
+**Duplicate ID suppresses goto rules:**
+Given: two steps with id `"talk-a"` in seq 0; third step gotos `"talk-a"`.
+Then: one `structural/step-id-duplicate`. NO goto errors.
 
 **goto cross-branch (invalid):**
-
-Given: sequence 0 has outer step `"outer-step"`. Sequence 0 also has a branch step, and inside branch-case-0 is step `"inner-step"` with `recover.onTimeout: {action: "goto", stepId: "outer-step"}`.
-
-Then: exactly one `structural/recovery-goto-cross-branch` with `StepId == "inner-step"`. NO `structural/recovery-goto-unresolved`.
-
----
+Given: `"inner-step"` in branch-case-0 gotos `"outer-step"` which is in seq 0 (outer scope).
+Then: one `structural/recovery-goto-cross-branch` (StepId=`"inner-step"`). NO goto-unresolved.
 
 **goto within same branch (valid):**
-
-Given: branch-case-0 has steps `"step-a"` and `"step-b"`, where `"step-a"` has `recover.onTimeout: {action: "goto", stepId: "step-b"}`.
-
+Given: `"step-a"` in branch-case-0 gotos `"step-b"` also in branch-case-0.
 Then: no errors.
 
----
-
 **fragment-not-found suppresses param checks:**
-
-Given: a `FragmentStep` with `ref: "travel/nonexistent"` that is not in the registry, and provides `params: {finalPosition: {...}}`.
-
-Then: exactly one `structural/fragment-not-found`. NO `structural/fragment-missing-param`. NO `structural/fragment-param-type-mismatch`.
-
----
+Given: FragmentStep refs `"travel/nonexistent"` (not in registry), provides params.
+Then: one `structural/fragment-not-found`. NO param errors.
 
 **duty kind validation:**
-
-Given: a `DutyStep` with `kind: "regular"` and no `dutyId` field (deserialized with `DutyId = null`).
-
-Then: one `structural/duty-missing-required-field` identifying `dutyId`.
-
-Given: a `DutyStep` with `kind: "spd"` and `dutyId: 56`.
-
-Then: one `structural/duty-invalid-field-for-kind` identifying `dutyId`.
-
----
+Given: DutyStep `kind: "regular"`, `DutyId = null` → one `structural/duty-missing-required-field`.
+Given: DutyStep `kind: "spd"`, `DutyId = 56` → one `structural/duty-invalid-field-for-kind`.
 
 **branch nesting:**
+Given: depth 2 → one WARNING `structural/branch-nesting-too-deep`.
+Given: depth 4 → one ERROR `structural/branch-nesting-too-deep`.
 
-Given: branch depth 2 (branch inside branch).
-
-Then: one WARNING `structural/branch-nesting-too-deep` (not error).
-
-Given: branch depth 4 (exceeds limit of 3).
-
-Then: one ERROR `structural/branch-nesting-too-deep`.
-
----
-
-**notes length boundary:**
-
-Given: quest `notes` exactly 500 characters → no error.
-
-Given: quest `notes` 501 characters → one `structural/notes-too-long`.
-
----
+**notes boundary:**
+Given: 500-char notes → no error. Given: 501-char notes → one `structural/notes-too-long`.
 
 **sequence ordering:**
-
-Given: sequences `[0, 5, 3, 255]` → one `structural/sequence-not-increasing` for pair (5, 3).
-
-Given: sequences `[0, 5, 255]` (gap allowed) → no sequence errors.
-
-Given: sequences `[0, 0, 255]` (duplicate) → one `structural/sequence-duplicate` for value 0 AND one `structural/sequence-not-increasing`.
-
----
-
-**sequence: 0 required:**
-
-Given: sequences `[1, 255]` (no sequence 0).
-
-Then: one `structural/sequence-zero-missing`.
-
----
+Given: `[0, 5, 3, 255]` → one `structural/sequence-not-increasing` for pair (5,3).
+Given: `[0, 5, 255]` (gap OK) → no sequence errors.
+Given: `[0, 0, 255]` → one `structural/sequence-duplicate` AND one `structural/sequence-not-increasing`.
+Given: `[1, 255]` (no seq 0) → one `structural/sequence-zero-missing`.
 
 **target + targets conflict:**
-
-Given: a `TalkStep` with both `Target` (single NPC) and `Targets` (array).
-
-Then: one `structural/step-target-conflict` with that step's id.
+Given: TalkStep with both Target and Targets → one `structural/step-target-conflict`.
 
 ---
 
 ## Task 5 — Done criteria
 
-1. Open a PR to `questforge-data` adding a quest file with a deliberate error (e.g., duplicate step ID `"talk-a"` appearing twice)
-2. CI runs `qf-validate` → exits 1 → PR check fails → inline annotation points at the offending line with `[structural/step-id-duplicate]`
-3. Fix the error in a follow-up commit → CI reruns → exits 0 → PR check passes
+1. PR to `questforge-data` with deliberate duplicate step ID
+2. CI fails → inline annotation `[structural/step-id-duplicate]`
+3. Fix in follow-up commit → CI passes
 4. Merge
 
 ---
 
-## Implementation order within Phase 1
+## Implementation order
 
-**Phase A: Types (in sub-order)**
-1. Define `ExpectValue` abstract record (no converter yet)
-2. Write `ExpectValueConverter` tests (from Given-When-Then §4.1)
-3. Implement `ExpectValueConverter` until tests pass
-4. Define all `Step` subtypes and remaining schema types
-5. Write round-trip serialization tests for every step type — this is the source-gen gate
-6. All round-trip tests must pass before proceeding to Phase B
+**Phase A — Types**
+1. Define `ExpectValue` hierarchy (no converter yet)
+2. Write and pass `ExpectValueConverter` tests (§4.1)
+3. Implement `ExpectValueConverter`
+4. Define all `Step` subtypes and schema types
+5. Write round-trip serialization test for every step type ← **mandatory gate**
+6. All round-trip tests green before proceeding
 
-**Phase B: Validator (TDD)**
-1. Design and commit `IFragmentRegistry` and `InMemoryFragmentRegistry`
-2. Design and commit `ValidationContext` with scope tracking
-3. Specify `QuestLoader` deserialization error handling
-4. Write tests for each structural rule (Given-When-Then §4.2, plus all rules in §2.6)
-5. Implement `StructuralValidator` rule by rule until all tests pass
-6. Wire `StructuralValidator` into `ValidatorPipeline` with stub validators
+**Phase B — Validator (TDD)**
+1. Commit `IFragmentRegistry` + `InMemoryFragmentRegistry`
+2. Commit `ValidationContext` record
+3. Commit `QuestLoader` with tuple return
+4. Write tests for every rule (§4.2 + §2.6)
+5. Implement `StructuralValidator` (Pass 1 then Pass 2) rule by rule
+6. Wire into `ValidatorPipeline` with stub validators
 
-**Phase C: CLI + CI**
-1. Implement `qf-validate` CLI (argument parsing, output formatting, exit codes)
-2. Write integration tests: invoke CLI as subprocess, verify exit codes and output format
+**Phase C — CLI + CI**
+1. Implement `qf-validate` (argument parsing, output, exit codes)
+2. Integration tests: subprocess invocation, verify exit codes and JSON output
 3. Create `questforge-data` repo with directory structure
-4. Wire up GitHub Actions with `dotnet run` + submodule approach
-5. Prove CI red (broken quest file) → CI green (fixed quest file)
+4. Wire GitHub Actions (dotnet run + submodule)
+5. Prove CI red → CI green
 
 ---
 
-## What Phase 1 explicitly does NOT include
+## What Phase 1 does NOT include
 
 - Predicate parser (Phase 2)
 - Lumina game-data validation (Phase 2+)
-- Chain bidirectionality across corpus (Phase 2+)
-- Recovery goto infinite loop detection (Phase 2+)
+- Chain bidirectionality (Phase 2+)
+- Goto infinite loop detection (Phase 2+)
 - JSON Schema generation
-- Engine projects (`QuestForge.Engine`, `QuestForge.Adapters`, etc.) — Phase 3+
-- NuGet package publishing — Phase 3
+- Engine projects (`QuestForge.Engine`, etc.) — Phase 3+
+- NuGet publishing — Phase 3
 - Dalamud plugin — Phase 6
