@@ -1,6 +1,6 @@
 namespace QuestForge.Schema;
 
-public class QuestDefinition
+public record class QuestDefinition
 {
     public string SchemaVersion { get; init; } = default!;
     public uint Id { get; init; }
@@ -19,7 +19,7 @@ public class QuestDefinition
     public QuestSequence[] Sequences { get; init; } = [];
 }
 
-public class SupportStatus
+public record class SupportStatus
 {
     public string Implementation { get; init; } = default!;  // "complete"|"partial"|"none"
     public string[] KnownIssues { get; init; } = [];
@@ -29,7 +29,7 @@ public class SupportStatus
     public bool? MinigameSkippable { get; init; }
 }
 
-public class Requirements
+public record class Requirements
 {
     public int? MinLevel { get; init; }
     public int? MaxLevel { get; init; }
@@ -38,13 +38,13 @@ public class Requirements
     public PrerequisiteRef[] Prereqs { get; init; } = [];
 }
 
-public class Chain
+public record class Chain
 {
     public uint[] Previous { get; init; } = [];
     public ChainNext[] Next { get; init; } = [];
 }
 
-public class QuestSequence
+public record class QuestSequence
 {
     public int Sequence { get; init; }
     public string? SkipIf { get; init; }
