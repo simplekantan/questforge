@@ -1,0 +1,11 @@
+<Project>
+  <!-- Shared defaults for all projects in this solution.
+       TreatWarningsAsErrors is intentionally NOT set here — Dalamud SDK projects
+       emit CS0618 (obsolete API) warnings we cannot suppress globally. Each project
+       opts in via its own csproj. -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>

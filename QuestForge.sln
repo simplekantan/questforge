@@ -1,8 +1,16 @@
 
 Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QuestForge.Schema", "QuestForge.Schema\QuestForge.Schema.csproj", "{EFAE5A1C-28D6-4A4A-97A3-06A02A7BC4DF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{EFAE5A1C-28D6-4A4A-97A3-06A02A7BC4DF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EFAE5A1C-28D6-4A4A-97A3-06A02A7BC4DF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EFAE5A1C-28D6-4A4A-97A3-06A02A7BC4DF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EFAE5A1C-28D6-4A4A-97A3-06A02A7BC4DF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- NuGet metadata — ready for Phase 3 publishing without breaking changes -->
+    <PackageId>QuestForge.Schema</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>simplekantan</Authors>
+    <Description>Quest schema types for QuestForge. Source of truth for quest JSON serialization and validation.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/simplekantan/questforge</RepositoryUrl>
+    <IsPackable>false</IsPackable><!-- set to true when publishing in Phase 3 -->
+  </PropertyGroup>
+
+</Project>
