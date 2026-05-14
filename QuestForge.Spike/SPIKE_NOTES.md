@@ -267,8 +267,10 @@ addon->ReceiveEvent(AtkEventType.MouseUp,    0, evt, data);
 
 ### 2. NPC ObjectTable positions are often unreachable
 **What we assumed:** Nav to NPC position, arrive, interact.
-**What we found:** NPCs (Wymond, Momodi) stand inside geometry or at positions vnavmesh cannot reach exactly. Raw ObjectTable positions are NOT valid nav destinations. A separate `ApproachPos` (confirmed walkable, within interact range) is required per NPC per quest step.
-**Impact:** Quest schema needs a `standPosition` field separate from `npcId`. `INavigator` should accept a destination + interact range, not just a destination. Authoring mode must capture the player's position (not the NPC's) as the stand position.
+**What we assumed initially:** Raw ObjectTable positions cannot be used — a manually-recorded walkable `ApproachPos` is required per NPC.
+**What we actually found:** `vnavmesh.SimpleMove.PathfindAndMoveCloseTo(npc.rawPosition, fly, range)` largely solves this. vnavmesh pathfinds to the closest reachable navmesh polygon and stops when the player is within `range` yalms (Euclidean) of the destination. For Momodi (behind a counter) and Wymond, the closest walkable point was within 2.5 yalms of their actual positions — confirmed by successful interaction on live runs using raw ObjectTable positions.
+**Remaining edge case:** An NPC whose closest walkable navmesh point is further than `interactRange` from their actual position would cause the player to run indefinitely. No such NPC was encountered in this spike, but it is theoretically possible for NPCs deeply embedded in geometry.
+**Revised impact:** Quest schema does NOT need a `standPosition` field for most NPCs — just the NPC DataId. `INavigator.NavigateCloseTo(Vector3, float range)` maps directly to `PathfindAndMoveCloseTo` and is the correct abstraction. Manually-recorded approach positions should be an optional override for edge cases, not a requirement.
 
 ### 3. IInteractor.AdvanceDialogue must handle 3 Talk addon variants
 **What we assumed:** Click node 132. Simple.
