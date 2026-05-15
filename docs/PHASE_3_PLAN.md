@@ -294,6 +294,7 @@ QuestForge.Adapters.Fakes/
     Recording/
         AdapterCall.cs             base record for recorded calls
         CallLog<T>.cs              shared thread-safe append-only list type
+    FakeTraceWriter.cs             collects Write() calls for assertion; satisfies ITraceWriter
 ```
 
 **`QuestForge.Adapters.Fakes.csproj`:**
@@ -377,6 +378,7 @@ The lock is required because the Phase 4 engine may invoke adapters from multipl
 Every async fake method:
 
 ```csharp
+// Signature matches ADAPTERS.md §6 exactly: destination + options + ct
 public Task<Result<NavigationOutcome>> NavigateTo(
     WorldPosition destination,
     NavigationOptions options,
@@ -458,12 +460,13 @@ var state = new FakeGameStateProvider();
 state.SetZone(new ZoneId(132));
 state.SetPosition(new WorldPosition(10, 0, 20));
 var nav = new FakeNavigator(state);
-var result = await nav.NavigateTo(new WorldPosition(50, 0, 50), CancellationToken.None);
+var result = await nav.NavigateTo(new WorldPosition(50, 0, 50), new NavigationOptions(), CancellationToken.None);
 Assert.Equal(NavigationOutcome.Arrived, result.Value);   // .Value throws on Failure — safe here
 Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 ```
-NEXT_STEPS.md used `state.SetZone(132)` (raw int) and `result.Value` without explanation. Both are resolved here:
-- `SetZone` takes `ZoneId` — the identifier types from §1.3 are the API; no raw-primitive overloads.
+NEXT_STEPS.md simplified the signature. Three updates from the actual ADAPTERS.md §6 signature:
+- `SetZone` takes `ZoneId` — no raw-primitive overloads.
+- `NavigateTo` requires a `NavigationOptions` argument (record with defaulted fields — `new NavigationOptions()` gives stopping distance 3.0f, mount and flight enabled).
 - `result.Value` compiles because `Result<T>` exposes `.Value` (throws on `Failure`) from §4 above.
 
 #### `FakeTeleporter` — action executor
@@ -694,11 +697,16 @@ namespace QuestForge.Adapters;
 /// <summary>Append-only event sink. Implemented by TraceWriter in Phase 5.</summary>
 public interface ITraceWriter
 {
-    void Write(object evt);   // refined to typed events in Phase 5
+    void Write(object evt);   // Phase 5 refines this to a typed event hierarchy
 }
 ```
 
-Phase 5 replaces this stub with the full JSONL implementation without changing any call sites. `QuestForge.Adapters.Fakes` adds a `FakeTraceWriter` alongside the other fakes.
+Phase 5 refines `Write`'s parameter to a typed event type. **Call sites affected:**
+- `FakeTraceWriter.Write` — needs updating (1 line)
+- `RecordingGameStateProvider.Write` — needs updating (1 line)
+- The engine constructor signature does **not** change — it still takes `ITraceWriter` by interface
+
+The stub exists so the Phase 3 constructor surface test compiles today. Updating two implementations in Phase 5 is the expected cost of a typed event hierarchy. `QuestForge.Adapters.Fakes` adds a `FakeTraceWriter` alongside the other fakes.
 
 ### 4.3 `Directory.Build.props` — no changes required
 
