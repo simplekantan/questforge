@@ -1,4 +1,5 @@
 using System.Numerics;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using QuestForge.Adapters.Dalamud.Ipc;
 using QuestForge.Adapters.Movement;
 using QuestForge.Adapters.Types;
@@ -7,10 +8,14 @@ namespace QuestForge.Adapters.Dalamud.Movement;
 
 public sealed class VnavmeshNavigator : INavigator
 {
+    private readonly PluginServices _svc;
     private readonly VnavmeshIpc _ipc;
 
     public VnavmeshNavigator(PluginServices svc)
-        => _ipc = new VnavmeshIpc(svc.PluginInterface);
+    {
+        _svc = svc;
+        _ipc = new VnavmeshIpc(svc.PluginInterface);
+    }
 
     public Task<Result<NavigationOutcome>> NavigateTo(
         WorldPosition destination,
@@ -21,7 +26,11 @@ public sealed class VnavmeshNavigator : INavigator
             return Task.FromResult<Result<NavigationOutcome>>(Result.Ok(NavigationOutcome.NavmeshUnavailable));
 
         var dest = new Vector3(destination.X, destination.Y, destination.Z);
-        var ok = _ipc.PathfindAndMoveCloseTo(dest, options.UseFlight, options.StoppingDistance);
+        // Respect the quest schema's UseFlight preference, but override to ground
+        // if PlayerState.CanFly is false — the zone hasn't granted flying (no air navmesh built).
+        // Default to ground (false) if PlayerState is unavailable.
+        bool fly = options.UseFlight && CanFlyInCurrentZone();
+        var ok = _ipc.PathfindAndMoveCloseTo(dest, fly, options.StoppingDistance);
         if (!ok)
             return Task.FromResult<Result<NavigationOutcome>>(Result.Fail<NavigationOutcome>("pathfindRejected", "vnavmesh rejected the pathfind request"));
 
@@ -48,5 +57,13 @@ public sealed class VnavmeshNavigator : INavigator
         // vnavmesh exposes only a binary ready/not-ready signal — no generation progress percentage
         var status = _ipc.NavIsReady() ? NavmeshStatus.Ready : NavmeshStatus.Generating;
         return Task.FromResult<Result<NavmeshInfo>>(Result.Ok(new NavmeshInfo(status, null, null)));
+    }
+
+    // PlayerState.CanFly is set by the game on zone load and accounts for Aether Current unlocks.
+    // Returns false if PlayerState is unavailable — fail safe over fail open.
+    private static unsafe bool CanFlyInCurrentZone()
+    {
+        var ps = PlayerState.Instance();
+        return ps != null && ps->CanFly;
     }
 }

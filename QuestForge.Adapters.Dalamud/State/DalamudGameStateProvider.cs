@@ -2,6 +2,7 @@ using System.Numerics;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.SubKinds;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Types;
 
@@ -292,7 +293,24 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         => Task.FromResult<Result<long>>(Result.Ok(0L));
 
     public Task<Result<TravelCapability>> GetTravelCapability(ZoneId destination, CancellationToken ct)
-        // Phase 6 placeholder
-        => Task.FromResult<Result<TravelCapability>>(
-            Result.Ok(new TravelCapability(false, null, false, false, false, false, 0)));
+    {
+        // CanFly: PlayerState.CanFly is set by the game on zone load and accounts for Aether Current unlocks.
+        // CanMount: approximated as "not in combat" — combat is the primary in-zone mount restriction.
+        // All other fields remain Phase 6 placeholders (teleport cost, nearest aetheryte, etc.).
+        unsafe
+        {
+            var ps = PlayerState.Instance();
+            var canFly   = ps != null && ps->CanFly;
+            var canMount = !_svc.Condition[ConditionFlag.InCombat];
+            return Task.FromResult<Result<TravelCapability>>(
+                Result.Ok(new TravelCapability(
+                    CanTeleport:           false,
+                    NearestAttuned:        null,
+                    RequiresOnFootSegment: false,
+                    CanFly:                canFly,
+                    CanMount:              canMount,
+                    CanDive:               false,
+                    EstimatedGilCost:      0)));
+        }
+    }
 }
