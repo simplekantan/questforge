@@ -6,7 +6,8 @@ namespace QuestForge.Adapters.Fakes.Combat;
 
 public sealed class FakeCombat : ICombat
 {
-    private CombatOutcome _nextCombatResult = CombatOutcome.TargetDefeated;
+    // One-shot scripted result — consumed after one engagement call, then reverts to default.
+    private CombatOutcome? _nextCombatResult;
     private bool _combatPluginAvailable = true;
 
     public record EngagementCall(NpcId? Target, float? Radius, DateTimeOffset At) : AdapterCall(At);
@@ -20,8 +21,7 @@ public sealed class FakeCombat : ICombat
     public void Reset()
     {
         RecordedEngagements.Clear();
-        _nextCombatResult = CombatOutcome.TargetDefeated;
-        _combatPluginAvailable = true;
+        _nextCombatResult = null;
     }
 
     // ----- ICombat implementation -----
@@ -30,14 +30,14 @@ public sealed class FakeCombat : ICombat
     {
         ct.ThrowIfCancellationRequested();
         RecordedEngagements.Add(new EngagementCall(target, null, DateTimeOffset.UtcNow));
-        return Task.FromResult<Result<CombatOutcome>>(Result.Ok(_nextCombatResult));
+        return Task.FromResult<Result<CombatOutcome>>(Result.Ok(ConsumeResult()));
     }
 
     public Task<Result<CombatOutcome>> EngageNearestHostile(float radius, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         RecordedEngagements.Add(new EngagementCall(null, radius, DateTimeOffset.UtcNow));
-        return Task.FromResult<Result<CombatOutcome>>(Result.Ok(_nextCombatResult));
+        return Task.FromResult<Result<CombatOutcome>>(Result.Ok(ConsumeResult()));
     }
 
     public Task<Result<Unit>> Disengage(CancellationToken ct)
@@ -75,5 +75,16 @@ public sealed class FakeCombat : ICombat
     {
         ct.ThrowIfCancellationRequested();
         return Task.FromResult<Result<bool>>(Result.Ok(true));
+    }
+
+    private CombatOutcome ConsumeResult()
+    {
+        if (_nextCombatResult.HasValue)
+        {
+            var outcome = _nextCombatResult.Value;
+            _nextCombatResult = null;
+            return outcome;
+        }
+        return CombatOutcome.TargetDefeated;
     }
 }

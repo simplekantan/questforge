@@ -23,12 +23,9 @@ public sealed class FakeDialogueResolver : IDialogueResolver
     public void SetActiveLanguage(GameLanguage language) => _activeLanguage = language;
 
     // ----- Reset -----
-    public void Reset()
-    {
-        RecordedResolutions.Clear();
-        _texts.Clear();
-        _options.Clear();
-    }
+    // Clears recorded calls only — text/option registrations (SetX state) survive,
+    // matching the plan's convention: Reset ≠ wipe game state.
+    public void Reset() => RecordedResolutions.Clear();
 
     // ----- IDialogueResolver implementation -----
 
