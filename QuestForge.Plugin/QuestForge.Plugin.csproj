@@ -7,6 +7,18 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
+  <!-- Copy plugin manifest into the TFM output folder alongside the DLL.
+       $(TargetDir) resolves to bin\Debug\ (Dalamud SDK override) but the DLL
+       lands in bin\Debug\net10.0\ via MSBuild's TFM logic, so we target it directly. -->
+  <Target Name="CopyManifestToTfmOutput" AfterTargets="Build">
+    <PropertyGroup>
+      <_TfmOutputDir>$(ProjectDir)bin\$(Configuration)\net10.0\</_TfmOutputDir>
+    </PropertyGroup>
+    <Copy SourceFiles="$(ProjectDir)QuestForge.Plugin.json"
+          DestinationFolder="$(_TfmOutputDir)"
+          Condition="Exists('$(_TfmOutputDir)')" />
+  </Target>
+
   <ItemGroup>
     <ProjectReference Include="..\QuestForge.Adapters\QuestForge.Adapters.csproj" />
     <ProjectReference Include="..\QuestForge.Adapters.Dalamud\QuestForge.Adapters.Dalamud.csproj" />
