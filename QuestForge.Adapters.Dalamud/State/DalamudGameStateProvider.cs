@@ -235,11 +235,11 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
 
     public Task<Result<bool>> IsInteractableActive(InteractableId obj, CancellationToken ct)
     {
-        // Phase 6: presence in ObjectTable == active
         foreach (var entry in _svc.ObjectTable)
         {
-            if (entry is not null && entry.BaseId == obj.Value)
-                return Task.FromResult<Result<bool>>(Result.Ok(true));
+            if (entry is null || entry.BaseId != obj.Value) continue;
+            if (entry.ObjectKind is not (ObjectKind.EventObj or ObjectKind.Treasure or ObjectKind.Aetheryte)) continue;
+            return Task.FromResult<Result<bool>>(Result.Ok(true));
         }
 
         return Task.FromResult<Result<bool>>(Result.Ok(false));
