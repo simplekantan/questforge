@@ -109,7 +109,6 @@ public sealed class QuestEngine
             }
             else
             {
-                // Regular action — emit a decision event.
                 TraceSafe(new DecisionEvent(
                     RunId: _runId,
                     StepId: stepId,

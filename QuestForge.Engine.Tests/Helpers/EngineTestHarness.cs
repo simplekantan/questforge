@@ -142,7 +142,6 @@ public sealed class EngineTestHarness
                     break;
 
                 case EngineAction.Wait:
-                    // Wait actions are not recorded — just loop again
                     break;
 
                 default:

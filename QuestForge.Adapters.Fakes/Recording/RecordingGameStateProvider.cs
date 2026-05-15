@@ -40,7 +40,6 @@ public sealed class RecordingGameStateProvider : IGameStateProvider
         try
         {
             var runId = _runIdAccessor();
-            // If configured to skip when no run is active, skip emission.
             if (_skipIfNoRunId && runId is null or "") return;
             var argEl = argument is null ? (JsonElement?)null
                 : JsonSerializer.SerializeToElement(argument, _jsonOpts);

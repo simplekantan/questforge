@@ -191,7 +191,7 @@ Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 
 ---
 
-## Phase 5: Trace recorder (1 week) 🔄 NEXT
+## Phase 5: Trace recorder (1 week) ✅ COMPLETE
 
 **Goal:** capture engine runs as JSONL traces, even before replay exists.
 
@@ -216,7 +216,7 @@ Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 
 ---
 
-## Phase 6: Dalamud-backed adapters (3-4 weeks)
+## Phase 6: Dalamud-backed adapters (3-4 weeks) 🔄 NEXT
 
 **Goal:** real implementations of the adapter interfaces against Dalamud + dependency plugins.
 
