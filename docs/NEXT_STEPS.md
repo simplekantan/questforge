@@ -120,7 +120,7 @@ If any answer surprises you, the architecture needs to flex.
 
 ---
 
-## Phase 3: Adapter interfaces and fakes (1 week)
+## Phase 3: Adapter interfaces and fakes (1 week) ✅ COMPLETE
 
 **Goal:** establish the adapter layer with in-memory implementations that enable engine development without a game.
 
@@ -157,7 +157,7 @@ Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 
 ---
 
-## Phase 4: Engine skeleton (3-4 weeks)
+## Phase 4: Engine skeleton (3-4 weeks) 🔄 NEXT
 
 **Goal:** the smallest possible engine that runs one quest end-to-end against fakes.
 
