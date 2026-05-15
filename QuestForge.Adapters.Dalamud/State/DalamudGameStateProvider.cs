@@ -15,8 +15,7 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
 
     public Task<Result<PlayerStateSnapshot>> GetPlayerState(CancellationToken ct)
     {
-        // SDK 15: IClientState.LocalPlayer removed; index 0 is local player
-        var local = _svc.ObjectTable[0] as IPlayerCharacter;
+        var local = _svc.ObjectTable.LocalPlayer;
         if (local is null)
             return Task.FromResult<Result<PlayerStateSnapshot>>(
                 Result.Fail<PlayerStateSnapshot>("noLocalPlayer", "ObjectTable[0] is null or not IPlayerCharacter"));
@@ -41,7 +40,7 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
 
     public Task<Result<WorldPosition>> GetPlayerPosition(CancellationToken ct)
     {
-        var local = _svc.ObjectTable[0];
+        var local = _svc.ObjectTable.LocalPlayer;
         if (local is null)
             return Task.FromResult<Result<WorldPosition>>(
                 Result.Fail<WorldPosition>("noLocalPlayer", "ObjectTable[0] is null"));
@@ -75,7 +74,7 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
 
     public Task<Result<JobId>> GetCurrentJob(CancellationToken ct)
     {
-        var local = _svc.ObjectTable[0] as IPlayerCharacter;
+        var local = _svc.ObjectTable.LocalPlayer;
         if (local is null)
             return Task.FromResult<Result<JobId>>(
                 Result.Fail<JobId>("noLocalPlayer", "ObjectTable[0] is null or not IPlayerCharacter"));
@@ -86,7 +85,7 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
     public Task<Result<int>> GetJobLevel(JobId job, CancellationToken ct)
     {
         // Phase 6: job parameter ignored — returns current job level only
-        var local = _svc.ObjectTable[0] as IPlayerCharacter;
+        var local = _svc.ObjectTable.LocalPlayer;
         if (local is null)
             return Task.FromResult<Result<int>>(
                 Result.Fail<int>("noLocalPlayer", "ObjectTable[0] is null or not IPlayerCharacter"));
@@ -120,7 +119,7 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
 
     public Task<Result<IReadOnlyList<NpcReference>>> GetNearbyNpcs(float radius, CancellationToken ct)
     {
-        var local = _svc.ObjectTable[0];
+        var local = _svc.ObjectTable.LocalPlayer;
         var result = new List<NpcReference>();
 
         foreach (var obj in _svc.ObjectTable)
@@ -145,7 +144,7 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
 
     public Task<Result<NpcReference?>> FindNpc(NpcId npc, CancellationToken ct)
     {
-        var local = _svc.ObjectTable[0];
+        var local = _svc.ObjectTable.LocalPlayer;
 
         foreach (var obj in _svc.ObjectTable)
         {
@@ -169,7 +168,7 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
 
     public Task<Result<IReadOnlyList<InteractableReference>>> GetNearbyInteractables(float radius, CancellationToken ct)
     {
-        var local = _svc.ObjectTable[0];
+        var local = _svc.ObjectTable.LocalPlayer;
         var result = new List<InteractableReference>();
 
         foreach (var obj in _svc.ObjectTable)
@@ -203,7 +202,7 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
 
     public Task<Result<InteractableReference?>> FindInteractable(InteractableId obj, CancellationToken ct)
     {
-        var local = _svc.ObjectTable[0];
+        var local = _svc.ObjectTable.LocalPlayer;
 
         foreach (var entry in _svc.ObjectTable)
         {
@@ -256,13 +255,12 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
 
     public Task<Result<UiState>> GetUiState(CancellationToken ct)
     {
-        // Non-zero IntPtr returned by GetAddonByName means the addon is visible
-        var talkOpen         = _svc.GameGui.GetAddonByName("Talk")             != IntPtr.Zero;
-        var selectStringOpen = _svc.GameGui.GetAddonByName("SelectString")     != IntPtr.Zero;
-        var selectYesNoOpen  = _svc.GameGui.GetAddonByName("SelectYesno")      != IntPtr.Zero;
-        var rewardOpen       = _svc.GameGui.GetAddonByName("JournalResult")    != IntPtr.Zero;
-        var shopOpen         = _svc.GameGui.GetAddonByName("Shop")             != IntPtr.Zero;
-        var deathOpen        = _svc.GameGui.GetAddonByName("_NoticeWidget")    != IntPtr.Zero; // approximate
+        var talkOpen         = !_svc.GameGui.GetAddonByName("Talk").IsNull;
+        var selectStringOpen = !_svc.GameGui.GetAddonByName("SelectString").IsNull;
+        var selectYesNoOpen  = !_svc.GameGui.GetAddonByName("SelectYesno").IsNull;
+        var rewardOpen       = !_svc.GameGui.GetAddonByName("JournalResult").IsNull;
+        var shopOpen         = !_svc.GameGui.GetAddonByName("Shop").IsNull;
+        var deathOpen        = !_svc.GameGui.GetAddonByName("_NoticeWidget").IsNull; // approximate
 
         var cutscene = _svc.Condition[ConditionFlag.WatchingCutscene]
                     || _svc.Condition[ConditionFlag.WatchingCutscene78];
