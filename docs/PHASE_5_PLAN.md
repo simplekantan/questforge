@@ -196,7 +196,7 @@ The double flush (`_writer.Flush()` then `_stream.Flush()`) ensures bytes hit th
 
 ### 8. `ObservationEvent` serialization for `Result<T>`
 
-`ObservationEvent.Value` holds `object?` — the return value of the adapter call. Most adapter methods return `Task<Result<T>>`. The proxy unwraps the result before passing it to the event:
+`ObservationEvent.Value` holds `JsonElement?` — a pre-serialized fragment of the adapter call's return value. Most adapter methods return `Task<Result<T>>`. The proxy unwraps and pre-serializes the result before storing it in the event (see §3.4 for why `JsonElement?` rather than `object?`):
 
 ```csharp
 private static JsonElement? SerializableValue<T>(Result<T> result) => result switch
@@ -765,7 +765,7 @@ public async Task<List<EngineAction>> RunToCompletion(int maxTicks = 10)
     throw new InvalidOperationException($"Engine did not reach Done within {maxTicks} ticks.");
 }
 
-private void EmitActionSubmitted(string actionType, object? parameters) =>
+private void EmitActionSubmitted(string actionType, JsonElement? parameters) =>
     TraceWriter.Write(new ActionSubmittedEvent(
         Engine.CurrentRunId ?? string.Empty, actionType, parameters, DateTimeOffset.UtcNow));
 
@@ -1022,5 +1022,5 @@ Adding a new method to `IGameStateProvider` without updating the proxy will sile
 **Risk: trace writes block the engine's tick.**
 `Flush` is synchronous; on slow disks, a tick could take many milliseconds longer than the engine's normal cadence. **Mitigation:** acknowledged but not fixed in Phase 5. The engine is not yet running against a real game clock; tick latency is irrelevant in unit tests. Phase 6 considers async buffering once real-world latency surfaces.
 
-**Risk: `object?` value boxes for primitives generate garbage on every observation.**
-Every `Result<int>.Success(5)` boxes the int into `object`. Per tick, the engine emits ~5–10 observations, each boxing one or two values. This is acceptable allocation pressure for tests; Phase 6 may revisit. **Mitigation:** documented; not optimized in Phase 5.
+**Risk: `JsonElement?` pre-serialization adds a reflection step per observation.**
+`SerializableValue<T>` calls `JsonSerializer.SerializeToElement(v, _jsonOpts)` for each adapter result. This is a reflection-based call inside the proxy. Per tick the engine emits ~5–10 observations, so ~10–20 reflection serializations. This is acceptable for Phase 5 tests; Phase 6 may revisit by adding explicit source-gen for the most common value types (int, bool, ZoneId). **Mitigation:** documented; not optimized in Phase 5.
