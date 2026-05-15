@@ -125,4 +125,4 @@ All design is in `docs/`:
 | 9 | Authoring mode (inspect + record + draft management + export) | 3-4 weeks |
 | 10+ | Incremental quest corpus expansion | Ongoing |
 
-**Current status: Phase 3 complete. Phase 4 (engine skeleton) next.**
+**Current status: Phase 4 complete. Phase 5 (trace recorder) next.**

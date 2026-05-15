@@ -157,7 +157,7 @@ Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 
 ---
 
-## Phase 4: Engine skeleton (3-4 weeks) 🔄 NEXT
+## Phase 4: Engine skeleton (3-4 weeks) ✅ COMPLETE
 
 **Goal:** the smallest possible engine that runs one quest end-to-end against fakes.
 
@@ -191,7 +191,7 @@ Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 
 ---
 
-## Phase 5: Trace recorder (1 week)
+## Phase 5: Trace recorder (1 week) 🔄 NEXT
 
 **Goal:** capture engine runs as JSONL traces, even before replay exists.
 
