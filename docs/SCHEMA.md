@@ -984,7 +984,7 @@ atom          := state-fn '(' args? ')' | comparison | 'default'
 comparison    := state-fn '(' args? ')' op literal
 op            := '==' | '!=' | '>' | '<' | '>=' | '<='
 binary        := predicate boolean-op predicate
-boolean-op    := 'and' | 'or'
+boolean-op    := 'and' | 'or'   -- C-style && and || are NOT lexed; authors must use keywords
 unary         := 'not' predicate
 grouped       := '(' predicate ')'
 args          := arg (',' arg)*

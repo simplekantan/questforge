@@ -781,18 +781,20 @@ A minimal complete trace for a hypothetical two-step quest:
 
 ---
 
-## Known divergences from this spec (Phase 5 implementation)
+## Known divergences from this spec (Phase 5–6 implementation)
 
-The Phase 5 trace recorder produces a structurally simpler output than the full spec above. These divergences are intentional for Phase 5 and will be reconciled in Phase 7 before the replay harness is built.
+The trace recorder produces a structurally simpler output than the full spec above. These divergences persist through Phase 6 and will be reconciled in Phase 7 before the replay harness is built.
 
-| Spec field / feature | Phase 5 behaviour | Reconciliation target |
+| Spec field / feature | Phase 5–6 behaviour | Reconciliation target |
 |---|---|---|
 | `seq` (monotonic sequence number per event) | **Not emitted.** Line order in the file is the implicit sequence. | Phase 7: add `seq` counter to `TraceWriter.Write`, increment atomically per run. |
 | `ts` (monotonic offset in ms from `run.start`) | **Not emitted.** Each event carries `at` (absolute UTC `DateTimeOffset`). | Phase 7: compute `ts = (at - runStartAt).TotalMilliseconds`, emit alongside `at`. |
-| `data` sub-object wrapper | **Not used.** Payload fields are flattened at the top level of the JSON object. E.g. spec shows `{"type":"decision","data":{"stepId":"..."}}` but Phase 5 emits `{"type":"decision","stepId":"..."}`. | Phase 7: wrap payload in `"data"` key or update spec to accept flat shape — decision deferred to when replay needs it. |
+| `data` sub-object wrapper | **Not used.** Payload fields are flattened at the top level of the JSON object. E.g. spec shows `{"type":"decision","data":{"stepId":"..."}}` but Phase 6 emits `{"type":"decision","stepId":"..."}`. | Phase 7: wrap payload in `"data"` key or update spec to accept flat shape — decision deferred to when replay needs it. |
 | `v` (format version) | **Not emitted.** Each event has no `v` field. | Phase 7: add `v: 1` to each event in `TraceEventJsonContext`. |
 | `runId` in every event | **Emitted** as a top-level field. This matches the intent of the spec even though `runId` is listed under `data` in some spec examples. | No change needed. |
-| `run.start` metadata fields (`pluginVer`, `dataVer`, `dataHash`, `patchVer`, `engineConfig`, `precedingRunId`) | **Not emitted.** `run.start` only carries `runId`, `questId`, `questSchemaId`, `at`. | Phase 6/7: add as the plugin layer and config object are built out. |
+| `run.start` metadata fields (`pluginVer`, `dataVer`, `dataHash`, `patchVer`, `engineConfig`, `precedingRunId`) | **Not emitted.** `run.start` only carries `runId`, `questId`, `questSchemaId`, `at`. | Phase 7: add as the plugin layer and config object are built out. |
+| Cutscene skip confirmation | **Not recorded.** Cutscene skip is deterministic from `IsRunActive` — the same condition that drives the hook also drives replay — so the action doesn't need to appear in the trace for deterministic replay. | No change needed. |
+| `action.submitted` / `action.completed` pairs | **Not emitted** for Navigate/Interact/Wait dispatch. Only `decision` events appear. | Phase 7: emit action pairs from `EngineHost.DispatchAction` to complete the trace spec. |
 
-**Impact on replay (Phase 7):** The replay harness must be written to tolerate Phase 5 traces (no `seq`, no `ts`, flat payload). Either the harness reads both formats or the recorder is upgraded to spec shape before the harness is built. This decision is Phase 7's first task.
+**Impact on replay (Phase 7):** The replay harness must tolerate Phase 5–6 traces (no `seq`, no `ts`, flat payload, no action pairs). Either the harness reads both formats or the recorder is upgraded to spec shape first. This is Phase 7's first task.
 

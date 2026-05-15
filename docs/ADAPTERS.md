@@ -361,16 +361,12 @@ public record TravelCapability(
 );
 ```
 
-`TravelCapability` consolidates "can I reasonably get to (destination zone)" into one query. The implementation reads aether current state, current job level, zone flight unlock data, and zone mounting rules. The engine sees a single derived answer.
+`TravelCapability` consolidates "can I reasonably get to (destination zone)" into one query. The full implementation reads aether current state, current job level, zone flight unlock data, and zone mounting rules.
 
-`CanFly` requires:
-- Zone supports flight at all
-- Player has unlocked flight in this zone (Heavensward+ aether currents)
-- Current job level meets any zone-specific requirements
-
-`CanMount` is false in zones that forbid mounts (some indoor areas, certain quest-restricted zones).
-
-`CanDive` is true for underwater zones (Stormblood+) where the player has unlocked diving.
+**Phase 6 implementation status (partial):**
+- `CanFly` — implemented via `PlayerState.Instance()->CanFly`, which the game sets per zone based on aether current completion. Correctly handles all zone types including post-ARR zones with Aether Current unlocks.
+- `CanMount` — approximated as `!IsPlayerInCombat`. Zone-specific mount restrictions (some indoor areas, quest-restricted zones) are deferred.
+- `CanDive`, `CanTeleport`, `NearestAttuned`, `RequiresOnFootSegment`, `EstimatedGilCost` — all return placeholder values (false/null/0). Full implementation deferred to Phase 7+.
 
 ### 4.7 What's deliberately not in this interface
 
@@ -1224,11 +1220,11 @@ public enum MinigameKind
 public enum SkipOutcome { Skipped, Unsupported, Failed }
 ```
 
-### 13.1 V1 implementation scope
+### 13.1 Implementation scope
 
-V1 implements skip for `MinigameKind.Sniping` only. All other kinds return `SkipOutcome.Unsupported`. The engine falls back to `AwaitUserCompletion` when a minigame kind isn't implemented.
+**Phase 6:** `NullMinigameSkipper` returns `false` for `IsKindSkippable` and `SkipOutcome.Unsupported` for `SkipMinigame` across all `MinigameKind` values. The engine falls back to `AwaitUserCompletion` for any quest step that requires a minigame. No-arg constructor; no Dalamud dependencies.
 
-This is a deliberate scoping decision. Sniping minigames appear in enough v1-scope quests to justify implementation. Other minigame types (memory, rhythm, aiming) appear infrequently in MSQ + class/job and can be added when needed.
+**Phase 10+:** Implement skip for specific kinds when quests that require them enter the corpus. Sniping minigames appear in enough early quests to likely be the first target.
 
 ### 13.2 User opt-in
 
