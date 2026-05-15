@@ -516,9 +516,12 @@ public sealed class ExpectEvaluator
 {
     public ExpectEvaluator(PredicateEvaluator inner);
 
-    /// <summary>Parse (with caching) and evaluate any ExpectValue form.</summary>
+    /// <summary>Parse (with caching) and evaluate any ExpectValue form. Null → true.</summary>
     public Task<bool> Evaluate(ExpectValue? expect, CancellationToken ct);
-    // Null expect evaluates to true (some Step subtypes' SkipIf may be null).
+
+    /// <summary>Parse and evaluate a raw predicate string. Null → false (sequence not skipped).</summary>
+    /// Used for QuestSequence.SkipIf which is string?, not ExpectValue?.
+    public Task<bool> Evaluate(string? predicate, CancellationToken ct);
 }
 ```
 
@@ -748,9 +751,10 @@ The full-flow tests load the fixture and drive the engine to completion via the 
 - Then: returns `EngineAction.Navigate(Destination=(35.56, 4, -151.18), Options=NavigationOptions{...})`.
 
 **5.4.2 — Travel step complete, player near Wymond:**
-- Given: same as 5.4.1 but `gameState.SetPosition((35.56, 4, -151.18))` and the NPC's `DistanceToPlayer = 0.5f`.
+- Given: same as 5.4.1 but `gameState.SetPosition(new WorldPosition(35.56f, 4f, -151.18f))`. Player is now at Wymond's position; Euclidean distance to the `playerNear` literal is 0 ≤ 3, so the travel step's expect is satisfied.
 - When: engine `Tick`.
-- Then: returns `EngineAction.Interact(NpcId(1003987))` (travel step's expect is satisfied; engine advances to the talk step).
+- Then: returns `EngineAction.Interact(NpcId(1003987))` (travel step satisfied; engine advances to talk step).
+- Note: `DistanceToPlayer` on the NpcReference in §5.4.1's setup is not consulted by the `playerNear` evaluator — it reads `GetPlayerPosition()` and computes distance to the literal position. The NpcReference is present only so `FakeNavigator.NavigateTo` has something to update position to in the harness loop.
 
 **5.4.3 — Talk step complete, sequence advanced to 255, player still at Wymond:**
 - Given: `questState.SetQuestSequence(QuestId(66130), 255)`; player near Wymond but Momodi is far away.
@@ -857,16 +861,16 @@ This single test validates the "stateless retry" model for Phase 4.
 7. Create `EngineAction.cs` with the discriminated union (Navigate, Interact, Wait, AwaitUser, Done).
 8. Create `QuestEngine.cs` with the full constructor signature and `Tick(ct)` and `StartQuest(quest)` methods, all throwing `NotImplementedException`.
 9. Create `PredicateEvaluator.cs` and `ExpectEvaluator.cs` with public surfaces from §3.1, all throwing `NotImplementedException`.
-10. `dotnet build` succeeds. The solution compiles. No tests yet.
+10. **Add `OnInteractWith(NpcId, Action)` to `FakeInteractor`** in `QuestForge.Adapters.Fakes`. This must be in Phase A — if the Tester writes tests that call this method and it doesn't compile, the tests produce a compile error (wrong kind of red) rather than a `NotImplementedException` (correct kind of red). This is an additive change; Phase 3 tests are unaffected.
+11. `dotnet build` succeeds. The solution compiles. No tests yet.
 
-**Gate:** `dotnet build` is green. Move to Phase B.
+**Gate:** `dotnet build` is green and `FakeInteractor.OnInteractWith` exists. Move to Phase B.
 
 ### Phase B — Tester writes failing tests
 
 1. Write all tests per §5.1 through §5.9 above.
-2. Wire `FakeGameStateProvider`, `FakeQuestState`, `FakeNavigator`, `FakeInteractor`, `FakeTeleporter`, `FakeCombat`, `FakeGearManager`, `FakeMinigameSkipper`, `FakeDialogueResolver`, and `FakeTimingProfile` into test setup helpers (a `EngineTestHarness` class in `QuestForge.Engine.Tests/Helpers/`).
-3. Extend `FakeInteractor` with `OnInteractWith(NpcId, Action)` if needed for callback-driven state transitions during full-flow tests. This is an additive change to the Phase 3 fake.
-4. `dotnet test QuestForge.Engine.Tests` runs and **every test is red** (NotImplementedException). This is the expected state at the end of Phase B.
+2. Wire `FakeGameStateProvider`, `FakeQuestState`, `FakeNavigator`, `FakeInteractor`, `FakeTeleporter`, `FakeCombat`, `FakeGearManager`, `FakeMinigameSkipper`, `FakeDialogueResolver`, and `FakeTimingProfile` into test setup helpers (`EngineTestHarness` in `QuestForge.Engine.Tests/Helpers/`).
+3. `dotnet test QuestForge.Engine.Tests` runs and **every test is red** (NotImplementedException). This is the expected state at the end of Phase B.
 
 **Gate:** all ~47 tests exist, all are red, all are red for the right reason (NotImplementedException, not compile errors). Move to Phase C.
 
