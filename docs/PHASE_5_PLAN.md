@@ -327,55 +327,79 @@ namespace QuestForge.Adapters.Tracing;
 [JsonDerivedType(typeof(DecisionEvent),        "decision")]
 [JsonDerivedType(typeof(ActionSubmittedEvent), "action.submitted")]
 [JsonDerivedType(typeof(ActionCompletedEvent), "action.completed")]
-public abstract record TraceEvent(string Type, DateTimeOffset At);
+public abstract record TraceEvent(DateTimeOffset At)
+{
+    // Type is not a positional parameter — the STJ discriminator handles "type" in JSON.
+    // [JsonIgnore] prevents double-serialization (discriminator + property = duplicate "type" key).
+    [JsonIgnore]
+    public abstract string Type { get; }
+};
+
+// Each derived type implements Type as a computed property matching its discriminator string.
+// This gives tests access to evt.Type without causing an STJ "type" property conflict.
 
 // RunStartEvent.cs
 public sealed record RunStartEvent(
-    string RunId,
-    uint QuestId,
-    uint QuestSchemaId,
-    DateTimeOffset At
-) : TraceEvent("run.start", At);
+    string RunId, uint QuestId, uint QuestSchemaId, DateTimeOffset At
+) : TraceEvent(At)
+{
+    public override string Type => "run.start";
+}
 
 // RunEndEvent.cs
 public sealed record RunEndEvent(
     string RunId,
-    string Outcome,           // "done" | "awaitUser" | "stopped" — Phase 5 emits "done" or "awaitUser"
+    string Outcome,           // "done" | "awaitUser" | "stopped"
     DateTimeOffset At
-) : TraceEvent("run.end", At);
+) : TraceEvent(At)
+{
+    public override string Type => "run.end";
+}
 
 // ObservationEvent.cs
 public sealed record ObservationEvent(
     string RunId,
-    string Method,            // e.g. "GetPlayerZone", "GetQuestSequence"
-    JsonElement? Argument,    // null for parameterless reads; serialized argument otherwise
-    JsonElement? Value,       // serialized success value, OR {"failure":"…","detail":"…"} on Failure
+    string Method,            // e.g. "GetPlayerZone"
+    JsonElement? Argument,
+    JsonElement? Value,
     DateTimeOffset At
-) : TraceEvent("observation", At);
+) : TraceEvent(At)
+{
+    public override string Type => "observation";
+}
 
 // DecisionEvent.cs
 public sealed record DecisionEvent(
     string RunId,
-    string? StepId,           // null when engine has no current step (e.g. Done/AwaitUser before any work)
-    string ActionType,        // "Navigate" | "Interact" | "Wait" | "AwaitUser" | "Done"
+    string? StepId,
+    string ActionType,
     DateTimeOffset At
-) : TraceEvent("decision", At);
+) : TraceEvent(At)
+{
+    public override string Type => "decision";
+}
 
 // ActionSubmittedEvent.cs
 public sealed record ActionSubmittedEvent(
     string RunId,
-    string ActionType,        // matches DecisionEvent.ActionType for the same tick
-    JsonElement? Parameters,  // for Navigate: serialized WorldPosition; for Interact: NpcId; else null
+    string ActionType,
+    JsonElement? Parameters,
     DateTimeOffset At
-) : TraceEvent("action.submitted", At);
+) : TraceEvent(At)
+{
+    public override string Type => "action.submitted";
+}
 
 // ActionCompletedEvent.cs
 public sealed record ActionCompletedEvent(
     string RunId,
     string ActionType,
-    string Outcome,           // free-form: "Arrived" | "Failed: timeout" | "Interacted" etc.
+    string Outcome,
     DateTimeOffset At
-) : TraceEvent("action.completed", At);
+) : TraceEvent(At)
+{
+    public override string Type => "action.completed";
+}
 ```
 
 ### 1.3 ITraceWriter signature update
@@ -415,6 +439,10 @@ public sealed class FakeTraceWriter : ITraceWriter
 ```
 
 **Mandatory gate before writing any TraceWriter or proxy code:** the solution must build green with the new signature. All existing Phase 4 tests must still pass (49 tests, none of which exercise `Write`).
+
+Phase A also adds to `EngineTestHarness`:
+- `public FakeTraceWriter TraceWriter { get; }` — exposes the trace writer so `BeginRunTests` can assert `harness.TraceWriter.Count`
+- `EngineTestHarness(ITraceWriter externalTrace)` constructor overload — used by `TraceEndToEndTests` to pass a real `TraceWriter` wrapping a `MemoryStream`
 
 ---
 
