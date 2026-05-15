@@ -128,6 +128,12 @@ public enum InteractableKind
 ### 3.4 `Result<T>`
 
 ```csharp
+// Zero-sized value type for void-returning operations.
+public readonly record struct Unit
+{
+    public static readonly Unit Value = default;
+}
+
 public abstract record Result<T>
 {
     public sealed record Success(T Value) : Result<T>;
@@ -135,16 +141,27 @@ public abstract record Result<T>
 
     public bool IsSuccess => this is Success;
     public T? ValueOrDefault => this is Success s ? s.Value : default;
+
+    // Throws InvalidOperationException on Failure; use after checking IsSuccess.
+    public T Value => this is Success s
+        ? s.Value
+        : throw new InvalidOperationException($"Result is Failure: {((Failure)this).Reason}");
 }
 
-public abstract record Result  // unit version for void operations
+// Static helpers — the non-generic Result abstract record is replaced by Result<Unit>.
+// Void-returning adapter methods return Task<Result<Unit>>.
+public static class Result
 {
-    public sealed record Success : Result;
-    public sealed record Failure(string Reason, string? Detail = null) : Result;
+    public static Result<T>.Success  Ok<T>(T value)                              => new(value);
+    public static Result<T>.Failure  Fail<T>(string reason, string? detail = null) => new(reason, detail);
+    public static Result<Unit>.Success  Ok()                                     => new(Unit.Value);
+    public static Result<Unit>.Failure  Fail(string reason, string? detail = null)  => new(reason, detail);
 }
 ```
 
 `Reason` is a stable machine-readable string. `Detail` is human-readable context. The engine matches on `Reason`; the UI shows `Detail`.
+
+**Note on void returns:** Throughout this document, any method that previously returned `Task<Result>` (non-generic) now returns `Task<Result<Unit>>`. The non-generic `Result` abstract record is removed to avoid a C# naming conflict with the `public static class Result` helper. The semantics are identical.
 
 ---
 
@@ -498,7 +515,7 @@ public interface INavigator
         NavigationOptions options,
         CancellationToken ct);
 
-    Task<Result> Stop(CancellationToken ct);
+    Task<Result<Unit>> Stop(CancellationToken ct);
     Task<Result<bool>> IsNavigating(CancellationToken ct);
     Task<Result<NavmeshInfo>> GetNavmeshInfo(ZoneId zone, CancellationToken ct);
 }
@@ -646,15 +663,15 @@ public interface IInteractor
         CancellationToken ct);
 
     // Prompts
-    Task<Result> ConfirmYesNoPrompt(bool yes, CancellationToken ct);
-    Task<Result> SelectStringOption(int zeroBasedIndex, CancellationToken ct);
-    Task<Result> CloseDialogue(CancellationToken ct);
+    Task<Result<Unit>> ConfirmYesNoPrompt(bool yes, CancellationToken ct);
+    Task<Result<Unit>> SelectStringOption(int zeroBasedIndex, CancellationToken ct);
+    Task<Result<Unit>> CloseDialogue(CancellationToken ct);
 
     // Quest lifecycle
-    Task<Result> AcceptQuest(QuestId quest, CancellationToken ct);
-    Task<Result> CompleteQuest(QuestId quest, CancellationToken ct);
-    Task<Result> SelectQuestReward(int rewardIndex, CancellationToken ct);
-    Task<Result> AbandonQuest(QuestId quest, CancellationToken ct);
+    Task<Result<Unit>> AcceptQuest(QuestId quest, CancellationToken ct);
+    Task<Result<Unit>> CompleteQuest(QuestId quest, CancellationToken ct);
+    Task<Result<Unit>> SelectQuestReward(int rewardIndex, CancellationToken ct);
+    Task<Result<Unit>> AbandonQuest(QuestId quest, CancellationToken ct);
 
     // Duty entry — full duties (dungeons, trials, raids)
     Task<Result<DutyEntryOutcome>> EnterDutyWithSupport(DutyId duty, CancellationToken ct);
@@ -677,8 +694,8 @@ public interface IInteractor
         CancellationToken ct);
 
     // Chat and emotes (non-standard interactions, often NPC-targeted)
-    Task<Result> SendChatMessage(ChatChannel channel, string messageSheetReference, CancellationToken ct);
-    Task<Result> UseEmote(uint emoteId, NpcId? target, CancellationToken ct);
+    Task<Result<Unit>> SendChatMessage(ChatChannel channel, string messageSheetReference, CancellationToken ct);
+    Task<Result<Unit>> UseEmote(uint emoteId, NpcId? target, CancellationToken ct);
 }
 
 public enum InteractOutcome
@@ -870,7 +887,7 @@ public interface ICombat
     // Delegated combat — combat plugin chooses rotation
     Task<Result<CombatOutcome>> EngageTarget(NpcId target, CancellationToken ct);
     Task<Result<CombatOutcome>> EngageNearestHostile(float radius, CancellationToken ct);
-    Task<Result> Disengage(CancellationToken ct);
+    Task<Result<Unit>> Disengage(CancellationToken ct);
     Task<Result<bool>> IsCombatPluginAvailable(CancellationToken ct);
     Task<Result<CombatPluginInfo>> GetActiveCombatPlugin(CancellationToken ct);
 
@@ -1071,7 +1088,7 @@ public interface IGearManager
     Task<Result<bool>> IsStylistAvailable(CancellationToken ct);
 
     // Gearsets and job
-    Task<Result> ApplyGearset(int gearsetId, CancellationToken ct);
+    Task<Result<Unit>> ApplyGearset(int gearsetId, CancellationToken ct);
     Task<Result<JobChangeOutcome>> ChangeToJob(JobId job, CancellationToken ct);
 
     // Condition and repair

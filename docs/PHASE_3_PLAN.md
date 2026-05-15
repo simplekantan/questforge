@@ -256,7 +256,7 @@ One file per interface, in the layout above. Each file contains:
 
 Cross-cutting types (`WorldPosition`, `NpcReference`, etc.) live in `Types/`.
 
-The interface signatures are taken verbatim from ADAPTERS.md sections 4-13. The plan does not re-paste them here — the spec is the source of truth.
+The interface signatures are taken from ADAPTERS.md sections 4-13, which is updated in the same commit as the interface implementation. One translation applies throughout: **any method returning `Task<Result>` (non-generic) in older versions of ADAPTERS.md is `Task<Result<Unit>>` in the implementation** — the non-generic `Result` abstract record is removed to eliminate the C# naming conflict with `public static class Result`. ADAPTERS.md §3.4 is authoritative for the current type definitions.
 
 ### 1.6 What this project does NOT contain
 
