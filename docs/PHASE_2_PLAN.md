@@ -241,6 +241,8 @@ When the parser sees an unknown identifier in function-call position, it compute
 
 This is the single highest-leverage UX feature in Phase 2 and the only reason `predicate-unknown-function` is worth distinguishing from `predicate-parse-error`.
 
+**Note on distance:** `questSequnece` is Levenshtein distance **2** from `questSequence` (it is a transposition of adjacent characters `n`/`e`, which standard Levenshtein counts as 2 substitutions, not 1). The ≤ 2 threshold still catches it — the suggestion fires correctly. Use the `SuggestSimilar` GWT in §4.5 as the authoritative spec for which typos produce suggestions, not the distance claim in this example.
+
 ### 10. Caching: parse once per (source, scope) pair
 
 ```csharp
