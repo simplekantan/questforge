@@ -43,7 +43,7 @@ The engine (Phase 4) starts with `travel` and `talk` steps only, which exercise 
 We still build all 10 because:
 - The engine constructor signature is fixed in ADAPTERS.md §14 — `QuestEngine` takes all of them. Building only some means changing that signature later.
 - Step types added in Phase 10+ (`combat`, `equip-gear-for-quest`, `minigame`) require these adapters. Phase 4 wiring is easier if every dependency already exists.
-- Fakes for unused adapters can be minimal — see §6 of this plan.
+- Fakes for unused adapters can be minimal — see §2.5 of this plan.
 
 ### 3. `readonly record struct` for strong-typed identifiers, not `using` aliases
 
@@ -132,7 +132,7 @@ Every fake exposes both:
 - **`SetX(...)`** / **`Script(...)`** methods that mutate the fake's internal state before the engine runs.
 - **`RecordedX` / `Received...` properties** that expose an append-only list of calls the engine made, for post-run assertions.
 
-The naming convention is uniform across all 10 fakes — see §6 of this plan.
+The naming convention is uniform across all 10 fakes — see §2.5 of this plan.
 
 ### 7. Fakes honor `CancellationToken`
 
@@ -190,6 +190,7 @@ QuestForge.Adapters/
         ITimingProfile.cs       + StimulusType, SessionContext
     Minigames/
         IMinigameSkipper.cs     + MinigameKind, SkipOutcome
+    ITraceWriter.cs             minimal stub; Phase 5 replaces with JSONL implementation
 ```
 
 **`QuestForge.Adapters.csproj`:**
@@ -490,7 +491,7 @@ Takes both `FakeGameStateProvider` and `FakeQuestState` in its constructor. Acce
 
 **Observable:** `RecordedInteractions`, `RecordedDialogues`, `RecordedQuestLifecycleCalls`, etc.
 
-The default behavior for `AcceptQuest(questId)` is to call `state.AddAcceptedQuest(questId)` and `state.SetQuestStatus(questId, QuestStatus.Accepted)` — most engine tests should not have to wire this manually.
+The default behavior for `AcceptQuest(questId)` calls `_questState.AddAcceptedQuest(questId)` and `_questState.SetQuestStatus(questId, QuestStatus.Accepted)` on the injected `FakeQuestState` — most engine tests should not have to wire this manually.
 
 #### `FakeDialogueResolver` — state reader
 
@@ -748,11 +749,15 @@ Phase 3 is done when **all of the following** pass:
 
 **Phase C — Tests project**
 1. Create `QuestForge.Adapters.Tests` csproj with xUnit
-2. Add `Types/ResultTests.cs` and `Types/IdentifierTests.cs` first
+2. Add `Types/ResultTests.cs` and `Types/IdentifierTests.cs`
+   - Commit: "Tests: Result<T> and identifier types"
 3. Add per-fake tests in the same order as Phase B
+   - Commit: "Tests: state reader fakes (GameState, QuestState, Timing, Dialogue)"
+   - Commit: "Tests: action executor fakes (Navigator, Teleporter, Interactor)"
+   - Commit: "Tests: minimal stub fakes (Combat, GearManager, MinigameSkipper)"
 4. Add the integration tests (`DoneCriteriaTest.cs`, `EngineConstructorSurfaceTest.cs`)
+   - Commit: "Tests: integration — done-criteria and constructor surface"
 5. All tests green
-6. Commit: "Adapter test coverage complete"
 
 **Phase D — Solution placeholders**
 1. Add empty csprojs for `QuestForge.Engine`, `QuestForge.Adapters.Dalamud`, `QuestForge.Plugin`
@@ -792,6 +797,7 @@ Phase 3 is done when **all of the following** pass:
 | §1.5 IDialogueResolver | §11 |
 | §1.5 IGearManager | §12 |
 | §1.5 IMinigameSkipper | §13 |
+| §1.1 / §4.2 ITraceWriter stub | §14.1 |
 | §3.3.8 Engine constructor surface | §14.1 |
 
 ## Appendix B: Risks and mitigations
