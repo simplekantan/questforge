@@ -16,6 +16,10 @@ public sealed class FakeInteractor : IInteractor
     private readonly Queue<DialogueOutcome> _dialogueSequence = new();
     private SpdEntryOutcome _spdResult = SpdEntryOutcome.Entered;
 
+    // Per-quest callbacks fired after the default state transition
+    private readonly Dictionary<QuestId, Action> _onAcceptCallbacks = new();
+    private readonly Dictionary<QuestId, Action> _onCompleteCallbacks = new();
+
     // Per-method call logs
     public record InteractionCall(NpcId? NpcId, InteractableId? ObjectId, DateTimeOffset At) : AdapterCall(At);
     public record DialogueAdvanceCall(DateTimeOffset At) : AdapterCall(At);
@@ -45,6 +49,9 @@ public sealed class FakeInteractor : IInteractor
 
     public void SetSpdResult(SpdEntryOutcome outcome) => _spdResult = outcome;
 
+    public void OnAcceptQuest(QuestId quest, Action callback) => _onAcceptCallbacks[quest] = callback;
+    public void OnCompleteQuest(QuestId quest, Action callback) => _onCompleteCallbacks[quest] = callback;
+
     // ----- Reset -----
     public void Reset()
     {
@@ -54,6 +61,8 @@ public sealed class FakeInteractor : IInteractor
         RecordedQuestCompletes.Clear();
         _nextInteractResult = null;
         _dialogueSequence.Clear();
+        _onAcceptCallbacks.Clear();
+        _onCompleteCallbacks.Clear();
     }
 
     // ----- IInteractor implementation -----
@@ -137,6 +146,7 @@ public sealed class FakeInteractor : IInteractor
         RecordedQuestAccepts.Add(new QuestAcceptCall(quest, DateTimeOffset.UtcNow));
         _questState.AddAcceptedQuest(quest);
         _questState.SetQuestStatus(quest, QuestStatus.Accepted);
+        if (_onAcceptCallbacks.TryGetValue(quest, out var cb)) cb();
         return Task.FromResult<Result<Unit>>(Result.Ok());
     }
 
@@ -145,6 +155,7 @@ public sealed class FakeInteractor : IInteractor
         ct.ThrowIfCancellationRequested();
         RecordedQuestCompletes.Add(new QuestCompleteCall(quest, DateTimeOffset.UtcNow));
         _questState.SetQuestStatus(quest, QuestStatus.Complete);
+        if (_onCompleteCallbacks.TryGetValue(quest, out var cb)) cb();
         return Task.FromResult<Result<Unit>>(Result.Ok());
     }
 
