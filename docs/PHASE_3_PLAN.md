@@ -62,43 +62,49 @@ The runtime cost is one `.Value` extraction at every Dalamud boundary in Phase 6
 
 ### 4. `Result<T>` is written by hand, not a NuGet dependency
 
-ADAPTERS.md §3.4 already specifies the shape:
+ADAPTERS.md §3.4 specifies the shape. We extend it with a `Unit` type and a `.Value` shorthand to resolve two issues: (a) `public abstract record Result` and `public static class Result` cannot share a name in C#, and (b) `result.Value` is ergonomic at call sites.
 
 ```csharp
+// Unit type — zero-sized, for void-returning adapter operations
+public readonly record struct Unit
+{
+    public static readonly Unit Value = default;
+}
+
+// Generic result for value-returning operations
 public abstract record Result<T>
 {
     public sealed record Success(T Value) : Result<T>;
     public sealed record Failure(string Reason, string? Detail = null) : Result<T>;
 
     public bool IsSuccess => this is Success;
+
+    // ValueOrDefault: returns default on Failure (safe)
     public T? ValueOrDefault => this is Success s ? s.Value : default;
+
+    // Value: throws on Failure (use when callers have already checked IsSuccess)
+    public T Value => this is Success s
+        ? s.Value
+        : throw new InvalidOperationException($"Result is Failure: {((Failure)this).Reason}");
 }
 
-public abstract record Result  // unit version for void operations
-{
-    public sealed record Success : Result;
-    public sealed record Failure(string Reason, string? Detail = null) : Result;
-}
-```
-
-We could pull in `OneOf`, `LanguageExt`, or `FluentResults`. We do not, because:
-- The type is ~20 lines. The dependency cost (transitive packages, version pins, license audit) exceeds the value.
-- ADAPTERS.md spec is the contract. Matching it exactly avoids translation.
-- `Result<T>` participates in trace recording (the engine matches on `Reason`). A custom type lets us add trace-friendly helpers without convincing a library author.
-
-Two small helpers added beyond the ADAPTERS.md spec, for ergonomics:
-
-```csharp
+// Static helpers — no naming conflict because there is no Result record
 public static class Result
 {
-    public static Result<T>.Success Ok<T>(T value) => new(value);
-    public static Result<T>.Failure Fail<T>(string reason, string? detail = null) => new(reason, detail);
-    public static Result.Success Ok() => new();
-    public static Result.Failure Fail(string reason, string? detail = null) => new(reason, detail);
+    public static Result<T>.Success  Ok<T>(T value)                             => new(value);
+    public static Result<T>.Failure  Fail<T>(string reason, string? detail = null) => new(reason, detail);
+
+    // Void convenience — callers write Result.Ok() / Result.Fail("reason")
+    public static Result<Unit>.Success  Ok()                                    => new(Unit.Value);
+    public static Result<Unit>.Failure  Fail(string reason, string? detail = null) => new(reason, detail);
 }
 ```
 
-These exist because `new Result<NavigationOutcome>.Success(NavigationOutcome.Arrived)` is noisier than `Result.Ok(NavigationOutcome.Arrived)`. The helpers do not change the underlying types.
+Void-returning adapter methods return `Task<Result<Unit>>`. The ADAPTERS.md spec used a non-generic `Result` abstract record for these; `Result<Unit>` is the equivalent without the naming conflict. Call sites write `Result.Ok()` and `Result.Fail("reason")` — identical ergonomics, one fewer type to learn.
+
+We could pull in `OneOf`, `LanguageExt`, or `FluentResults`. We do not, because:
+- The type is ~25 lines. The dependency cost exceeds the value.
+- `Result<T>` participates in trace recording (the engine matches on `Reason`). A custom type lets us add trace-friendly helpers without convincing a library author.
 
 ### 5. `Task<Result<T>>`, not `ValueTask<Result<T>>`
 
@@ -445,17 +451,19 @@ var result = await state.GetPlayerPosition(CancellationToken.None);
 Assert.Equal(new WorldPosition(10, 0, 20), (result as Result<WorldPosition>.Success)!.Value);
 ```
 
-**Done criteria 2 (action executor category — verbatim from NEXT_STEPS.md):**
+**Done criteria 2 (action executor category — from NEXT_STEPS.md, updated to typed API):**
 ```csharp
 var state = new FakeGameStateProvider();
-state.SetZone(132);
+state.SetZone(new ZoneId(132));
 state.SetPosition(new WorldPosition(10, 0, 20));
 var nav = new FakeNavigator(state);
 var result = await nav.NavigateTo(new WorldPosition(50, 0, 50), CancellationToken.None);
-Assert.Equal(NavigationOutcome.Arrived, result.Value);
+Assert.Equal(NavigationOutcome.Arrived, result.Value);   // .Value throws on Failure — safe here
 Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 ```
-*(Note: NEXT_STEPS.md uses `result.Value` directly; in the actual implementation this is `((Result<NavigationOutcome>.Success)result).Value`. The plan keeps the test verbatim and the fake API matches the underlying `Result<T>` shape from ADAPTERS.md §3.4.)*
+NEXT_STEPS.md used `state.SetZone(132)` (raw int) and `result.Value` without explanation. Both are resolved here:
+- `SetZone` takes `ZoneId` — the identifier types from §1.3 are the API; no raw-primitive overloads.
+- `result.Value` compiles because `Result<T>` exposes `.Value` (throws on `Failure`) from §4 above.
 
 #### `FakeTeleporter` — action executor
 
@@ -668,12 +676,28 @@ Add three projects with appropriate GUIDs:
 - `QuestForge.Adapters.Fakes`
 - `QuestForge.Adapters.Tests`
 
-Add a "Phase 6 placeholders" solution folder containing empty stubs:
+Add a "Future phases — not yet implemented" solution folder containing empty stubs:
 - `QuestForge.Engine` — empty csproj, no source files. Phase 4 fills it.
 - `QuestForge.Adapters.Dalamud` — empty csproj. Phase 6 fills it.
 - `QuestForge.Plugin` — empty csproj. Phase 6 fills it.
 
 The placeholders are added now so the solution reflects the planned architecture and so adding code to them later does not require solution file changes mid-PR. Empty csprojs build cleanly and produce no output.
+
+### 4.3 `ITraceWriter` in `QuestForge.Adapters`
+
+ADAPTERS.md §14.1 defines `ITraceWriter` as part of the engine constructor signature. The Phase 3 engine-constructor surface test (§3.3.8) references it. Rather than defining a stub in the test project and moving it in Phase 5, declare a minimal interface in `QuestForge.Adapters` now:
+
+```csharp
+namespace QuestForge.Adapters;
+
+/// <summary>Append-only event sink. Implemented by TraceWriter in Phase 5.</summary>
+public interface ITraceWriter
+{
+    void Write(object evt);   // refined to typed events in Phase 5
+}
+```
+
+Phase 5 replaces this stub with the full JSONL implementation without changing any call sites. `QuestForge.Adapters.Fakes` adds a `FakeTraceWriter` alongside the other fakes.
 
 ### 4.2 `Directory.Build.props` — no changes required
 
@@ -708,20 +732,19 @@ Phase 3 is done when **all of the following** pass:
 
 **Phase B — Fakes project (test doubles)**
 1. Create `QuestForge.Adapters.Fakes` csproj
-2. Add `Recording/CallLog.cs` and `Recording/AdapterCall.cs`
-3. Implement fakes in the order they are needed:
-   - `FakeGameStateProvider` (no dependencies)
-   - `FakeQuestState` (no dependencies)
-   - `FakeTimingProfile` (no dependencies)
-   - `FakeDialogueResolver` (no dependencies)
-   - `FakeNavigator` (depends on `FakeGameStateProvider`)
-   - `FakeTeleporter` (depends on `FakeGameStateProvider`)
+2. Add `Recording/CallLog.cs`, `Recording/AdapterCall.cs`, `FakeTraceWriter.cs`
+   - Commit: "Fakes: recording infrastructure + FakeTraceWriter"
+3. State readers (no inter-fake dependencies):
+   - `FakeGameStateProvider`, `FakeQuestState`, `FakeTimingProfile`, `FakeDialogueResolver`
+   - Commit: "Fakes: state reader fakes (GameState, QuestState, Timing, Dialogue)"
+4. Action executors (depend on state fakes):
+   - `FakeNavigator`, `FakeTeleporter` (depend on `FakeGameStateProvider`)
    - `FakeInteractor` (depends on `FakeGameStateProvider`, `FakeQuestState`)
-   - `FakeCombat` — minimal stub
-   - `FakeGearManager` — minimal stub
-   - `FakeMinigameSkipper` — minimal stub
-4. Build succeeds; no test coverage yet
-5. Commit: "Adapter fakes complete"
+   - Commit: "Fakes: action executor fakes (Navigator, Teleporter, Interactor)"
+5. Minimal stubs (Phase 4 engine does not use these):
+   - `FakeCombat`, `FakeGearManager`, `FakeMinigameSkipper`
+   - Commit: "Fakes: minimal stubs (Combat, GearManager, MinigameSkipper)"
+6. Build succeeds; no test coverage yet
 
 **Phase C — Tests project**
 1. Create `QuestForge.Adapters.Tests` csproj with xUnit
@@ -744,7 +767,7 @@ Phase 3 is done when **all of the following** pass:
 - **No Dalamud-backed implementations.** `QuestForge.Adapters.Dalamud` is an empty placeholder. Phase 6 fills it.
 - **No engine.** `QuestForge.Engine` is an empty placeholder. Phase 4 fills it.
 - **No recording proxy.** `RecordingGameStateProvider` (ADAPTERS.md §4.8) is Phase 5.
-- **No trace writer.** `ITraceWriter` from ADAPTERS.md §14.1 is referenced in the engine constructor surface test but as a stub interface in the tests project, not in `QuestForge.Adapters`. Phase 5 owns it.
+- **No trace implementation.** `ITraceWriter` is declared as a minimal stub in `QuestForge.Adapters` (§4.3) so the engine constructor surface test compiles. Phase 5 replaces the stub with the full JSONL implementation without changing call sites.
 - **No IPC calls.** Nothing in the Phase 3 projects talks to vnavmesh, Lifestream, TextAdvance, BossMod, or any other plugin. The fakes are pure in-memory.
 - **No quest-schema integration.** `QuestForge.Adapters` does not reference `QuestForge.Schema`. The engine (Phase 4) is what bridges between schema-shaped quest definitions and adapter-shaped commands.
 - **No `EngineDecisionConfig` type.** ADAPTERS.md §9.2 and §12.1 reference this. It is a Phase 4 type, lives in `QuestForge.Engine`, and is not part of the adapter layer.
