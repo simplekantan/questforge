@@ -1,4 +1,6 @@
+using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Config;
+using FFXIVClientStructs.FFXIV.Component.GUI;
 using Microsoft.Extensions.Logging;
 using QuestForge.Adapters.Combat;
 using QuestForge.Adapters.Dalamud;
@@ -150,6 +152,7 @@ public sealed class EngineHost : IDisposable
 
             case EngineAction.Interact i:
                 _services.Log.Debug($"[Interact] npc={i.Target.Value}");
+                TryCutsceneSkipConfirm();
                 await _interactor.InteractWith(i.Target, ct);
                 // Advance any open dialogue and attempt journal buttons — returns Fail
                 // immediately if the respective addon is not visible.
@@ -161,6 +164,7 @@ public sealed class EngineHost : IDisposable
             case EngineAction.Wait:
                 // Engine is satisfied with step state but waiting for the game to advance
                 // sequence (e.g. Talk addon still open after interact). Keep clicking through.
+                TryCutsceneSkipConfirm();
                 await _interactor.AdvanceDialogue(ct);
                 await _interactor.AcceptQuest(_currentQuestId, ct);
                 await _interactor.CompleteQuest(_currentQuestId, ct);
@@ -190,6 +194,20 @@ public sealed class EngineHost : IDisposable
     }
 
     public void Dispose() => EndRun();
+
+    // When a skippable cutscene is active, AutoCutsceneSkipper presses Escape which opens
+    // a SelectString confirmation dialog. Click the first entry (Yes/skip) to confirm.
+    // OccupiedInCutSceneEvent is the reliable flag for skippable cutscenes; WatchingCutscene78
+    // marks non-skippable ones that must be waited out — do not attempt to click those.
+    private unsafe void TryCutsceneSkipConfirm()
+    {
+        if (!_services.Condition[ConditionFlag.OccupiedInCutSceneEvent]) return;
+
+        var addonPtr = _services.GameGui.GetAddonByName("SelectString");
+        if (addonPtr.IsNull || !addonPtr.IsVisible) return;
+
+        ((AtkUnitBase*)addonPtr.Address)->FireCallbackInt(0);
+    }
 
     private void EnableCutsceneSkip()
     {

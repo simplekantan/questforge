@@ -1,5 +1,7 @@
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using ECommons;
+using ECommons.Automation;
 using QuestForge.Adapters.Dalamud;
 using QuestForge.Plugin.Commands;
 
@@ -29,6 +31,9 @@ public sealed class Plugin : IDalamudPlugin
     {
         _framework = framework;
 
+        // ECommons must be initialized before AutoCutsceneSkipper
+        ECommonsMain.Init(pi, this);
+
         var services = new PluginServices(
             pi, framework, clientState, condition,
             objectTable, dataManager, targetManager,
@@ -38,6 +43,12 @@ public sealed class Plugin : IDalamudPlugin
         _command = new QfCommand(_host, commandManager, chatGui, log, pi);
 
         Directory.CreateDirectory(Path.Combine(pi.GetPluginConfigDirectory(), "quests"));
+
+        // Hook the game's cutscene handler to press Escape when a run is active.
+        // If another plugin (e.g. TextAdvance) already holds the hook, Init throws —
+        // catch silently: IGameConfig skip-all and our SelectString confirmation still work.
+        try { AutoCutsceneSkipper.Init(_ => _host.IsRunActive); }
+        catch { /* Hook already owned by another plugin — IGameConfig covers ESC */ }
 
         _framework.Update += OnFrameworkUpdate;
     }
@@ -60,5 +71,6 @@ public sealed class Plugin : IDalamudPlugin
         _command.Dispose();
         _host.Dispose();
         _cts.Dispose();
+        ECommonsMain.Dispose();
     }
 }
