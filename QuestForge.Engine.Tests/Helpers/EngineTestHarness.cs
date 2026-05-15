@@ -160,7 +160,7 @@ public sealed class EngineTestHarness
         try
         {
             _effectiveTrace.Write(new ActionSubmittedEvent(
-                Engine.CurrentRunId ?? string.Empty, actionType, parameters, DateTimeOffset.UtcNow));
+                Engine.CurrentRunId, actionType, parameters, DateTimeOffset.UtcNow));
         }
         catch { /* best effort */ }
     }
@@ -170,7 +170,7 @@ public sealed class EngineTestHarness
         try
         {
             _effectiveTrace.Write(new ActionCompletedEvent(
-                Engine.CurrentRunId ?? string.Empty, actionType, outcome, DateTimeOffset.UtcNow));
+                Engine.CurrentRunId, actionType, outcome, DateTimeOffset.UtcNow));
         }
         catch { /* best effort */ }
     }
