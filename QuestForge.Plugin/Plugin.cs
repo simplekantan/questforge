@@ -36,6 +36,8 @@ public sealed class Plugin : IDalamudPlugin
         _host    = new EngineHost(services);
         _command = new QfCommand(_host, commandManager, chatGui, log, pi);
 
+        Directory.CreateDirectory(Path.Combine(pi.GetPluginConfigDirectory(), "quests"));
+
         _framework.Update += OnFrameworkUpdate;
     }
 
