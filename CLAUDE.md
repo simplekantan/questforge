@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-QuestForge is a Dalamud plugin for automating FFXIV (Final Fantasy XIV) quest completion. The project is currently in the **design/pre-implementation phase** — all specifications live in `questForgeDocs/`. The implementation follows a 10-phase roadmap defined in `questForgeDocs/NEXT_STEPS.md`.
+QuestForge is a Dalamud plugin for automating FFXIV (Final Fantasy XIV) quest completion. The project is in **active implementation** — all specifications live in `docs/`. The implementation follows a 10-phase roadmap defined in `docs/NEXT_STEPS.md`.
 
 ## Repository Structure (Planned — Three Repos)
 
@@ -12,14 +12,15 @@ This repo (`questforge`, MIT) is the plugin source. Two companion repos will exi
 - `questforge-data` (CC-BY-4.0) — Quest definitions (JSON) and trace fixtures
 - `questforge-tools` (MIT) — Schema validator CLI (`qf-validate`) and replay harness (`qf-trace`)
 
-Planned project layout within this repo:
+Actual project layout:
 ```
 QuestForge.Engine/           # Pure C# — no Dalamud dependency (testability boundary)
 QuestForge.Engine.Tests/     # xUnit, runs in CI without a game
 QuestForge.Adapters/         # Adapter interface definitions only
 QuestForge.Adapters.Dalamud/ # Concrete Dalamud-backed implementations
-QuestForge.Plugin/           # Dalamud integration layer
-QuestForge.UI/               # ImGui windows
+QuestForge.Adapters.Fakes/   # In-memory fakes + recording proxies for tests
+QuestForge.Plugin/           # Dalamud integration layer (entry point, EngineHost, /qf commands)
+QuestForge.Schema/           # Quest file schema types + STJ source-generated context
 ```
 
 ## Build & Test Commands
@@ -125,4 +126,4 @@ All design is in `docs/`:
 | 9 | Authoring mode (inspect + record + draft management + export) | 3-4 weeks |
 | 10+ | Incremental quest corpus expansion | Ongoing |
 
-**Current status: Phase 5 complete. Phase 6 (Dalamud-backed adapters) next.**
+**Current status: Phase 6 complete. Phase 7 (canonical trace + replay harness) next.**

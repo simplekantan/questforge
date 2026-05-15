@@ -1,9 +1,35 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Dalamud.NET.Sdk/15.0.0.0">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <Platforms>x64</Platforms>
     <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- AssemblyName controls InternalName in the generated manifest and the config directory.
+         Set to "QuestForge" so traces land in pluginConfigs\QuestForge\ not pluginConfigs\QuestForge.Plugin\ -->
+    <AssemblyName>QuestForge</AssemblyName>
   </PropertyGroup>
+
+  <!-- Copy plugin manifest into the TFM output folder alongside the DLL.
+       $(TargetDir) resolves to bin\Debug\ (Dalamud SDK override) but the DLL
+       lands in bin\Debug\net10.0\ via MSBuild's TFM logic, so we target it directly. -->
+  <Target Name="CopyManifestToTfmOutput" AfterTargets="Build">
+    <PropertyGroup>
+      <_TfmOutputDir>$(ProjectDir)bin\$(Configuration)\net10.0\</_TfmOutputDir>
+    </PropertyGroup>
+    <Copy SourceFiles="$(ProjectDir)QuestForge.json"
+          DestinationFolder="$(_TfmOutputDir)"
+          Condition="Exists('$(_TfmOutputDir)')" />
+  </Target>
+
+  <ItemGroup>
+    <ProjectReference Include="..\QuestForge.Adapters\QuestForge.Adapters.csproj" />
+    <ProjectReference Include="..\QuestForge.Adapters.Dalamud\QuestForge.Adapters.Dalamud.csproj" />
+    <ProjectReference Include="..\QuestForge.Adapters.Fakes\QuestForge.Adapters.Fakes.csproj" />
+    <ProjectReference Include="..\QuestForge.Engine\QuestForge.Engine.csproj" />
+    <ProjectReference Include="..\QuestForge.Schema\QuestForge.Schema.csproj" />
+    <PackageReference Include="ECommons" Version="3.*" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.5" />
+  </ItemGroup>
 
 </Project>

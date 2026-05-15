@@ -1,0 +1,12 @@
+{
+  "Author": "simplekantan",
+  "Name": "QuestForge",
+  "InternalName": "QuestForge",
+  "Punchline": "Automates FFXIV quest completion.",
+  "Description": "Drives quest acceptance, NPC interaction, and navigation automatically. Use /qf to control.",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "automation",
+    "quest"
+  ]
+}
