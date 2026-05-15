@@ -7,23 +7,17 @@ public readonly record struct Unit
 
 public abstract record Result<T>
 {
-    // Inner types match the spec: Result<T>.Success and Result<T>.Failure.
-    // Success uses a distinct primary-constructor parameter name to avoid clashing
-    // with the abstract base's Value property; the new keyword resolves the
-    // remaining hide-warning since TreatWarningsAsErrors is on.
-    public sealed record Success(T Value) : Result<T>
-    {
-        // CS0108: hides inherited Result<T>.Value — intentional; 'new' silences it.
-        public new T Value { get; init; } = Value;
-    }
-
+    public sealed record Success(T Value) : Result<T>;
     public sealed record Failure(string Reason, string? Detail = null) : Result<T>;
 
     public bool IsSuccess => this is Success;
+
+    // Safe accessor — returns default when Failure.
     public T? ValueOrDefault => this is Success s ? s.Value : default;
 
-    // Throws InvalidOperationException on Failure; use after checking IsSuccess.
-    public T Value => this is Success s
+    // Throwing accessor — use only after confirming IsSuccess.
+    // Named ValueOrThrow (not Value) to avoid shadowing Success.Value.
+    public T ValueOrThrow => this is Success s
         ? s.Value
         : throw new InvalidOperationException($"Result is Failure: {((Failure)this).Reason}");
 }

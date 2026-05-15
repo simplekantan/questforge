@@ -115,10 +115,5 @@ public sealed record AsObject(InteractableId Id) : InteractableOrNpc;
 
 public enum ChatChannel { Say, Yell, Shout }
 
-public enum DutyFallbackPolicy
-{
-    SupportOnly,
-    SupportThenFinder,
-    FinderOnly,
-    AlwaysPromptUser
-}
+// DutyFallbackPolicy is an engine-level config concern (EngineDecisionConfig),
+// not an adapter concern. It lives in QuestForge.Engine (Phase 4).
