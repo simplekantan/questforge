@@ -204,7 +204,7 @@ public sealed class EngineHost : IDisposable
         if (!_services.Condition[ConditionFlag.OccupiedInCutSceneEvent]) return;
 
         var addonPtr = _services.GameGui.GetAddonByName("SelectString");
-        if (addonPtr.IsNull || !addonPtr.IsVisible) return;
+        if (addonPtr.IsNull || !addonPtr.IsReady) return;
 
         ((AtkUnitBase*)addonPtr.Address)->FireCallbackInt(0);
     }

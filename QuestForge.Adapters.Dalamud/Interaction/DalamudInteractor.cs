@@ -64,7 +64,9 @@ public sealed class DalamudInteractor : IInteractor
     public Task<Result<DialogueOutcome>> AdvanceDialogue(CancellationToken ct)
     {
         var addonPtr = _svc.GameGui.GetAddonByName("Talk");
-        if (addonPtr.IsNull || !addonPtr.IsVisible)
+        // IsReady is the preferred check (per AtkUnitBase docs); IsVisible can be false
+        // even when the addon is rendering and accepting events.
+        if (addonPtr.IsNull || !addonPtr.IsReady)
             return Task.FromResult<Result<DialogueOutcome>>(Result.Ok(DialogueOutcome.NoActiveDialogue));
 
         if (DateTimeOffset.UtcNow - _lastAdvanceAt < AdvanceThrottle)
@@ -177,7 +179,7 @@ public sealed class DalamudInteractor : IInteractor
         string missingAddonCode, string missingButtonCode)
     {
         var addonPtr = _svc.GameGui.GetAddonByName(addonName);
-        if (addonPtr.IsNull || !addonPtr.IsVisible)
+        if (addonPtr.IsNull || !addonPtr.IsReady)
             return Task.FromResult<Result<Unit>>(Result.Fail(missingAddonCode));
         unsafe
         {
