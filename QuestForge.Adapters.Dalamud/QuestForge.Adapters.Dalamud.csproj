@@ -1,9 +1,8 @@
-<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+<Project Sdk="Dalamud.NET.Sdk/15.0.0.0">
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows7.0</TargetFramework>
     <Platforms>x64</Platforms>
-    <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- Library only — the plugin manifest lives in QuestForge.Plugin -->
