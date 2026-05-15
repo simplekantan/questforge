@@ -1,6 +1,7 @@
 using Dalamud.Game.Command;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using QuestForge.Schema;
 
 namespace QuestForge.Plugin.Commands;
 
@@ -11,7 +12,6 @@ internal sealed class QfCommand : IDisposable
     private readonly EngineHost _host;
     private readonly ICommandManager _commands;
     private readonly IChatGui _chat;
-    private readonly IPluginLog _log;
     private readonly IDalamudPluginInterface _pi;
 
     public QfCommand(
@@ -21,7 +21,7 @@ internal sealed class QfCommand : IDisposable
         IPluginLog log,
         IDalamudPluginInterface pi)
     {
-        _host = host; _commands = commands; _chat = chat; _log = log; _pi = pi;
+        _host = host; _commands = commands; _chat = chat; _pi = pi;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
             HelpMessage = "QuestForge: /qf run <questId> | /qf stop | /qf test <gamestate|queststate|navigate|interact>"
@@ -67,7 +67,7 @@ internal sealed class QfCommand : IDisposable
             return;
         }
 
-        QuestForge.Schema.QuestDefinition? quest;
+        QuestDefinition? quest;
         try { quest = QuestFileLoader.Load(path); }
         catch (Exception ex)
         {
@@ -90,31 +90,28 @@ internal sealed class QfCommand : IDisposable
     {
         if (!_host.IsRunActive) { _chat.Print("QuestForge: no active run"); return; }
         var runId = _host.ActiveRunId;
-        // Stopping is handled by cancelling the CTS in Plugin.cs; calling EndRun here would
-        // dispose the trace while a tick may still be in flight. We just notify the user.
-        _chat.Print($"QuestForge: stop requested — run {runId} will end after the current tick");
+        _host.StopRun();
+        _chat.Print($"QuestForge: run {runId} stopped");
     }
 
     private void HandleTest(string[] args)
     {
-        // Smoke verification commands — output to chat for manual inspection.
-        // These run synchronously on the framework thread (same invariant as TickAsync).
         switch (args[0])
         {
             case "gamestate":
-                _chat.Print("QuestForge: /qf test gamestate — use /qf run to exercise adapters in-game");
+                _chat.Print($"QuestForge: {_host.GetGameStateSummary()}");
                 break;
             case "queststate":
-                _chat.Print("QuestForge: /qf test queststate — use /qf run 66130 to exercise quest state");
+                _chat.Print($"QuestForge: {_host.GetQuestStateSummary(66130)}");
                 break;
             case "navigate":
-                _chat.Print("QuestForge: /qf test navigate — not yet wired to a smoke command in Phase 6");
+                _chat.Print("QuestForge: /qf test navigate not wired in Phase 6 — use /qf run 66130");
                 break;
             case "interact":
-                _chat.Print("QuestForge: /qf test interact — not yet wired to a smoke command in Phase 6");
+                _chat.Print("QuestForge: /qf test interact not wired in Phase 6 — use /qf run 66130");
                 break;
             default:
-                _chat.PrintError($"QuestForge: unknown test command '{args[0]}'");
+                _chat.PrintError($"QuestForge: unknown test '{args[0]}'");
                 break;
         }
     }

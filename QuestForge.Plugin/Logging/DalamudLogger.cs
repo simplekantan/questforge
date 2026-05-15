@@ -18,12 +18,10 @@ public sealed class DalamudLogger<T> : ILogger<T>
         switch (logLevel)
         {
             case LogLevel.Trace or LogLevel.Debug:
-                _log.Debug(msg);
-                if (exception is not null) _log.Debug(exception.ToString());
+                _log.Debug(exception, msg);
                 break;
             case LogLevel.Information:
-                _log.Info(msg);
-                if (exception is not null) _log.Info(exception.ToString());
+                _log.Info(exception, msg);
                 break;
             case LogLevel.Warning:
                 _log.Warning(exception, msg);

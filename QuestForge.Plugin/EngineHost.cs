@@ -60,6 +60,33 @@ public sealed class EngineHost : IDisposable
     public bool IsRunActive => _engine is not null;
     public string? ActiveRunId => _runId;
 
+    // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
+    // synchronously (Task.FromResult), so DispatchAction never parks across frames.
+    public void StopRun() => EndRun();
+
+    public string GetGameStateSummary()
+    {
+        var ct = CancellationToken.None;
+        var zone = _gameStateInner.GetPlayerZone(ct).GetAwaiter().GetResult().ValueOrDefault;
+        var pos = _gameStateInner.GetPlayerPosition(ct).GetAwaiter().GetResult().ValueOrDefault;
+        var job = _gameStateInner.GetCurrentJob(ct).GetAwaiter().GetResult().ValueOrDefault;
+        var level = _gameStateInner.GetJobLevel(default, ct).GetAwaiter().GetResult().ValueOrDefault;
+        var combat = _gameStateInner.IsPlayerInCombat(ct).GetAwaiter().GetResult().ValueOrDefault;
+        var kind = _gameStateInner.GetCurrentInstanceKind(ct).GetAwaiter().GetResult().ValueOrDefault;
+        return $"zone={zone?.Value} pos=({pos?.X:F1},{pos?.Y:F1},{pos?.Z:F1}) " +
+               $"job={job?.Value} lv={level} combat={combat} instance={kind}";
+    }
+
+    public string GetQuestStateSummary(uint questRowId)
+    {
+        var ct = CancellationToken.None;
+        var qid = new QuestId(questRowId);
+        var seq = _questStateInner.GetQuestSequence(qid, ct).GetAwaiter().GetResult().ValueOrDefault;
+        var complete = _questStateInner.IsQuestComplete(qid, ct).GetAwaiter().GetResult().ValueOrDefault;
+        var accepted = _questStateInner.IsQuestAccepted(qid, ct).GetAwaiter().GetResult().ValueOrDefault;
+        return $"quest={questRowId} seq={seq} complete={complete} accepted={accepted}";
+    }
+
     public void BeginRun(QuestDefinition quest, string runId)
     {
         EndRun(); // clean up any previous run
