@@ -142,8 +142,9 @@ public abstract record Result<T>
     public bool IsSuccess => this is Success;
     public T? ValueOrDefault => this is Success s ? s.Value : default;
 
-    // Throws InvalidOperationException on Failure; use after checking IsSuccess.
-    public T Value => this is Success s
+    // ValueOrThrow: throws on Failure; use after checking IsSuccess.
+    // Not named Value to avoid shadowing Result<T>.Success.Value.
+    public T ValueOrThrow => this is Success s
         ? s.Value
         : throw new InvalidOperationException($"Result is Failure: {((Failure)this).Reason}");
 }

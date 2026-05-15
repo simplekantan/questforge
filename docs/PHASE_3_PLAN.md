@@ -82,8 +82,10 @@ public abstract record Result<T>
     // ValueOrDefault: returns default on Failure (safe)
     public T? ValueOrDefault => this is Success s ? s.Value : default;
 
-    // Value: throws on Failure (use when callers have already checked IsSuccess)
-    public T Value => this is Success s
+    // ValueOrThrow: throws on Failure (use when callers have already checked IsSuccess)
+    // Named ValueOrThrow (not Value) to avoid shadowing Result<T>.Success.Value,
+    // which would require the 'new' keyword and CS0108 suppression.
+    public T ValueOrThrow => this is Success s
         ? s.Value
         : throw new InvalidOperationException($"Result is Failure: {((Failure)this).Reason}");
 }
@@ -461,7 +463,7 @@ state.SetZone(new ZoneId(132));
 state.SetPosition(new WorldPosition(10, 0, 20));
 var nav = new FakeNavigator(state);
 var result = await nav.NavigateTo(new WorldPosition(50, 0, 50), new NavigationOptions(), CancellationToken.None);
-Assert.Equal(NavigationOutcome.Arrived, result.Value);   // .Value throws on Failure — safe here
+Assert.Equal(NavigationOutcome.Arrived, result.ValueOrThrow);   // throws on Failure — safe here
 Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 ```
 NEXT_STEPS.md simplified the signature. Three updates from the actual ADAPTERS.md §6 signature:
