@@ -73,12 +73,10 @@ public sealed class QuestEngine
 
         var questId = new QuestId(_quest.Id);
 
-        // Read current sequence
         var seqResult = await _questState.GetQuestSequence(questId, ct);
         if (seqResult is Result<int>.Failure f1)
             return new EngineAction.AwaitUser($"adapter failure reading sequence: {f1.Reason}");
 
-        // Check quest completion before walking sequence steps
         var completeResult = await _questState.IsQuestComplete(questId, ct);
         if (completeResult is Result<bool>.Success { Value: true })
             return new EngineAction.Done();
@@ -88,24 +86,18 @@ public sealed class QuestEngine
         if (matchingBlock is null)
             return new EngineAction.AwaitUser($"no sequence block matches current sequence {currentSeq}");
 
-        // Check sequence-level skipIf
         if (matchingBlock.SkipIf is not null)
         {
             if (await _expectEvaluator.Evaluate(matchingBlock.SkipIf, ct))
                 return new EngineAction.AwaitUser("sequence skipped by skipIf — engine cannot self-advance in Phase 4");
         }
 
-        // Walk steps in order
         foreach (var step in matchingBlock.Steps)
         {
-            // If expect is satisfied, this step is already done — advance to next
             if (step.Expect is not null && await _expectEvaluator.Evaluate(step.Expect, ct))
                 continue;
-
-            // If skipIf is satisfied, skip this step
             if (step.SkipIf is not null && await _expectEvaluator.Evaluate(step.SkipIf, ct))
                 continue;
-
             return ResolveActionForStep(step);
         }
 

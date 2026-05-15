@@ -35,7 +35,7 @@ public sealed class PredicateEvaluator
                 return true;
 
             case PredicateAst.IntLiteral(var value):
-                return value; // long
+                return value;
 
             case PredicateAst.StringLiteral(var value):
                 return value;
@@ -81,15 +81,17 @@ public sealed class PredicateEvaluator
                 return !innerBool;
             }
 
+            case PredicateAst.ParameterRef:
+                throw new NotSupportedException(
+                    "PredicateAst.ParameterRef requires a fragment parameter scope — not supported until Phase 7+");
+
             default:
-                throw new UnknownStateFunctionException(ast.GetType().Name,
-                    $"Unknown AST node type: {ast.GetType().Name}");
+                throw new NotSupportedException($"Unhandled PredicateAst node type: {ast.GetType().Name}");
         }
     }
 
     private async Task<object> EvaluateFunction(string name, IReadOnlyList<PredicateAst> argNodes, CancellationToken ct)
     {
-        // Pre-evaluate arguments
         var args = new object[argNodes.Count];
         for (var i = 0; i < argNodes.Count; i++)
             args[i] = await EvaluateInternal(argNodes[i], ct);
