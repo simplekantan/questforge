@@ -25,6 +25,11 @@ public sealed class VnavmeshNavigator : INavigator
         if (!_ipc.NavIsReady())
             return Task.FromResult<Result<NavigationOutcome>>(Result.Ok(NavigationOutcome.NavmeshUnavailable));
 
+        // Don't re-queue pathfinding every tick while already navigating — vnavmesh would
+        // re-pathfind from the current position each call, flooding the log and wasting CPU.
+        if (_ipc.PathIsRunning() || _ipc.PathfindInProgress())
+            return Task.FromResult<Result<NavigationOutcome>>(Result.Ok(NavigationOutcome.Arrived));
+
         var dest = new Vector3(destination.X, destination.Y, destination.Z);
         // Respect the quest schema's UseFlight preference, but override to ground
         // if PlayerState.CanFly is false — the zone hasn't granted flying (no air navmesh built).
