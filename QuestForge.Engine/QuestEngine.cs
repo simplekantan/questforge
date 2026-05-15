@@ -7,6 +7,8 @@ using QuestForge.Adapters.Minigames;
 using QuestForge.Adapters.Movement;
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Timing;
+using QuestForge.Adapters.Types;
+using QuestForge.Engine.Predicates;
 using QuestForge.Schema;
 
 namespace QuestForge.Engine;
@@ -25,6 +27,9 @@ public sealed class QuestEngine
     private readonly ITimingProfile _timing;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
+    private readonly ExpectEvaluator _expectEvaluator;
+
+    private QuestDefinition? _quest;
 
     public QuestEngine(
         IGameStateProvider gameState,
@@ -52,9 +57,77 @@ public sealed class QuestEngine
         _timing = timing ?? throw new ArgumentNullException(nameof(timing));
         _trace = trace ?? throw new ArgumentNullException(nameof(trace));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+        _expectEvaluator = new ExpectEvaluator(new PredicateEvaluator(gameState, questState));
     }
 
-    public void StartQuest(QuestDefinition quest) => throw new NotImplementedException();
+    public void StartQuest(QuestDefinition quest)
+    {
+        _quest = quest ?? throw new ArgumentNullException(nameof(quest));
+    }
 
-    public Task<EngineAction> Tick(CancellationToken ct) => throw new NotImplementedException();
+    public async Task<EngineAction> Tick(CancellationToken ct)
+    {
+        if (_quest is null)
+            return new EngineAction.AwaitUser("no quest loaded");
+
+        var questId = new QuestId(_quest.Id);
+
+        // Read current sequence
+        var seqResult = await _questState.GetQuestSequence(questId, ct);
+        if (seqResult is Result<int>.Failure f1)
+            return new EngineAction.AwaitUser($"adapter failure reading sequence: {f1.Reason}");
+
+        // Check quest completion before walking sequence steps
+        var completeResult = await _questState.IsQuestComplete(questId, ct);
+        if (completeResult is Result<bool>.Success { Value: true })
+            return new EngineAction.Done();
+
+        var currentSeq = seqResult.ValueOrThrow;
+        var matchingBlock = _quest.Sequences.FirstOrDefault(s => s.Sequence == currentSeq);
+        if (matchingBlock is null)
+            return new EngineAction.AwaitUser($"no sequence block matches current sequence {currentSeq}");
+
+        // Check sequence-level skipIf
+        if (matchingBlock.SkipIf is not null)
+        {
+            if (await _expectEvaluator.Evaluate(matchingBlock.SkipIf, ct))
+                return new EngineAction.AwaitUser("sequence skipped by skipIf — engine cannot self-advance in Phase 4");
+        }
+
+        // Walk steps in order
+        foreach (var step in matchingBlock.Steps)
+        {
+            // If expect is satisfied, this step is already done — advance to next
+            if (step.Expect is not null && await _expectEvaluator.Evaluate(step.Expect, ct))
+                continue;
+
+            // If skipIf is satisfied, skip this step
+            if (step.SkipIf is not null && await _expectEvaluator.Evaluate(step.SkipIf, ct))
+                continue;
+
+            return ResolveActionForStep(step);
+        }
+
+        return new EngineAction.Wait("all steps in current sequence satisfied; awaiting game sequence advance");
+    }
+
+    private EngineAction ResolveActionForStep(Step step) => step switch
+    {
+        TravelStep travel when travel.Destination.Position is { } pos =>
+            new EngineAction.Navigate(
+                new WorldPosition(pos.X, pos.Y, pos.Z),
+                new NavigationOptions(StoppingDistance: step.StopDistance ?? 3.0f)),
+
+        TravelStep travel when travel.Destination.Position is null =>
+            throw new NotSupportedException("Phase 4 does not support aetheryte-only travel steps"),
+
+        TalkStep talk when talk.Target is not null =>
+            new EngineAction.Interact(new NpcId(talk.Target.NpcId)),
+
+        TalkStep talk when talk.Target is null && talk.Targets is { Length: > 0 } =>
+            throw new NotSupportedException("Phase 4 does not support multi-target talk steps"),
+
+        _ => throw new NotSupportedException($"Phase 4 does not support step type {step.GetType().Name}")
+    };
 }
