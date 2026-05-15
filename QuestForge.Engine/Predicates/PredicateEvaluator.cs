@@ -121,7 +121,6 @@ public sealed class PredicateEvaluator
         var leftVal = await EvaluateInternal(left, ct);
         var rightVal = await EvaluateInternal(right, ct);
 
-        // Integer comparison
         if (leftVal is long lLong && rightVal is long rLong)
         {
             return op switch
@@ -136,7 +135,6 @@ public sealed class PredicateEvaluator
             };
         }
 
-        // String comparison
         if (leftVal is string lStr && rightVal is string rStr)
         {
             return op switch
