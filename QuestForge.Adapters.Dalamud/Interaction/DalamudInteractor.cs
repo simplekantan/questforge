@@ -9,20 +9,27 @@ namespace QuestForge.Adapters.Dalamud.Interaction;
 public sealed class DalamudInteractor : IInteractor
 {
     private readonly PluginServices _svc;
-    private DateTimeOffset _lastAdvanceAt = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastAdvanceAt  = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastInteractAt = DateTimeOffset.MinValue;
 
     // ~15 game ticks at 60 fps ≈ 250 ms; prevents spamming dialogue clicks every frame
-    private static readonly TimeSpan AdvanceThrottle = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan AdvanceThrottle  = TimeSpan.FromMilliseconds(250);
+    // Re-trigger NPC interaction at most once per second; the game needs time to open the addon
+    private static readonly TimeSpan InteractThrottle = TimeSpan.FromMilliseconds(1000);
 
     public DalamudInteractor(PluginServices svc) => _svc = svc;
 
     public Task<Result<InteractOutcome>> InteractWith(NpcId npc, CancellationToken ct)
     {
+        if (DateTimeOffset.UtcNow - _lastInteractAt < InteractThrottle)
+            return Task.FromResult<Result<InteractOutcome>>(Result.Ok(InteractOutcome.AlreadyInteracted));
+
         foreach (var obj in _svc.ObjectTable)
         {
             if (obj is null || obj.BaseId != npc.Value) continue;
             if (obj.ObjectKind is not (ObjectKind.EventNpc or ObjectKind.BattleNpc)) continue;
 
+            _lastInteractAt = DateTimeOffset.UtcNow;
             _svc.TargetManager.Target = obj;
             unsafe
             {
