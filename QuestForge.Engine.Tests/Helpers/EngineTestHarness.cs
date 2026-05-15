@@ -7,7 +7,7 @@ using QuestForge.Adapters.Fakes.Gear;
 using QuestForge.Adapters.Fakes.Interaction;
 using QuestForge.Adapters.Fakes.Minigames;
 using QuestForge.Adapters.Fakes.Movement;
-using QuestForge.Adapters.Fakes.Recording;
+using QuestForge.Adapters.Recording;
 using QuestForge.Adapters.Fakes.State;
 using QuestForge.Adapters.Fakes.Timing;
 using QuestForge.Adapters.Movement;

@@ -1,7 +1,7 @@
 using System.Text.Json;
 using QuestForge.Adapters;
 using QuestForge.Adapters.Fakes;
-using QuestForge.Adapters.Fakes.Recording;
+using QuestForge.Adapters.Recording;
 using QuestForge.Adapters.Fakes.State;
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Tracing;
@@ -11,9 +11,7 @@ using Xunit;
 namespace QuestForge.Engine.Tests.Recording;
 
 /// <summary>
-/// RED PHASE: Tests for RecordingGameStateProvider — the recording proxy over IGameStateProvider.
-/// All tests fail until Builder implements RecordingGameStateProvider in QuestForge.Adapters.Fakes.
-///
+/// Tests for RecordingGameStateProvider (QuestForge.Adapters.Recording).
 /// Covers §6.3 (GameState proxy portion, 11 tests) of PHASE_5_PLAN.md.
 /// </summary>
 public sealed class RecordingGameStateProviderTests

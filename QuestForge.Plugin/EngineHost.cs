@@ -11,7 +11,7 @@ using QuestForge.Adapters.Dalamud.Interaction;
 using QuestForge.Adapters.Dalamud.Minigames;
 using QuestForge.Adapters.Dalamud.Movement;
 using QuestForge.Adapters.Dalamud.Timing;
-using QuestForge.Adapters.Fakes.Recording;
+using QuestForge.Adapters.Recording;
 using QuestForge.Adapters.Gear;
 using QuestForge.Adapters.Interaction;
 using QuestForge.Adapters.Movement;

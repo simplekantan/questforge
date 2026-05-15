@@ -4,7 +4,7 @@ using QuestForge.Adapters.State;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 
-namespace QuestForge.Adapters.Fakes.Recording;
+namespace QuestForge.Adapters.Recording;
 
 public sealed class RecordingQuestState : IQuestState
 {
