@@ -1,5 +1,4 @@
 using FFXIVClientStructs.FFXIV.Client.Game;
-using Lumina.Excel.Sheets;
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Types;
 
@@ -9,70 +8,44 @@ public sealed class DalamudQuestState : IQuestState
 {
     private readonly PluginServices _svc;
 
-    // Lazy-initialised: DataManager may not be fully ready at construction time.
-    // Throws InvalidOperationException at first use if the sheet is unavailable.
-    private readonly Lazy<Lumina.Excel.ExcelSheet<Quest>> _questSheet;
+    public DalamudQuestState(PluginServices svc) => _svc = svc;
 
-    public DalamudQuestState(PluginServices svc)
-    {
-        _svc = svc;
-        _questSheet = new Lazy<Lumina.Excel.ExcelSheet<Quest>>(() =>
-            svc.DataManager.GetExcelSheet<Quest>()
-            ?? throw new InvalidOperationException("Lumina Quest sheet unavailable"));
-    }
-
-    // --- ID translation ---------------------------------------------------
-
-    // Lumina rowId → in-game QuestManager ushort (lower 16 bits)
+    // Lumina rowId → QuestManager ushort (lower 16 bits); reverse restores 0x10000 prefix
     private static ushort ToInternal(QuestId q) => (ushort)(q.Value & 0xFFFF);
-
-    // In-game ushort → public QuestId (or into 0x10000 range)
     private static QuestId ToPublic(ushort id) => new((uint)id | 0x10000u);
 
-    // --- IQuestState — Status queries -------------------------------------
-
-    // Satisfies: GetQuestStatus
-    // Logic: complete → Accepted (in journal) → Available (Phase 6 default)
     public Task<Result<QuestStatus>> GetQuestStatus(QuestId quest, CancellationToken ct)
     {
         unsafe
         {
+            var internalId = ToInternal(quest);
+
+            if (QuestManager.IsQuestComplete(internalId))
+                return Task.FromResult<Result<QuestStatus>>(Result.Ok(QuestStatus.Complete));
+
             var qm = QuestManager.Instance();
             if (qm == null)
                 return Task.FromResult<Result<QuestStatus>>(
                     Result.Fail<QuestStatus>("questManagerNull", "QuestManager instance unavailable"));
 
-            var internalId = ToInternal(quest);
-
-            // Most specific first: already finished
-            if (QuestManager.IsQuestComplete(internalId))
-                return Task.FromResult<Result<QuestStatus>>(Result.Ok(QuestStatus.Complete));
-
-            // In the active journal → Accepted
             if (qm->IsQuestAccepted(internalId))
                 return Task.FromResult<Result<QuestStatus>>(Result.Ok(QuestStatus.Accepted));
 
-            // Phase 6 simplification: full prerequisite validation deferred.
-            // Quest 66130 done-criterion never exercises this branch with Locked.
+            // Phase 6: full prerequisite validation deferred — quest 66130 is always Available
             return Task.FromResult<Result<QuestStatus>>(Result.Ok(QuestStatus.Available));
         }
     }
 
-    // Satisfies: GetQuestSequence
-    // Uses the static QuestManager.GetQuestSequence helper which returns 0 when
-    // the quest is not active (not in journal or already complete).
     public Task<Result<int>> GetQuestSequence(QuestId quest, CancellationToken ct)
     {
         unsafe
         {
-            // Static method — no instance needed; returns 0 when quest not in journal
             return Task.FromResult<Result<int>>(
                 Result.Ok((int)QuestManager.GetQuestSequence(ToInternal(quest))));
         }
     }
 
-    // Satisfies: GetQuestFlags
-    // QuestWork.Flags is a byte bitfield (IsPriority, RewardItemArrayIndex, IsHidden).
+    // QuestWork.Flags is a byte bitfield: IsPriority (bit 0), RewardItemArrayIndex (bits 1-2), IsHidden (bit 3)
     public Task<Result<uint>> GetQuestFlags(QuestId quest, CancellationToken ct)
     {
         unsafe
@@ -91,10 +64,6 @@ public sealed class DalamudQuestState : IQuestState
         }
     }
 
-    // Satisfies: IsQuestFlagSet
-    // Phase 6 placeholder: individual flag-bit semantics not yet mapped to engine predicates.
-    // The Flags byte holds IsPriority (bit 0), RewardItemArrayIndex (bits 1-2), IsHidden (bit 3)
-    // but none of these are exercised by the quest 66130 done-criterion.
     public Task<Result<bool>> IsQuestFlagSet(QuestId quest, int flagBit, CancellationToken ct)
     {
         unsafe
@@ -108,17 +77,11 @@ public sealed class DalamudQuestState : IQuestState
             if (q == null)
                 return Task.FromResult<Result<bool>>(Result.Ok(false));
 
-            // Phase 6 placeholder: flag bit mapping to engine predicates deferred.
-            // Raw bit test on the Flags byte for callers that know the offset.
             var set = (q->Flags & (1 << flagBit)) != 0;
             return Task.FromResult<Result<bool>>(Result.Ok(set));
         }
     }
 
-    // --- IQuestState — Lifecycle queries ----------------------------------
-
-    // Satisfies: IsQuestAccepted
-    // Uses the QuestManager instance method which scans NormalQuests internally.
     public Task<Result<bool>> IsQuestAccepted(QuestId quest, CancellationToken ct)
     {
         unsafe
@@ -132,8 +95,6 @@ public sealed class DalamudQuestState : IQuestState
         }
     }
 
-    // Satisfies: IsQuestComplete
-    // Static helper — does not require a non-null QuestManager pointer at call site.
     public Task<Result<bool>> IsQuestComplete(QuestId quest, CancellationToken ct)
     {
         unsafe
@@ -143,21 +104,13 @@ public sealed class DalamudQuestState : IQuestState
         }
     }
 
-    // Satisfies: IsQuestAvailable
-    // Phase 6 placeholder: full prerequisite check (level, class, prior quests) deferred.
-    // Quest 66130 done-criterion does not exercise this path.
+    // Phase 6 placeholder: prerequisite check (level, class, prior quests) deferred
     public Task<Result<bool>> IsQuestAvailable(QuestId quest, CancellationToken ct)
         => Task.FromResult<Result<bool>>(Result.Ok(true));
 
-    // Satisfies: WhyUnavailable
-    // Phase 6 placeholder: returns null (no known reason) since IsQuestAvailable always returns true.
     public Task<Result<QuestUnlockReason?>> WhyUnavailable(QuestId quest, CancellationToken ct)
         => Task.FromResult<Result<QuestUnlockReason?>>(Result.Ok<QuestUnlockReason?>(null));
 
-    // --- IQuestState — Collections ----------------------------------------
-
-    // Satisfies: GetAcceptedQuests
-    // Scans the 30-slot NormalQuests journal; skips empty slots (QuestId == 0).
     public Task<Result<IReadOnlyList<QuestId>>> GetAcceptedQuests(CancellationToken ct)
     {
         unsafe
@@ -180,10 +133,6 @@ public sealed class DalamudQuestState : IQuestState
         }
     }
 
-    // --- IQuestState — Rewards --------------------------------------------
-
-    // Satisfies: GetAvailableQuestRewards
-    // Phase 6 placeholder: reward selection UI deferred; quest 66130 pilot does not use this.
     public Task<Result<IReadOnlyList<QuestReward>>> GetAvailableQuestRewards(CancellationToken ct)
         => Task.FromResult<Result<IReadOnlyList<QuestReward>>>(
             Result.Ok<IReadOnlyList<QuestReward>>(Array.Empty<QuestReward>()));
