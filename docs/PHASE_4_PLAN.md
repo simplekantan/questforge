@@ -746,9 +746,10 @@ These are the behaviors the Tester must cover. Each maps to one or more xUnit te
 The full-flow tests load the fixture and drive the engine to completion via the test harness loop described in §7 above. Several sub-cases:
 
 **5.4.1 — Cold start, sequence 0, player elsewhere:**
-- Given: `questState.SetQuestSequence(QuestId(66130), 0)`; `gameState.SetZone(new ZoneId(182))`; `gameState.SetPosition((0,0,0))` (far from Wymond); `gameState.AddNpc(NpcReference(1003987, (35.56, 4, -151.18), 200f))` (out of range).
+- Given: `questState.SetQuestSequence(new QuestId(66130), 0)`; `gameState.SetZone(new ZoneId(182))`; `gameState.SetPosition(new WorldPosition(0f, 0f, 0f))` (far from Wymond — distance to `{x:35.56,y:4.0,z:-151.18}` is ≈155 >> 3, so `playerNear` expect is false).
 - When: engine `Tick`.
-- Then: returns `EngineAction.Navigate(Destination=(35.56, 4, -151.18), Options=NavigationOptions{...})`.
+- Then: returns `EngineAction.Navigate(Destination=new WorldPosition(35.56f, 4.0f, -151.18f), ...)`.
+- Note: no `AddNpc` call is needed. The `playerNear` evaluator reads `GetPlayerPosition()` and computes distance to the literal coordinates in the predicate — it does not consult the NPC list.
 
 **5.4.2 — Travel step complete, player near Wymond:**
 - Given: same as 5.4.1 but `gameState.SetPosition(new WorldPosition(35.56f, 4f, -151.18f))`. Player is now at Wymond's position; Euclidean distance to the `playerNear` literal is 0 ≤ 3, so the travel step's expect is satisfied.
@@ -779,9 +780,9 @@ The full-flow tests load the fixture and drive the engine to completion via the 
 - Then: first action is `Navigate(Destination=(21.84, 7, -81.13))`. The engine never returns Wymond-related actions.
 
 **5.5.2 — Start with talk-to-Momodi expect already satisfied (resume after partial completion):**
-- Given: sequence 255; player at Momodi position (`(21.84, 7, -81.13)`); NPC Momodi present with `DistanceToPlayer < 3.5`; quest not yet complete.
+- Given: sequence 255; `gameState.SetPosition(new WorldPosition(21.84f, 7.0f, -81.13f))` (player at Momodi's exact position; distance to the `playerNear` literal is 0 ≤ 3); quest not yet complete.
 - When: `Tick`.
-- Then: returns `Interact(NpcId(1003988))` (travel step expect satisfied; talk step is next).
+- Then: returns `Interact(NpcId(1003988))` (travel step `playerNear` expect satisfied; engine advances to talk step).
 
 ### 5.6 Done detection
 
