@@ -35,9 +35,10 @@ public sealed class TraceWriter : ITraceWriter, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var json = JsonSerializer.Serialize(evt, TraceEventJsonContext.Default.TraceEvent);
-        if (json.Length > MaxEventBytes)
+        var byteCount = Encoding.UTF8.GetByteCount(json);
+        if (byteCount > MaxEventBytes)
             throw new InvalidOperationException(
-                $"Trace event exceeds {MaxEventBytes}-byte cap: {json.Length} bytes for type '{evt.Type}'");
+                $"Trace event exceeds {MaxEventBytes}-byte cap: {byteCount} bytes for type '{evt.Type}'");
         lock (_writeLock)
         {
             // Lazily create the StreamWriter inside the lock on first Write.

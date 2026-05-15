@@ -369,8 +369,11 @@ public sealed class TraceWriterTests
         var evt2 = new RunEndEvent("run-a", "done", _now);
 
         // Act — fire both concurrently
+        // xUnit1051: CancellationToken not required here; test fires and forgets both tasks.
+#pragma warning disable xUnit1051
         var t1 = Task.Run(() => writer.Write(evt1));
         var t2 = Task.Run(() => writer.Write(evt2));
+#pragma warning restore xUnit1051
         await Task.WhenAll(t1, t2);
 
         // Assert
