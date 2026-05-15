@@ -414,7 +414,7 @@ The plan specifies *what* each fake exposes, not *how* it implements the interfa
 **Observable:**
 - `RecordedReads` — every method call recorded with the method name and any arguments. Used by Phase 5 recording-proxy tests.
 
-**Default state:** zone 0, position (0,0,0), job 1, level 1, alive, not in combat, dismounted, `InstanceKind.None`, no NPCs, no interactables, empty inventory, zero gil, full inventory, NG+ inactive. Tests script only what they care about.
+**Default state:** zone 0, position (0,0,0), job 1, level 1, alive, not in combat, dismounted, `InstanceKind.None`, no NPCs, no interactables, no items in inventory, zero gil, maximum free inventory slots, NG+ inactive. Tests script only what they care about.
 
 #### `FakeQuestState` — state reader
 
@@ -440,7 +440,7 @@ Takes a `FakeGameStateProvider` in its constructor (so navigation can mutate the
 
 **Observable:**
 - `RecordedNavigationRequests` — list of `NavigationRequest(destination, options, at)`
-- `IsNavigating` returns true between `NavigateTo` start and `Stop`, by default
+- `IsNavigating` — explicitly settable via `SetIsNavigating(bool)`; not derived from `NavigateTo` / `Stop` because the fake completes synchronously and there is no in-flight state to observe. The engine polls this to detect whether navigation is still running; tests set it directly to simulate that condition.
 
 **Done criteria 1 (state reader category):**
 ```csharp
@@ -479,7 +479,7 @@ Takes a `FakeGameStateProvider` in its constructor (teleport relocates the playe
 
 #### `FakeInteractor` — action executor (largest fake)
 
-Takes `FakeGameStateProvider` so dialogue choices can advance the engine's view of UI state, accepted quests, etc.
+Takes both `FakeGameStateProvider` and `FakeQuestState` in its constructor. Accepting a quest mutates quest-specific state (sequence, flags, status) via `FakeQuestState`, and game-visible state (UI, inventory) via `FakeGameStateProvider`.
 
 **Scriptable:**
 - `ScriptNextInteractResult(InteractOutcome)`
@@ -590,7 +590,7 @@ QuestForge.Adapters.Tests/
 
 These tests verify the **fakes**, not the interfaces. They prove:
 
-1. **Scriptable state actually round-trips.** `state.SetZone(132)` followed by `state.GetPlayerZone(ct)` returns 132.
+1. **Scriptable state actually round-trips.** `state.SetZone(new ZoneId(132))` followed by `state.GetPlayerZone(ct)` returns `new ZoneId(132)`.
 2. **Recorded calls capture the right data.** A call to `nav.NavigateTo(pos, opts, ct)` appears in `RecordedNavigationRequests` with the same `pos` and `opts`.
 3. **Cancellation throws.** Calling an adapter with a pre-cancelled token throws `OperationCanceledException` and does not record the call.
 4. **Default behaviors are documented.** A fresh `FakeNavigator` returns `Arrived`. A fresh `FakeDialogueResolver` returns `sheet-reference-not-found`. The tests pin these.
@@ -683,7 +683,7 @@ Add a "Future phases — not yet implemented" solution folder containing empty s
 
 The placeholders are added now so the solution reflects the planned architecture and so adding code to them later does not require solution file changes mid-PR. Empty csprojs build cleanly and produce no output.
 
-### 4.3 `ITraceWriter` in `QuestForge.Adapters`
+### 4.2 `ITraceWriter` in `QuestForge.Adapters`
 
 ADAPTERS.md §14.1 defines `ITraceWriter` as part of the engine constructor signature. The Phase 3 engine-constructor surface test (§3.3.8) references it. Rather than defining a stub in the test project and moving it in Phase 5, declare a minimal interface in `QuestForge.Adapters` now:
 
@@ -699,7 +699,7 @@ public interface ITraceWriter
 
 Phase 5 replaces this stub with the full JSONL implementation without changing any call sites. `QuestForge.Adapters.Fakes` adds a `FakeTraceWriter` alongside the other fakes.
 
-### 4.2 `Directory.Build.props` — no changes required
+### 4.3 `Directory.Build.props` — no changes required
 
 The existing props file applies `LangVersion=latest`, `Nullable=enable`, `ImplicitUsings=enable` to all projects. `TreatWarningsAsErrors` is per-project (existing convention).
 
@@ -756,7 +756,7 @@ Phase 3 is done when **all of the following** pass:
 
 **Phase D — Solution placeholders**
 1. Add empty csprojs for `QuestForge.Engine`, `QuestForge.Adapters.Dalamud`, `QuestForge.Plugin`
-2. Wire them into the solution under a "Phase 6 placeholders" folder
+2. Wire them into the solution under a "Future phases — not yet implemented" folder (matches §4.1)
 3. Build succeeds; no test changes
 4. Commit: "Phase 4/6 project placeholders"
 
