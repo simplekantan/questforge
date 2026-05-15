@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\QuestForge.Engine\QuestForge.Engine.csproj" />
+    <ProjectReference Include="..\QuestForge.Adapters\QuestForge.Adapters.csproj" />
+    <ProjectReference Include="..\QuestForge.Adapters.Fakes\QuestForge.Adapters.Fakes.csproj" />
+    <ProjectReference Include="..\QuestForge.Schema\QuestForge.Schema.csproj" />
+    <ProjectReference Include="..\..\questforge-tools\QuestForge.Predicates\QuestForge.Predicates.csproj" />
+    <PackageReference Include="xunit" Version="2.9.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.*">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.5" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="Fixtures\66130.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>

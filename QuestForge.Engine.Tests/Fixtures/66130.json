@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": 66130,
+  "name": "Coming to Ul'dah",
+  "expansion": "arr",
+  "category": "msq",
+  "supportStatus": { "implementation": "complete", "knownIssues": [] },
+  "lastVerifiedPatch": "7.4",
+  "requirements": { "minLevel": 1, "prereqs": [] },
+  "acceptFrom": { "npcId": 1003987, "zone": 182, "position": { "x": 35.56, "y": 4.0, "z": -151.18 } },
+  "sequences": [
+    {
+      "sequence": 0,
+      "steps": [
+        {
+          "type": "travel",
+          "id": "travel-to-wymond",
+          "destination": { "zone": 182, "position": { "x": 35.56, "y": 4.0, "z": -151.18 } },
+          "expect": "playerNear({\"x\":35.56,\"y\":4.0,\"z\":-151.18}, 3)"
+        },
+        {
+          "type": "talk",
+          "id": "talk-to-wymond",
+          "target": { "npcId": 1003987, "zone": 182, "position": { "x": 35.56, "y": 4.0, "z": -151.18 } },
+          "expect": "questSequence(66130) >= 255"
+        }
+      ]
+    },
+    {
+      "sequence": 255,
+      "steps": [
+        {
+          "type": "travel",
+          "id": "travel-to-momodi",
+          "destination": { "zone": 182, "position": { "x": 21.84, "y": 7.0, "z": -81.13 } },
+          "expect": "playerNear({\"x\":21.84,\"y\":7.0,\"z\":-81.13}, 3)"
+        },
+        {
+          "type": "talk",
+          "id": "turn-in-to-momodi",
+          "target": { "npcId": 1003988, "zone": 182, "position": { "x": 21.84, "y": 7.0, "z": -81.13 } },
+          "expect": "isQuestComplete(66130)"
+        }
+      ]
+    }
+  ]
+}

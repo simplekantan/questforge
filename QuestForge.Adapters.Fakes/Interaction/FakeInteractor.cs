@@ -20,6 +20,9 @@ public sealed class FakeInteractor : IInteractor
     private readonly Dictionary<QuestId, Action> _onAcceptCallbacks = new();
     private readonly Dictionary<QuestId, Action> _onCompleteCallbacks = new();
 
+    // Per-NPC callbacks fired when InteractWith(npcId) is called
+    private readonly Dictionary<NpcId, Action> _onInteractWithCallbacks = new();
+
     // Per-method call logs
     public record InteractionCall(NpcId? NpcId, InteractableId? ObjectId, DateTimeOffset At) : AdapterCall(At);
     public record DialogueAdvanceCall(DateTimeOffset At) : AdapterCall(At);
@@ -51,6 +54,7 @@ public sealed class FakeInteractor : IInteractor
 
     public void OnAcceptQuest(QuestId quest, Action callback) => _onAcceptCallbacks[quest] = callback;
     public void OnCompleteQuest(QuestId quest, Action callback) => _onCompleteCallbacks[quest] = callback;
+    public void OnInteractWith(NpcId npcId, Action callback) => _onInteractWithCallbacks[npcId] = callback;
 
     // ----- Reset -----
     public void Reset()
@@ -63,6 +67,7 @@ public sealed class FakeInteractor : IInteractor
         _dialogueSequence.Clear();
         _onAcceptCallbacks.Clear();
         _onCompleteCallbacks.Clear();
+        _onInteractWithCallbacks.Clear();
     }
 
     // ----- IInteractor implementation -----
@@ -71,7 +76,9 @@ public sealed class FakeInteractor : IInteractor
     {
         ct.ThrowIfCancellationRequested();
         RecordedInteractions.Add(new InteractionCall(npc, null, DateTimeOffset.UtcNow));
-        return Task.FromResult<Result<InteractOutcome>>(Result.Ok(ConsumeInteractResult()));
+        var outcome = ConsumeInteractResult();
+        if (_onInteractWithCallbacks.TryGetValue(npc, out var cb)) cb();
+        return Task.FromResult<Result<InteractOutcome>>(Result.Ok(outcome));
     }
 
     public Task<Result<InteractOutcome>> InteractWithObject(InteractableId obj, CancellationToken ct)
