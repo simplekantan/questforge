@@ -27,7 +27,7 @@ The phases below are designed around these principles. Each phase produces somet
 
 ---
 
-## Phase 0: The spike (1-2 days)
+## Phase 0: The spike (1-2 days) ✅ COMPLETE
 
 **Goal:** validate that the architectural assumptions you've made are actually true.
 
@@ -69,7 +69,7 @@ If any answer surprises you, the architecture needs to flex.
 
 ---
 
-## Phase 1: Schema validator and CI (1 week)
+## Phase 1: Schema validator and CI (1 week) ✅ COMPLETE
 
 **Goal:** build the leverage that pays off across every future quest contribution.
 
@@ -96,7 +96,7 @@ If any answer surprises you, the architecture needs to flex.
 
 ---
 
-## Phase 2: Predicate language parser (2-3 days)
+## Phase 2: Predicate language parser (2-3 days) 🔄 IN PROGRESS
 
 **Goal:** complete the validator so it can check the semantic correctness of `expect`/`skipIf`/branch predicates.
 

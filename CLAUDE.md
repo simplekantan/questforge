@@ -100,7 +100,7 @@ When a dependency plugin changes its IPC contract, only the `QuestForge.Adapters
 
 ## Specification Documents
 
-All design is in `questForgeDocs/`:
+All design is in `docs/`:
 - `DESIGN.md` — Goals, data delivery model, testing strategy, timing profiles, patch-day workflow
 - `ARCHITECTURE.md` — C4-style diagrams (system context, containers, engine internals, authoring mode, trace subsystem)
 - `ADAPTERS.md` — Full specifications for all 10 adapter interfaces, cross-cutting types, recovery behaviors

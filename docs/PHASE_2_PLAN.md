@@ -176,6 +176,8 @@ In the AST: `AstNode.PositionLiteral(float X, float Y, float Z)`. Type-checked a
 
 The position sub-parser also accepts a `-` prefix on numeric values (negative coordinates are common in FFXIV).
 
+**`playerNear` radius handling:** the radius (second arg) is declared as `Int` in the function registry but authors commonly write it as a float literal (e.g. `5.0`). The parser accepts float literals in radius position under one rule: the value must be a whole number (fractional part is zero). `5.0` → `IntLiteral(5)` is fine. `2.5` → `predicate/parse-error: playerNear radius must be a whole number; use an integer literal instead`. This avoids silent truncation that would change the gameplay check at runtime. Non-whole float literals anywhere outside position keys and the playerNear radius always produce `predicate/parse-error: float literals are not supported in v1`.
+
 **Fragment parameter placeholder form** `${name}` is also accepted as an arg and captured as `AstNode.ParameterRef(string Name)`, type-resolved against the enclosing fragment's declared parameter types.
 
 ### 7. Stable AST records as public API
@@ -186,7 +188,6 @@ public abstract record PredicateAst
     public sealed record DefaultLiteral() : PredicateAst;
     public sealed record IntLiteral(long Value) : PredicateAst;
     public sealed record StringLiteral(string Value) : PredicateAst;
-    public sealed record IdentifierLiteral(string Name) : PredicateAst;
     public sealed record PositionLiteral(float X, float Y, float Z) : PredicateAst;
     public sealed record ParameterRef(string Name) : PredicateAst;
     public sealed record FunctionCall(string Name, IReadOnlyList<PredicateAst> Args) : PredicateAst;
@@ -200,6 +201,8 @@ public enum ComparisonOp { Eq, NotEq, Gt, Lt, GtEq, LtEq }
 ```
 
 The engine evaluator (Phase 4) pattern-matches over this tree. The validator (Phase 2) walks it for semantic checks. No `Grouped` node — grouping is consumed during parse and influences tree shape only.
+
+**`IdentifierLiteral` is removed.** The original spec listed `literal := number | string | identifier | enum-value`, suggesting bare unquoted words could appear on the RHS of comparisons. In practice, the schema consistently uses quoted strings for all string values (`instanceKind() == "None"`, `currentJob() == "Gladiator"`). An unquoted bare word on the RHS is always either a typo or a forgotten function call — both are better caught as `predicate/unknown-function` (if it looks like a function name) or `predicate/parse-error` (otherwise) than silently accepted as an identifier literal. Removing `IdentifierLiteral` from the AST makes the type system cleaner and forces authors to quote string values explicitly.
 
 ### 8. Errors are positional and collected, not thrown
 
@@ -225,13 +228,23 @@ When the parser sees an unknown identifier in function-call position, it compute
 
 This is the single highest-leverage UX feature in Phase 2 and the only reason `predicate-unknown-function` is worth distinguishing from `predicate-parse-error`.
 
-### 10. Caching: parse once per unique predicate string
+### 10. Caching: parse once per (source, scope) pair
 
 ```csharp
-private readonly Dictionary<string, ParseResult> _cache = new();
+private readonly Dictionary<(string Source, int ScopeId), ParseResult> _cache = new();
 ```
 
-A single quest file may repeat the same predicate string across many steps. The `PredicateValidator` caches by raw string so `PredicateParser.Parse` is called at most once per unique predicate across the entire validation run.
+A single quest file may repeat the same predicate string across many steps. The `PredicateValidator` caches parse results to avoid redundant work.
+
+**Cache key is `(source, scopeId)` not just `source`.** The same predicate string can appear in two fragment files with different `Parameters` declarations — `"playerNear(${pos}, 5)"` where `pos` is `position` in one fragment and `npcId` in another. Keying on source alone would return a stale cached result for the second file. `scopeId` is `0` for quest-level predicates (no scope), and `fragmentId.GetHashCode()` for fragment predicates.
+
+Use `TryGetValue` + indexer assignment — `GetOrAdd` is `ConcurrentDictionary`-only and will not compile on `Dictionary<>`:
+
+```csharp
+var key = (predicate, scope?.GetHashCode() ?? 0);
+if (!_cache.TryGetValue(key, out var result))
+    _cache[key] = result = PredicateParser.Parse(predicate, scope);
+```
 
 ---
 
@@ -342,22 +355,22 @@ ParsePredicate         := ParseOr
 ParseOr                := ParseAnd ( 'or' ParseAnd )*
 ParseAnd               := ParseNot ( 'and' ParseNot )*
 ParseNot               := 'not' ParseNot | ParseComparisonOrAtom
-ParseComparisonOrAtom  := ParseAtom comparison-op Literal
+ParseComparisonOrAtom  := ParseAtom comparison-op RhsLiteral
                         | ParseAtom
 ParseAtom              := '(' ParsePredicate ')'
                         | 'default'
                         | identifier '(' ArgList? ')'
-                        | identifier
                         | number-literal
                         | string-literal
                         | position-literal
                         | parameter-ref
+RhsLiteral             := number-literal | string-literal
 ArgList                := Arg ( ',' Arg )*
-Arg                    := number-literal | string-literal | identifier
+Arg                    := number-literal | string-literal
                         | position-literal | parameter-ref
 ```
 
-`default` is not a legal `Arg`.
+`default` is not a legal `Arg`. Bare identifiers are not legal in atom position or as RHS literals — a bare word that isn't followed by `(` is always `predicate/unknown-function` with a Levenshtein suggestion, never silently accepted as a value.
 
 ### 1.6 Implementation order inside `QuestForge.Predicates`
 
