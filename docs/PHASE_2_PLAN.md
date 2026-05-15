@@ -178,6 +178,8 @@ The position sub-parser also accepts a `-` prefix on numeric values (negative co
 
 **`playerNear` radius handling:** the radius (second arg) is declared as `Int` in the function registry but authors commonly write it as a float literal (e.g. `5.0`). The parser accepts float literals in radius position under one rule: the value must be a whole number (fractional part is zero). `5.0` → `IntLiteral(5)` is fine. `2.5` → `predicate/parse-error: playerNear radius must be a whole number; use an integer literal instead`. This avoids silent truncation that would change the gameplay check at runtime. Non-whole float literals anywhere outside position keys and the playerNear radius always produce `predicate/parse-error: float literals are not supported in v1`.
 
+**Radius float mechanism:** the generic `ArgList` parser doesn't know which function it belongs to, so it cannot do the playerNear-specific check inside `ParseArg`. The check happens one level up: the function-call builder, after parsing all args for a function named `"playerNear"`, inspects the second arg token. If the raw token was `NumberFloat` and the value is whole, it substitutes `IntLiteral(truncated)`; if non-whole, it emits a parse-error. All other functions receive a parse-error immediately on any `NumberFloat` token in arg position. This is the only site where function identity leaks into arg parsing.
+
 **Fragment parameter placeholder form** `${name}` is also accepted as an arg and captured as `AstNode.ParameterRef(string Name)`, type-resolved against the enclosing fragment's declared parameter types.
 
 ### 7. Stable AST records as public API
@@ -238,10 +240,10 @@ A single quest file may repeat the same predicate string across many steps. The 
 
 **Cache key is `(source, scopeId)` not just `source`.** The same predicate string can appear in two fragment files with different `Parameters` declarations — `"playerNear(${pos}, 5)"` where `pos` is `position` in one fragment and `npcId` in another. Keying on source alone would return a stale cached result for the second file. `scopeId` is `0` for quest-level predicates (no scope), and `fragmentId.GetHashCode()` for fragment predicates.
 
-Use `TryGetValue` + indexer assignment — `GetOrAdd` is `ConcurrentDictionary`-only and will not compile on `Dictionary<>`:
+Use `TryGetValue` + indexer assignment — `GetOrAdd` is `ConcurrentDictionary`-only and will not compile on `Dictionary<>`. `scopeId` comes from `CollectPredicates` as a pre-computed fragment ID hash, not from `scope.GetHashCode()` (which would use object-reference identity and defeat cross-call caching):
 
 ```csharp
-var key = (predicate, scope?.GetHashCode() ?? 0);
+var key = (predicate, scopeId);   // scopeId: 0 for quest, fragmentId.GetHashCode() for fragment
 if (!_cache.TryGetValue(key, out var result))
     _cache[key] = result = PredicateParser.Parse(predicate, scope);
 ```
@@ -378,11 +380,11 @@ Arg                    := number-literal | string-literal
 ### 1.6 Implementation order inside `QuestForge.Predicates`
 
 1. AST records, `PredicateType`, `Arity`, `FunctionSignature`, `ParseError`, `ParseResult`
-2. `FunctionRegistry` static table
+2. `FunctionRegistry` static table + Levenshtein helper + `SuggestSimilar`
+   *(Levenshtein must exist before the semantic checker — `unknown-function` tests cannot go green without it)*
 3. Lexer (tests first)
 4. Parser recursive descent (tests covering grammar, precedence, recovery)
 5. `PredicateChecker` semantic walk (tests for each error class)
-6. Levenshtein helper and `SuggestSimilar`
 
 ---
 
@@ -391,7 +393,7 @@ Arg                    := number-literal | string-literal
 ### 2.1 New `PredicateValidator : IValidator`
 
 ```csharp
-public class PredicateValidator : IValidator
+public class PredicateValidator(IFragmentRegistry fragments) : IValidator
 {
     // Key: (source string, scope ID). Scope ID is 0 for quest-level predicates
     // (no fragment parameters), or fragmentId.GetHashCode() for fragment predicates.
@@ -401,6 +403,9 @@ public class PredicateValidator : IValidator
 
     public IEnumerable<ValidationError> Validate(QuestDefinition quest, ValidationContext ctx)
     {
+        // CollectPredicates yields quest-level predicates (scopeId=0) and, for each
+        // FragmentStep that resolves in the registry, the fragment's step predicates
+        // with the fragment's parameter scope and scopeId=fragmentId.GetHashCode().
         foreach (var (predicate, location, stepId, scope, scopeId) in CollectPredicates(quest))
         {
             var key = (predicate, scopeId);
@@ -417,6 +422,8 @@ public class PredicateValidator : IValidator
     }
 }
 ```
+
+`PredicateValidator` receives `IFragmentRegistry` for the same reason `StructuralValidator` does: when a `FragmentStep` is encountered, it resolves the fragment and validates its step predicates using an `IFragmentParameterScope` built from the fragment's declared `Parameters`. If the fragment is not found in the registry, the step is skipped (the structural validator already reported `fragment-not-found` for that case).
 
 ### 2.2 Predicate collection — every site
 
@@ -436,7 +443,7 @@ Fragment scope: when walking a `FragmentDefinition`'s steps, pass an `IFragmentP
 ```csharp
 var pipeline = new ValidatorPipeline([
     new StructuralValidator(fragments),
-    new PredicateValidator(),
+    new PredicateValidator(fragments),
 ]);
 ```
 
