@@ -107,8 +107,8 @@ public sealed class DalamudInteractor : IInteractor
     public Task<Result<Unit>> CloseDialogue(CancellationToken ct)
         => Task.FromResult<Result<Unit>>(Result.Fail("notImplemented", "Phase 6 placeholder"));
 
+    // quest param unused — the JournalAccept addon already knows which quest is being accepted
     public Task<Result<Unit>> AcceptQuest(QuestId quest, CancellationToken ct)
-        // quest param is available for logging only — the JournalAccept addon state determines which quest
         => ClickAddonButton("JournalAccept", buttonId: 44,
             missingAddonCode: "noAcceptDialog",
             missingButtonCode: "acceptButtonMissing");
