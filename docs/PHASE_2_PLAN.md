@@ -346,7 +346,7 @@ internal static readonly FunctionSignature[] Functions =
 };
 ```
 
-`playerNear`'s second arg is declared `Int`; the parser accepts `NumberFloat` and coerces to `Int` via truncation **only inside `playerNear`**. No other function permits float args outside position literals.
+`playerNear`'s second arg is declared `Int`. The parser accepts a `NumberFloat` in radius position **only if the fractional part is zero** (`5.0` → `IntLiteral(5)` is accepted; `2.5` → `predicate/parse-error`). No float literals are accepted anywhere else outside position literal keys.
 
 ### 1.5 Parser pseudocode (recursive descent)
 
@@ -359,7 +359,8 @@ ParseComparisonOrAtom  := ParseAtom comparison-op RhsLiteral
                         | ParseAtom
 ParseAtom              := '(' ParsePredicate ')'
                         | 'default'
-                        | identifier '(' ArgList? ')'
+                        | identifier '(' ArgList? ')'   ← function call with args
+                        | identifier                     ← bare identifier; see note below
                         | number-literal
                         | string-literal
                         | position-literal
@@ -370,7 +371,9 @@ Arg                    := number-literal | string-literal
                         | position-literal | parameter-ref
 ```
 
-`default` is not a legal `Arg`. Bare identifiers are not legal in atom position or as RHS literals — a bare word that isn't followed by `(` is always `predicate/unknown-function` with a Levenshtein suggestion, never silently accepted as a value.
+`default` is not a legal `Arg`.
+
+**Bare identifier handling:** a bare identifier (not followed by `(`) is parsed as `FunctionCall(name, [])` — a zero-arg call attempt. This is intentional: it routes the identifier through the semantic checker, which can then fire `predicate/unknown-function` with a Levenshtein suggestion ("did you mean 'isQuestComplete'?"). Emitting `predicate/parse-error` at the parser level instead would lose the suggestion. This is purely an error-reporting decision — valid predicates never produce a bare identifier.
 
 ### 1.6 Implementation order inside `QuestForge.Predicates`
 
@@ -390,13 +393,20 @@ Arg                    := number-literal | string-literal
 ```csharp
 public class PredicateValidator : IValidator
 {
-    private readonly Dictionary<string, ParseResult> _cache = new();
+    // Key: (source string, scope ID). Scope ID is 0 for quest-level predicates
+    // (no fragment parameters), or fragmentId.GetHashCode() for fragment predicates.
+    // Using the fragment's string ID — not the IFragmentParameterScope object reference —
+    // ensures cache hits across multiple calls with different scope object instances.
+    private readonly Dictionary<(string Source, int ScopeId), ParseResult> _cache = new();
 
     public IEnumerable<ValidationError> Validate(QuestDefinition quest, ValidationContext ctx)
     {
-        foreach (var (predicate, location, stepId, scope) in CollectPredicates(quest))
+        foreach (var (predicate, location, stepId, scope, scopeId) in CollectPredicates(quest))
         {
-            var result = _cache.GetOrAdd(predicate, p => PredicateParser.Parse(p, scope));
+            var key = (predicate, scopeId);
+            if (!_cache.TryGetValue(key, out var result))
+                _cache[key] = result = PredicateParser.Parse(predicate, scope);
+
             foreach (var err in result.Errors)
                 yield return TranslateError(err, predicate, location, stepId, ctx.FilePath);
 
@@ -454,8 +464,9 @@ This phase fulfills SCHEMA.md §8.4 (predicate validity). It does NOT fulfill §
 | Position literal missing key | `predicate/parse-error` | `playerNear({"x":1,"y":2}, 5)` |
 | Position literal with extra keys | `predicate/parse-error` | `playerNear({"x":1,"y":2,"z":3,"w":4}, 5)` |
 | Position literal non-numeric value | `predicate/parse-error` | `playerNear({"x":"a","y":2,"z":3}, 5)` |
+| Non-whole float in `playerNear` radius | `predicate/parse-error` | `playerNear({...}, 2.5)` |
 | String literal unterminated | `predicate/parse-error` | `playerStartingClass() == "Gladiator` |
-| Unary minus outside position/playerNear | `predicate/parse-error` | `questSequence(65) >= -3` |
+| Unary minus outside position literal keys | `predicate/parse-error` | `questSequence(65) >= -3` |
 
 ### 3.2 Semantic rules — function identity
 
