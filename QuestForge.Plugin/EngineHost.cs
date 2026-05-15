@@ -138,10 +138,12 @@ public sealed class EngineHost : IDisposable
         switch (action)
         {
             case EngineAction.Navigate n:
+                _services.Log.Info($"[Navigate] → ({n.Destination.X:F1},{n.Destination.Y:F1},{n.Destination.Z:F1}) stop={n.Options.StoppingDistance}");
                 await _navigator.NavigateTo(n.Destination, n.Options, ct);
                 break;
 
             case EngineAction.Interact i:
+                _services.Log.Info($"[Interact] npc={i.Target.Value}");
                 await _interactor.InteractWith(i.Target, ct);
                 // Advance any open dialogue and attempt journal buttons — returns Fail
                 // immediately if the respective addon is not visible.
