@@ -12,6 +12,7 @@ internal sealed class QfCommand : IDisposable
     private readonly EngineHost _host;
     private readonly ICommandManager _commands;
     private readonly IChatGui _chat;
+    private readonly IPluginLog _log;
     private readonly IDalamudPluginInterface _pi;
 
     public QfCommand(
@@ -21,7 +22,7 @@ internal sealed class QfCommand : IDisposable
         IPluginLog log,
         IDalamudPluginInterface pi)
     {
-        _host = host; _commands = commands; _chat = chat; _pi = pi;
+        _host = host; _commands = commands; _chat = chat; _log = log; _pi = pi;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
             HelpMessage = "QuestForge: /qf run <questId> | /qf stop | /qf test <gamestate|queststate|navigate|interact>"
@@ -99,11 +100,19 @@ internal sealed class QfCommand : IDisposable
         switch (args[0])
         {
             case "gamestate":
-                _chat.Print($"QuestForge: {_host.GetGameStateSummary()}");
+            {
+                var summary = _host.GetGameStateSummary();
+                _chat.Print($"QuestForge: {summary}");
+                _log.Info($"[gamestate] {summary}");
                 break;
+            }
             case "queststate":
-                _chat.Print($"QuestForge: {_host.GetQuestStateSummary(66130)}");
+            {
+                var summary = _host.GetQuestStateSummary(66130);
+                _chat.Print($"QuestForge: {summary}");
+                _log.Info($"[queststate] {summary}");
                 break;
+            }
             case "navigate":
                 _chat.Print("QuestForge: /qf test navigate not wired in Phase 6 — use /qf run 66130");
                 break;

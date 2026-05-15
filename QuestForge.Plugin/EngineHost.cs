@@ -117,8 +117,20 @@ public sealed class EngineHost : IDisposable
         EngineAction action;
         try { action = await _engine.Tick(ct); }
         catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _services.Log.Error(ex, "QuestForge: engine tick threw");
+            _services.ChatGui.PrintError($"QuestForge: tick error — {ex.Message}");
+            return;
+        }
 
-        await DispatchAction(action, ct);
+        try { await DispatchAction(action, ct); }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _services.Log.Error(ex, $"QuestForge: dispatch error for {action.GetType().Name}");
+            _services.ChatGui.PrintError($"QuestForge: dispatch error — {ex.Message}");
+        }
     }
 
     private async Task DispatchAction(EngineAction action, CancellationToken ct)
