@@ -50,6 +50,11 @@ public sealed class EngineHost : IDisposable
     private uint? _savedCutsceneSkipContents;
     private uint? _savedCutsceneSkipShip;
 
+    // Debounced logging: log immediately on change, then at most once per interval for repeats
+    private string? _lastDebounceKey;
+    private DateTimeOffset _lastDebounceAt = DateTimeOffset.MinValue;
+    private static readonly TimeSpan DebounceInterval = TimeSpan.FromSeconds(10);
+
     public EngineHost(PluginServices services)
     {
         _services = services;
@@ -146,12 +151,14 @@ public sealed class EngineHost : IDisposable
         switch (action)
         {
             case EngineAction.Navigate n:
-                _services.Log.Debug($"[Navigate] → ({n.Destination.X:F1},{n.Destination.Y:F1},{n.Destination.Z:F1}) stop={n.Options.StoppingDistance}");
+                DebounceLog(
+                    $"nav:{n.Destination.X:F0},{n.Destination.Z:F0}",
+                    $"[Navigate] → ({n.Destination.X:F1},{n.Destination.Y:F1},{n.Destination.Z:F1}) stop={n.Options.StoppingDistance}");
                 await _navigator.NavigateTo(n.Destination, n.Options, ct);
                 break;
 
             case EngineAction.Interact i:
-                _services.Log.Debug($"[Interact] npc={i.Target.Value}");
+                DebounceLog($"interact:{i.Target.Value}", $"[Interact] npc={i.Target.Value}");
                 TryCutsceneSkipConfirm();
                 await _interactor.InteractWith(i.Target, ct);
                 // Advance any open dialogue and attempt journal buttons — returns Fail
@@ -239,6 +246,16 @@ public sealed class EngineHost : IDisposable
             _services.GameConfig.Set(UiConfigOption.CutsceneSkipIsShip, v2);
             _savedCutsceneSkipShip = null;
         }
+    }
+
+    // Log immediately when key changes; suppress repeats beyond once per DebounceInterval.
+    private void DebounceLog(string key, string message)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (key == _lastDebounceKey && now - _lastDebounceAt < DebounceInterval) return;
+        _services.Log.Debug(message);
+        _lastDebounceKey = key;
+        _lastDebounceAt  = now;
     }
 
     // Deterministic seed from runId — same runId → same timing sequence (Phase 7 replay)
