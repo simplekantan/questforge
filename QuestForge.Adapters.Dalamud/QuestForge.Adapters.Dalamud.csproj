@@ -5,8 +5,6 @@
     <Platforms>x64</Platforms>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <!-- Library only — the plugin manifest lives in QuestForge.Plugin -->
-    <NoPluginManifest>true</NoPluginManifest>
   </PropertyGroup>
 
   <ItemGroup>

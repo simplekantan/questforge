@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using QuestForge.Adapters.Combat;
 using QuestForge.Adapters.Dalamud;
 using QuestForge.Adapters.Dalamud.Combat;
+using QuestForge.Adapters.Dalamud.State;
 using QuestForge.Adapters.Dalamud.Gear;
 using QuestForge.Adapters.Dalamud.Interaction;
 using QuestForge.Adapters.Dalamud.Minigames;
@@ -73,8 +74,8 @@ public sealed class EngineHost : IDisposable
         var level = _gameStateInner.GetJobLevel(default, ct).GetAwaiter().GetResult().ValueOrDefault;
         var combat = _gameStateInner.IsPlayerInCombat(ct).GetAwaiter().GetResult().ValueOrDefault;
         var kind = _gameStateInner.GetCurrentInstanceKind(ct).GetAwaiter().GetResult().ValueOrDefault;
-        return $"zone={zone?.Value} pos=({pos?.X:F1},{pos?.Y:F1},{pos?.Z:F1}) " +
-               $"job={job?.Value} lv={level} combat={combat} instance={kind}";
+        return $"zone={zone.Value} pos=({pos.X:F1},{pos.Y:F1},{pos.Z:F1}) " +
+               $"job={job.Value} lv={level} combat={combat} instance={kind}";
     }
 
     public string GetQuestStateSummary(uint questRowId)
