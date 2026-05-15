@@ -122,7 +122,7 @@ Dalamud requires most game-state reads to occur on the framework thread. Off-thr
 **Concrete rules:**
 
 1. `Plugin.cs` subscribes to `IFramework.Update`.
-2. The `Update` handler calls `engine.Tick(ct).GetAwaiter().GetResult()` only if the previous tick's task is complete; otherwise it returns immediately (no overlapping ticks).
+2. The `Update` handler starts `_host.TickAsync(_cts.Token)` and stores it in `_inflight`. If `_inflight` is not yet completed on the next frame, the handler returns immediately (no overlapping ticks). Because all Phase 6 adapters return `Task.FromResult` synchronously, ticks complete within the same frame in practice.
 3. Adapter implementations never spawn background tasks, never `await Task.Delay`, never call `Task.Run`. They do work synchronously and wrap the result in `Task.FromResult`.
 4. vnavmesh and Lifestream IPC are thread-safe (SPIKE_NOTES.md confirms), but we still call them from the framework thread for symmetry — there is no reason to fan out.
 5. The cancellation token threaded through `Tick(ct)` is the plugin's lifecycle token, cancelled on `Dispose`.
@@ -587,10 +587,6 @@ public sealed class LifestreamTeleporter : ITeleporter
     // ... other methods follow the same shape
 }
 ```
-
-**Thread-invariant exception:** the polling `while` loop above breaks decision §3 (no awaits that hop threads). The fix for Phase 6: teleport is NOT polled inside the adapter call; instead, the adapter returns `TeleportOutcome.Arrived` immediately if `Teleport` returns true (fire-and-forget assumption), and the **engine's next tick** observes `GetPlayerZone()` and decides whether arrival happened. This is consistent with how the engine's HSM works elsewhere — postconditions are observed, not awaited. The polling loop is reserved for the `/qf test teleport` smoke command, which is a debug-only off-engine code path.
-
-**Revised adapter signature:** `TeleportToAetheryte` returns `Arrived` if the IPC accepted the request; the engine re-observes zone next tick. If the engine has not arrived after `EngineDecisionConfig.TeleportTimeoutTicks` (default ~30 ticks ≈ 1 second), it treats the teleport as failed and applies §15.2 ladder. Phase 6 hardcodes 30 ticks; Phase 8 surfaces this as config.
 
 ### 4.3 Smoke verification
 
@@ -1137,7 +1133,8 @@ All five must be demonstrated with a screen recording or a series of in-game scr
 - `IGearManager.EquipBestGearViaStylist` (Phase 9, when Stylist IPC is wired).
 - Replay harness consuming the captured trace (Phase 7).
 - UI windows beyond chat output and the slash command (Phase 8).
-- Step types beyond `travel`, `talk`, `accept`, `turn-in` (Phase 10+; quest 66130 uses only those four).
+- `AcceptStep` and `TurnInStep` engine support (Phase 10+; see Task 7B — Phase 6 uses `talk` steps throughout, with `AcceptQuest`/`CompleteQuest` interactor calls triggered by postcondition evaluation).
+- All other step types beyond `travel` and `talk` (Phase 10+).
 - Death recovery, failure counters, retry config in the engine — these stay at the Phase 4/5 baseline (Phase 7+).
 - Network fetching of quest data (Phase 10+; Phase 6 reads from a local checkout).
 - A second worked quest. Quest 66130 is the only one. "Close to Home" (66104) is Phase 7.
