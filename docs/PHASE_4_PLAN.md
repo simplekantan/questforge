@@ -221,11 +221,11 @@ Phase 0's spike completed this quest end-to-end. SPIKE_NOTES.md pins:
 | Constant | Value | Use in Phase 4 quest file |
 |---|---|---|
 | Quest ID | 66130 | `id: 66130` |
-| Zone | 182 (NOT 130 — new-player instance) | `acceptFrom.zone: 182`, `expect: "playerZone() == 182"` |
-| Wymond NPC ID | 1003987 | First talk target |
-| Wymond position | (35.56, 4.0, -151.18) | Travel destination |
+| Zone | 182 (NOT 130 — new-player instance) | `acceptFrom.zone: 182` |
+| Wymond NPC ID | 1003987 | First talk target (`talk.target.npcId`) |
+| Wymond position | (35.56, 4.0, -151.18) | Travel destination + `playerNear` literal in expect |
 | Momodi NPC ID | 1003988 | Second talk target |
-| Momodi position | (21.84, 7.0, -81.13) | Travel destination |
+| Momodi position | (21.84, 7.0, -81.13) | Travel destination + `playerNear` literal in expect |
 | Sequence progression | 0 → 255 (no intermediate) | Two `sequences` blocks |
 
 The quest content (paraphrased, full JSON written during Phase 4 Phase A as a Phase-4 test fixture in `QuestForge.Engine.Tests/Fixtures/66130.json`):
@@ -246,14 +246,14 @@ The quest content (paraphrased, full JSON written during Phase 4 Phase A as a Ph
       "sequence": 0,
       "steps": [
         {
-          "id": "travel-to-wymond",
           "type": "travel",
+          "id": "travel-to-wymond",
           "destination": { "zone": 182, "position": {"x": 35.56, "y": 4.0, "z": -151.18} },
-          "expect": "playerZone() == 182"
+          "expect": "playerNear({\"x\":35.56,\"y\":4.0,\"z\":-151.18}, 3)"
         },
         {
-          "id": "talk-to-wymond",
           "type": "talk",
+          "id": "talk-to-wymond",
           "target": { "npcId": 1003987, "zone": 182, "position": {"x": 35.56, "y": 4.0, "z": -151.18} },
           "expect": "questSequence(66130) >= 255"
         }
@@ -263,14 +263,14 @@ The quest content (paraphrased, full JSON written during Phase 4 Phase A as a Ph
       "sequence": 255,
       "steps": [
         {
-          "id": "travel-to-momodi",
           "type": "travel",
+          "id": "travel-to-momodi",
           "destination": { "zone": 182, "position": {"x": 21.84, "y": 7.0, "z": -81.13} },
-          "expect": "playerZone() == 182"
+          "expect": "playerNear({\"x\":21.84,\"y\":7.0,\"z\":-81.13}, 3)"
         },
         {
-          "id": "turn-in-to-momodi",
           "type": "talk",
+          "id": "turn-in-to-momodi",
           "target": { "npcId": 1003988, "zone": 182, "position": {"x": 21.84, "y": 7.0, "z": -81.13} },
           "expect": "isQuestComplete(66130)"
         }
@@ -550,10 +550,11 @@ The AST node types are defined in `QuestForge.Predicates.PredicateAst`. The eval
 private static readonly Dictionary<string, Func<PredicateEvaluator, IReadOnlyList<object>, CancellationToken, Task<object>>> _functions =
     new()
     {
-        ["questSequence"]   = async (e, args, ct) => (await e._questState.GetQuestSequence(new QuestId((uint)(int)args[0]), ct)).ValueOrThrow,
-        ["isQuestAccepted"] = async (e, args, ct) => (await e._questState.IsQuestAccepted(new QuestId((uint)(int)args[0]), ct)).ValueOrThrow,
-        ["isQuestComplete"] = async (e, args, ct) => (await e._questState.IsQuestComplete(new QuestId((uint)(int)args[0]), ct)).ValueOrThrow,
-        ["questFlag"]       = async (e, args, ct) => (await e._questState.IsQuestFlagSet(new QuestId((uint)(int)args[0]), (int)args[1], ct)).ValueOrThrow,
+        // IntLiteral.Value is long — cast to uint for QuestId, int for flag bit index.
+        ["questSequence"]   = async (e, args, ct) => (long)(await e._questState.GetQuestSequence(new QuestId((uint)(long)args[0]), ct)).ValueOrThrow,
+        ["isQuestAccepted"] = async (e, args, ct) => (await e._questState.IsQuestAccepted(new QuestId((uint)(long)args[0]), ct)).ValueOrThrow,
+        ["isQuestComplete"] = async (e, args, ct) => (await e._questState.IsQuestComplete(new QuestId((uint)(long)args[0]), ct)).ValueOrThrow,
+        ["questFlag"]       = async (e, args, ct) => (await e._questState.IsQuestFlagSet(new QuestId((uint)(long)args[0]), (int)(long)args[1], ct)).ValueOrThrow,
         ["playerZone"]      = async (e, args, ct) => (long)(await e._gameState.GetPlayerZone(ct)).ValueOrThrow.Value,
         ["playerNear"]      = async (e, args, ct) => await PlayerNear(e, (WorldPosition)args[0], (long)args[1], ct),
         ["playerInCombat"]  = async (e, args, ct) => (await e._gameState.IsPlayerInCombat(ct)).ValueOrThrow,
@@ -562,7 +563,7 @@ private static readonly Dictionary<string, Func<PredicateEvaluator, IReadOnlyLis
 
 `playerNear` takes a `PositionLiteral` (first arg) and an integer radius (second arg), matching the Phase 2 function registry (`Fixed(2), [Position, Int]`). The `PositionLiteral(X, Y, Z)` node is evaluated to a `WorldPosition`. `PlayerNear` calls `GetPlayerPosition` and checks Euclidean distance against the radius — it does NOT take an NPC ID. To check proximity to a named NPC, quest authors use the NPC's known position as a literal: `playerNear({"x":35.56,"y":4.0,"z":-151.18}, 3)`.
 
-Note: `playerNear(npc:XXXX, radius:Y)` is **not** valid in our predicate grammar — the `npc:` prefix notation was confirmed invalid during Phase 2's SCHEMA.md §10 review. Quest files should use `playerZone() == N` for zone-level travel expects and `playerNear({...}, radius)` for sub-zone proximity.
+Note: `playerNear(npc:XXXX, radius:Y)` is **not** valid in our predicate grammar — the `npc:` prefix notation was confirmed invalid during Phase 2's SCHEMA.md §10 review. The correct form is `playerNear({"x":X,"y":Y,"z":Z}, radius)` using a position literal as the first argument, which is what the Phase 4 fixture uses. The evaluator receives a `PositionLiteral` AST node, constructs a `WorldPosition`, and computes Euclidean distance from the player's current position.
 
 Unsupported function name throws `UnknownStateFunctionException` immediately. Arity mismatches do not happen at runtime — the parser already enforced them.
 
@@ -644,9 +645,14 @@ return Wait("all steps in current sequence satisfied; awaiting game sequence adv
 ```csharp
 private EngineAction ResolveActionForStep(Step step) => step switch
 {
-    TravelStep travel => new EngineAction.Navigate(
-        new WorldPosition(travel.Destination.Position.X, travel.Destination.Position.Y, travel.Destination.Position.Z),
+    TravelStep travel when travel.Destination.Position is { } pos => new EngineAction.Navigate(
+        new WorldPosition(pos.X, pos.Y, pos.Z),
         new NavigationOptions(StoppingDistance: step.StopDistance ?? 3.0f)),
+
+    // TravelDestination.Position is Position3? — null means aetheryte-only travel (no walk target).
+    // Aetheryte-based travel is out of scope for Phase 4; the engine cannot resolve it.
+    TravelStep travel when travel.Destination.Position is null =>
+        throw new NotSupportedException("Phase 4 does not support aetheryte-only travel steps"),
 
     TalkStep talk when talk.Target is not null => new EngineAction.Interact(
         new NpcId(talk.Target.NpcId)),
