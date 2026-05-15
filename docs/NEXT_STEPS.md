@@ -96,7 +96,7 @@ If any answer surprises you, the architecture needs to flex.
 
 ---
 
-## Phase 2: Predicate language parser (2-3 days) 🔄 IN PROGRESS
+## Phase 2: Predicate language parser (2-3 days) ✅ COMPLETE
 
 **Goal:** complete the validator so it can check the semantic correctness of `expect`/`skipIf`/branch predicates.
 
