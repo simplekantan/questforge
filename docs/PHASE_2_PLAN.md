@@ -182,6 +182,17 @@ The position sub-parser also accepts a `-` prefix on numeric values (negative co
 
 **Fragment parameter placeholder form** `${name}` is also accepted as an arg and captured as `AstNode.ParameterRef(string Name)`, type-resolved against the enclosing fragment's declared parameter types.
 
+**`FragmentParameter.Type` → `PredicateType` mapping** (used when building `IFragmentParameterScope` from a `FragmentDefinition`):
+
+| `FragmentParameter.Type` string | `PredicateType` |
+|---|---|
+| `"position"` | `Position` |
+| `"npcId"` | `Int` |
+| `"itemId"` | `Int` |
+| `"string"` | `String` |
+
+Unknown type strings default to `Int` (same conservative assumption as unknown function args) and should log a warning. This mapping is the only place in the predicate system that bridges `QuestForge.Schema` string constants and `QuestForge.Predicates` enum values — keep it in one place (the `PredicateValidator`, not inside `QuestForge.Predicates` itself, since `QuestForge.Predicates` must not reference schema types).
+
 ### 7. Stable AST records as public API
 
 ```csharp
@@ -562,6 +573,7 @@ This phase fulfills SCHEMA.md §8.4 (predicate validity). It does NOT fulfill §
 - `"questSequnece(65) >= 3"` → `predicate/unknown-function`, suggestion `"questSequence"`
 - `"isQuestcomplete(65)"` → suggestion `"isQuestComplete"`
 - `"frobnicate(1)"` → unknown function, no suggestion (distance > 2)
+- `"Gladiator"` (bare identifier, no `(`) → parsed as `FunctionCall("Gladiator", [])` → `predicate/unknown-function`, no suggestion (distance > 2 from any registered function)
 
 ### 4.6 Semantic checker — arity
 
@@ -625,7 +637,7 @@ Phase 2 is done when:
 3. PR with `"expect": "questSequence(65) >= \"three\""` caught as `[predicate/type-mismatch]`.
 4. PR with `"expect": "default"` in a branch `when` field passes validation.
 5. PR with `"expect": "default and questFlag(65, 1)"` caught as `[predicate/default-not-composable]`.
-6. Every predicate in SCHEMA.md §7.3 examples and the §10 worked example parses with zero errors.
+6. Every predicate in SCHEMA.md §7.3 examples parses with zero errors. (§10's worked example uses illustrative `item:10400` / `slot:mainhand` colon notation that is not part of the v1 predicate grammar; real quest files use plain integers and quoted strings.)
 7. `QuestForge.Predicates.Tests` has ≥ 80% line coverage and all suites from §4 pass.
 
 ---
