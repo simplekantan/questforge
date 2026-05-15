@@ -56,9 +56,9 @@ public sealed class TraceWriterTests
         var content = ReadStreamAsString(ms);
         var lines = content.Split('\n');
         // Split on '\n' of "json\n" yields ["json", ""] — two elements, last empty
-        Assert.Equal(2, lines.Length, "Expected exactly one event line followed by trailing empty after final \\n");
+        Assert.Equal(2, lines.Length); // Expected exactly one event line followed by trailing empty after final \n
         Assert.True(lines[0].Length > 0, "The single line must not be empty");
-        Assert.Equal(string.Empty, lines[1], "No content after the final \\n");
+        Assert.Equal(string.Empty, lines[1]); // No content after the final \n
     }
 
     // -------------------------------------------------------------------------
@@ -95,7 +95,7 @@ public sealed class TraceWriterTests
         // Assert
         var content = ReadStreamAsString(ms);
         var lines = content.TrimEnd('\n').Split('\n');
-        Assert.Equal(3, lines.Length, "Expected exactly 3 event lines");
+        Assert.Equal(3, lines.Length); // Expected exactly 3 event lines
         foreach (var line in lines)
         {
             var doc = JsonDocument.Parse(line); // throws JsonException if invalid
@@ -131,8 +131,7 @@ public sealed class TraceWriterTests
         var content = ReadStreamAsString(ms);
         // The only '\n' must be the final line terminator — strip it, then check no embedded newlines
         var lineContent = content.TrimEnd('\n');
-        Assert.DoesNotContain('\n', lineContent,
-            "The JSON line must not contain embedded newlines (WriteIndented must be false)");
+        Assert.DoesNotContain('\n', lineContent); // The JSON line must not contain embedded newlines (WriteIndented must be false)
     }
 
     // -------------------------------------------------------------------------
@@ -161,8 +160,7 @@ public sealed class TraceWriterTests
         writer.Write(evt);
 
         // Assert
-        Assert.Equal(ms.Length, ms.Position,
-            "Stream.Position must equal Stream.Length after Write — no unflushed bytes");
+        Assert.Equal(ms.Length, ms.Position); // Stream.Position must equal Stream.Length after Write — no unflushed bytes
         Assert.True(ms.Length > 0, "Stream must be non-empty after Write");
     }
 
@@ -267,8 +265,7 @@ public sealed class TraceWriterTests
         {
             var doc = JsonDocument.Parse(allLines[i]);
             var typeValue = doc.RootElement.GetProperty("type").GetString();
-            Assert.Equal(events[i].Type, typeValue,
-                $"Line {i}: expected type '{events[i].Type}' but got '{typeValue}'");
+            Assert.Equal(events[i].Type, typeValue); // Line {i}: expected type '{events[i].Type}' but got '{typeValue}'
         }
     }
 
@@ -333,7 +330,7 @@ public sealed class TraceWriterTests
             // Assert
             Assert.True(File.Exists(path), "File must exist after OpenFile + dispose");
             var lines = File.ReadAllLines(path);
-            Assert.Equal(2, lines.Length, "Two events must produce two lines");
+            Assert.Equal(2, lines.Length); // Two events must produce two lines
             foreach (var line in lines)
             {
                 var doc = JsonDocument.Parse(line);
@@ -379,7 +376,7 @@ public sealed class TraceWriterTests
         // Assert
         var content = ReadStreamAsString(ms);
         var lines = content.TrimEnd('\n').Split('\n');
-        Assert.Equal(2, lines.Length, "Exactly 2 complete lines expected");
+        Assert.Equal(2, lines.Length); // Exactly 2 complete lines expected
         foreach (var line in lines)
         {
             Assert.True(line.Length > 0, "No empty lines");

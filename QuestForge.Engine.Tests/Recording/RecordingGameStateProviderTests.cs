@@ -150,8 +150,7 @@ public sealed class RecordingGameStateProviderTests
 
         // Assert
         // FakeGameStateProvider.RecordedReads is the call log tracking every inner call
-        Assert.Equal(1, inner.RecordedReads.Count,
-            "Inner adapter must be called exactly once — no double-reads in the proxy");
+        Assert.Equal(1, inner.RecordedReads.Count); // Inner adapter must be called exactly once — no double-reads in the proxy
     }
 
     // -------------------------------------------------------------------------

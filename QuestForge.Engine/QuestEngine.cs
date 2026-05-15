@@ -7,6 +7,7 @@ using QuestForge.Adapters.Minigames;
 using QuestForge.Adapters.Movement;
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Timing;
+using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Predicates;
 using QuestForge.Schema;
@@ -30,6 +31,8 @@ public sealed class QuestEngine
     private readonly ExpectEvaluator _expectEvaluator;
 
     private QuestDefinition? _quest;
+    private string? _runId;
+    private bool _runStartEmitted;
 
     public QuestEngine(
         IGameStateProvider gameState,
@@ -66,30 +69,99 @@ public sealed class QuestEngine
         _quest = quest ?? throw new ArgumentNullException(nameof(quest));
     }
 
+    public string? CurrentRunId => _runId;
+
+    public void BeginRun(string runId)
+    {
+        if (string.IsNullOrWhiteSpace(runId))
+            throw new ArgumentException("runId must be non-empty", nameof(runId));
+        _runId = runId;
+        _runStartEmitted = false;
+    }
+
     public async Task<EngineAction> Tick(CancellationToken ct)
     {
         if (_quest is null)
             return new EngineAction.AwaitUser("no quest loaded");
 
-        var questId = new QuestId(_quest.Id);
+        EmitRunStartIfNeeded();
+
+        var (action, stepId) = await ResolveAction(ct);
+
+        if (_runId is not null)
+        {
+            if (action is EngineAction.Done)
+            {
+                // Done terminates the run — emit run.end instead of a decision event.
+                TraceSafe(new RunEndEvent(_runId, Outcome: "done", DateTimeOffset.UtcNow));
+                _runStartEmitted = false;
+            }
+            else if (action is EngineAction.AwaitUser)
+            {
+                // AwaitUser terminates the run — emit run.end.
+                // Also emit the decision so the caller knows why we stopped.
+                TraceSafe(new DecisionEvent(
+                    RunId: _runId,
+                    StepId: stepId,
+                    ActionType: action.GetType().Name,
+                    At: DateTimeOffset.UtcNow));
+                TraceSafe(new RunEndEvent(_runId, Outcome: "awaitUser", DateTimeOffset.UtcNow));
+            }
+            else
+            {
+                // Regular action — emit a decision event.
+                TraceSafe(new DecisionEvent(
+                    RunId: _runId,
+                    StepId: stepId,
+                    ActionType: action.GetType().Name,
+                    At: DateTimeOffset.UtcNow));
+            }
+        }
+
+        return action;
+    }
+
+    private void EmitRunStartIfNeeded()
+    {
+        if (_runStartEmitted || _runId is null || _quest is null) return;
+        TraceSafe(new RunStartEvent(
+            RunId: _runId,
+            QuestId: _quest.Id,
+            QuestSchemaId: _quest.Id,
+            At: DateTimeOffset.UtcNow));
+        _runStartEmitted = true;
+    }
+
+    private void TraceSafe(TraceEvent evt)
+    {
+        try { _trace.Write(evt); }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Trace write failed for event {Type}; continuing without trace", evt.Type);
+        }
+    }
+
+    private async Task<(EngineAction action, string? stepId)> ResolveAction(CancellationToken ct)
+    {
+        var questId = new QuestId(_quest!.Id);
 
         var seqResult = await _questState.GetQuestSequence(questId, ct);
         if (seqResult is Result<int>.Failure f1)
-            return new EngineAction.AwaitUser($"adapter failure reading sequence: {f1.Reason}");
+            return (new EngineAction.AwaitUser($"adapter failure reading sequence: {f1.Reason}"), null);
 
         var completeResult = await _questState.IsQuestComplete(questId, ct);
         if (completeResult is Result<bool>.Success { Value: true })
-            return new EngineAction.Done();
+            return (new EngineAction.Done(), null);
 
         var currentSeq = seqResult.ValueOrThrow;
         var matchingBlock = _quest.Sequences.FirstOrDefault(s => s.Sequence == currentSeq);
         if (matchingBlock is null)
-            return new EngineAction.AwaitUser($"no sequence block matches current sequence {currentSeq}");
+            return (new EngineAction.AwaitUser($"no sequence block matches current sequence {currentSeq}"), null);
 
         if (matchingBlock.SkipIf is not null)
         {
             if (await _expectEvaluator.Evaluate(matchingBlock.SkipIf, ct))
-                return new EngineAction.AwaitUser("sequence skipped by skipIf — engine cannot self-advance in Phase 4");
+                return (new EngineAction.AwaitUser("sequence skipped by skipIf — engine cannot self-advance in Phase 4"), null);
         }
 
         foreach (var step in matchingBlock.Steps)
@@ -98,10 +170,10 @@ public sealed class QuestEngine
                 continue;
             if (step.SkipIf is not null && await _expectEvaluator.Evaluate(step.SkipIf, ct))
                 continue;
-            return ResolveActionForStep(step);
+            return (ResolveActionForStep(step), step.Id);
         }
 
-        return new EngineAction.Wait("all steps in current sequence satisfied; awaiting game sequence advance");
+        return (new EngineAction.Wait("all steps in current sequence satisfied; awaiting game sequence advance"), null);
     }
 
     private EngineAction ResolveActionForStep(Step step) => step switch

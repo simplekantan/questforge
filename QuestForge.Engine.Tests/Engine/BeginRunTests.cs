@@ -1,5 +1,6 @@
 using System.Text.Json;
 using QuestForge.Adapters.Fakes;
+using QuestForge.Adapters.State;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Tests.Helpers;
@@ -136,8 +137,7 @@ public sealed class BeginRunTests
         await harness.Engine.Tick(CancellationToken.None);
 
         // Assert — the harness.TraceWriter is FakeTraceWriter (after Phase A update)
-        Assert.Equal(0, harness.TraceWriter.Count,
-            "No trace events should be emitted when BeginRun has not been called");
+        Assert.Equal(0, harness.TraceWriter.Count); // No trace events should be emitted when BeginRun has not been called
     }
 
     // -------------------------------------------------------------------------
@@ -167,8 +167,7 @@ public sealed class BeginRunTests
         await harness.Engine.Tick(CancellationToken.None);
 
         // Assert
-        Assert.Equal(0, harness.TraceWriter.Count,
-            "No trace events emitted when _quest is null even after BeginRun");
+        Assert.Equal(0, harness.TraceWriter.Count); // No trace events emitted when _quest is null even after BeginRun
     }
 
     // -------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using QuestForge.Adapters.State;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Tests.Helpers;
@@ -108,18 +109,13 @@ public sealed class TraceEndToEndTests
             docs.Count(d => d.RootElement.GetProperty("type").GetString() == type);
 
         // Assert
-        Assert.Equal(1, CountType("run.start"),
-            "Expected exactly 1 run.start event");
-        Assert.Equal(4, CountType("decision"),
-            "Expected exactly 4 decision events (one per action-producing tick)");
-        Assert.Equal(4, CountType("action.submitted"),
-            "Expected exactly 4 action.submitted events");
-        Assert.Equal(4, CountType("action.completed"),
-            "Expected exactly 4 action.completed events");
+        Assert.Equal(1, CountType("run.start")); // Expected exactly 1 run.start event
+        Assert.Equal(4, CountType("decision")); // Expected exactly 4 decision events (one per action-producing tick)
+        Assert.Equal(4, CountType("action.submitted")); // Expected exactly 4 action.submitted events
+        Assert.Equal(4, CountType("action.completed")); // Expected exactly 4 action.completed events
         Assert.True(CountType("observation") >= 1,
             "Expected at least 1 observation event");
-        Assert.Equal(1, CountType("run.end"),
-            "Expected exactly 1 run.end event");
+        Assert.Equal(1, CountType("run.end")); // Expected exactly 1 run.end event
 
         // run.end outcome must be "done"
         var runEnd = docs
@@ -129,8 +125,7 @@ public sealed class TraceEndToEndTests
 
         // run.end must be the last line
         var lastDoc = docs[docs.Count - 1];
-        Assert.Equal("run.end", lastDoc.RootElement.GetProperty("type").GetString(),
-            "The last line must be run.end");
+        Assert.Equal("run.end", lastDoc.RootElement.GetProperty("type").GetString()); // The last line must be run.end
     }
 
     // -------------------------------------------------------------------------
@@ -162,13 +157,11 @@ public sealed class TraceEndToEndTests
 
         // Assert — run.start at index 0
         Assert.Equal("run.start",
-            docs[0].RootElement.GetProperty("type").GetString(),
-            "run.start must be the first line (index 0)");
+            docs[0].RootElement.GetProperty("type").GetString()); // run.start must be the first line (index 0)
 
         // Assert — run.end at last index
         Assert.Equal("run.end",
-            docs[docs.Length - 1].RootElement.GetProperty("type").GetString(),
-            "run.end must be the last line");
+            docs[docs.Length - 1].RootElement.GetProperty("type").GetString()); // run.end must be the last line
 
         // Assert — for each action.submitted, a decision precedes it
         // and an action.completed follows it
@@ -231,8 +224,7 @@ public sealed class TraceEndToEndTests
 
         // Assert — last character is '\n'
         Assert.True(rawBytes.Length > 0, "Stream must be non-empty");
-        Assert.Equal((byte)'\n', rawBytes[rawBytes.Length - 1],
-            "The last byte in the stream must be '\\n'");
+        Assert.Equal((byte)'\n', rawBytes[rawBytes.Length - 1]); // The last byte in the stream must be '\n'
 
         // Assert — every line is valid JSON with no embedded newlines
         ms.Seek(0, SeekOrigin.Begin);
@@ -243,8 +235,7 @@ public sealed class TraceEndToEndTests
         foreach (var line in lines)
         {
             // No embedded newlines (they were already split, so this checks for \r)
-            Assert.DoesNotContain('\r', line,
-                $"Line must not contain carriage return: {line[..Math.Min(60, line.Length)]}...");
+            Assert.DoesNotContain('\r', line); // Line must not contain carriage return
 
             // Every line must be valid JSON — JsonDocument.Parse throws JsonException on invalid input
             var doc = JsonDocument.Parse(line); // throws on invalid JSON

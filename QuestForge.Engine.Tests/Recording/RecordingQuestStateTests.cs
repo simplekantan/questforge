@@ -176,8 +176,7 @@ public sealed class RecordingQuestStateTests
         await proxy.GetQuestSequence(new QuestId(66130), CancellationToken.None);
 
         // Assert
-        Assert.Equal(1, inner.RecordedReads.Count,
-            "Inner adapter must be invoked exactly once — no double-calls in the proxy");
+        Assert.Equal(1, inner.RecordedReads.Count); // Inner adapter must be invoked exactly once — no double-calls in the proxy
     }
 
     // -------------------------------------------------------------------------

@@ -11,7 +11,7 @@
     <ProjectReference Include="..\QuestForge.Adapters.Fakes\QuestForge.Adapters.Fakes.csproj" />
     <ProjectReference Include="..\QuestForge.Schema\QuestForge.Schema.csproj" />
     <ProjectReference Include="..\..\questforge-tools\QuestForge.Predicates\QuestForge.Predicates.csproj" />
-    <PackageReference Include="xunit" Version="2.9.*" />
+    <PackageReference Include="xunit.v3" Version="2.0.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.0.*">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
