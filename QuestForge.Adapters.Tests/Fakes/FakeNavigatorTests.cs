@@ -38,11 +38,51 @@ public class FakeNavigatorTests
         var result = await nav.NavigateTo(new WorldPosition(100f, 0f, 100f), new NavigationOptions(), CancellationToken.None);
 
         Assert.False(result.IsSuccess);
-        var failure = Assert.IsType<global::QuestForge.Adapters.Types.Result<NavigationOutcome>.Failure>(result);
+        var failure = Assert.IsType<Result<NavigationOutcome>.Failure>(result);
         Assert.Equal("navmesh-not-ready", failure.Reason);
         Assert.Equal(1, nav.RecordedNavigationRequests.Count);
         var pos = await state.GetPlayerPosition(CancellationToken.None);
         Assert.Equal(initial, pos.ValueOrThrow);
+    }
+
+    [Fact]
+    public async Task ScriptResultFor_KeyedByDestination_ReturnsScriptedOutcome()
+    {
+        var nav = CreateNavigator(out _);
+        var target = new WorldPosition(99f, 0f, 99f);
+        nav.ScriptResultFor(target, NavigationOutcome.StoppedByObstacle);
+
+        var result = await nav.NavigateTo(target, new NavigationOptions(), CancellationToken.None);
+
+        Assert.Equal(NavigationOutcome.StoppedByObstacle, result.ValueOrThrow);
+    }
+
+    [Fact]
+    public async Task ScriptResultFor_DifferentDestination_ReturnsArrived()
+    {
+        var nav = CreateNavigator(out _);
+        nav.ScriptResultFor(new WorldPosition(99f, 0f, 99f), NavigationOutcome.StoppedByObstacle);
+
+        // Different destination — keyed script does not apply
+        var result = await nav.NavigateTo(new WorldPosition(1f, 0f, 1f), new NavigationOptions(), CancellationToken.None);
+
+        Assert.Equal(NavigationOutcome.Arrived, result.ValueOrThrow);
+    }
+
+    [Fact]
+    public async Task Reset_ClearsRecordedRequestsAndScriptedResults()
+    {
+        var nav = CreateNavigator(out _);
+        nav.ScriptNextResult(NavigationOutcome.Interrupted);
+        await nav.NavigateTo(new WorldPosition(1f, 0f, 1f), new NavigationOptions(), CancellationToken.None);
+
+        nav.Reset();
+
+        // Recorded requests cleared
+        Assert.Equal(0, nav.RecordedNavigationRequests.Count);
+        // Scripted result cleared — next call returns default Arrived
+        var result = await nav.NavigateTo(new WorldPosition(2f, 0f, 2f), new NavigationOptions(), CancellationToken.None);
+        Assert.Equal(NavigationOutcome.Arrived, result.ValueOrThrow);
     }
 
     [Fact]
