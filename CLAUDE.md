@@ -125,4 +125,4 @@ All design is in `docs/`:
 | 9 | Authoring mode (inspect + record + draft management + export) | 3-4 weeks |
 | 10+ | Incremental quest corpus expansion | Ongoing |
 
-**Current status: Phase 2 complete. Phase 3 (NuGet packaging) next.**
+**Current status: Phase 2 complete. Phase 3 (adapter interfaces + fakes) next.**
