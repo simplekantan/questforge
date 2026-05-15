@@ -125,4 +125,4 @@ All design is in `questForgeDocs/`:
 | 9 | Authoring mode (inspect + record + draft management + export) | 3-4 weeks |
 | 10+ | Incremental quest corpus expansion | Ongoing |
 
-**Current status: Phase 0 not yet started.**
+**Current status: Phase 1 complete. Phase 2 (predicate parser) next.**
