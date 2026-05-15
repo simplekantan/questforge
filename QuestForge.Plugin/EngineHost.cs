@@ -147,11 +147,13 @@ public sealed class EngineHost : IDisposable
 
             case EngineAction.AwaitUser au:
                 _services.Log.Warning($"QuestForge run {_runId} paused: {au.Reason}");
+                _services.ChatGui.PrintError($"QuestForge: run paused — {au.Reason}");
                 EndRun();
                 break;
 
             case EngineAction.Done:
                 _services.Log.Info($"QuestForge run {_runId} complete");
+                _services.ChatGui.Print("QuestForge: quest complete!");
                 EndRun();
                 break;
         }
