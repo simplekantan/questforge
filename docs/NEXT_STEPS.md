@@ -216,43 +216,45 @@ Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 
 ---
 
-## Phase 6: Dalamud-backed adapters (3-4 weeks) 🔄 NEXT
+## Phase 6: Dalamud-backed adapters (3-4 weeks) ✅ COMPLETE
 
 **Goal:** real implementations of the adapter interfaces against Dalamud + dependency plugins.
 
-**Order to implement adapters (easiest to hardest):**
+**What was built:**
 
-1. `IGameStateProvider` — mostly reads from `ClientState`, `ICondition`, `IObjectTable`. Foundation for everything else.
-2. `IQuestState` — wraps `QuestManager` and Lumina sheet reads.
-3. `ITeleporter` — Lifestream IPC. Simpler than navigation.
-4. `INavigator` — vnavmesh IPC. Most complex due to navmesh-generation lifecycle.
-5. `IInteractor` — combines Dalamud's interaction primitives with TextAdvance IPC.
-6. `ICombat` — IPC with one combat plugin (start with WrathCombo or BossMod — pick whichever is simpler).
-7. `IDialogueResolver` — Lumina-backed sheet reference resolution.
-8. `ITimingProfile` — pure logic, seeded from runId. Trivial.
-9. `IGearManager` — game built-in gear functions, plus optional Stylist IPC.
-10. `IMinigameSkipper` — defer all of this unless a v0.2 quest needs it.
+- All 10 adapter implementations: `DalamudGameStateProvider`, `DalamudQuestState`, `VnavmeshNavigator`, `LifestreamTeleporter`, `DalamudInteractor`, `WrathComboAdapter`, `DalamudGearManager`, `LuminaDialogueResolver`, `SeededTimingProfile`, `NullMinigameSkipper`
+- IPC wrappers for vnavmesh and Lifestream (confirmed gate names from SPIKE_NOTES.md)
+- Plugin entry point: `Plugin.cs`, `EngineHost.cs`, `QfCommand.cs`, `DalamudLogger.cs`, `QuestFileLoader.cs`
+- `/qf run <id>`, `/qf stop`, `/qf test gamestate|queststate` commands
+- Dynamic fly detection via `PlayerState.CanFly` — quest schema can prefer flight, zone capability is checked at runtime
+- Cutscene skip: `IGameConfig` (skip-all during run, restore after) + `AutoCutsceneSkipper` hook from ECommons + `SelectString` confirmation
+- Quest 66130 ("Coming to Ul'dah") runs end-to-end: navigate to Wymond → dialogue → accept → navigate to Momodi → turn in → Done
 
-**Don't build all of these before testing.** Build `IGameStateProvider`, then verify it works in-game by replacing the fake in your Phase 4 test setup. Then `IQuestState`. Then move up the list.
+**Notable implementation decisions:**
 
-**Reference the spike's notes constantly.** This is where the surprises from Phase 0 cash in.
+- `ObjectTable.LocalPlayer` not `ObjectTable[0]` (SDK 15)
+- `IGameObject.BaseId` not `DataId` (SDK 15 rename)
+- `NavigateTo` skips `PathfindAndMoveCloseTo` when already navigating to prevent per-tick re-pathfinding
+- `InteractWith` throttled to 1/sec; `AdvanceDialogue` throttled to 250 ms
+- `UseFlight = true` default; overridden to `false` at runtime when `PlayerState.CanFly` is false
+- Predicate operator must be `and`/`or`/`not` keywords — `&&`/`||` are not lexed
+- `DalamudPackager.targets` override file in `Adapters.Dalamud` suppresses manifest validation on the library project
 
-**Deliverable:** the engine that ran against fakes in Phase 4 can now run against real Dalamud adapters, end-to-end, in-game.
+**Deliverable:** plugin loads in Dalamud, quest 66130 completes end-to-end in ~41 seconds, trace written to `pluginConfigs\QuestForge\traces\*.jsonl`.
 
-**Done when:** you can launch the plugin in-game, accept your test quest, and watch the engine complete it. This is the first user-facing milestone.
+**Done when:** ✅ Quest 66130 completed in-game. Trace file written. All 103 Phase 5 tests continue passing.
 
 ---
 
-## Phase 7: One real quest, canonical trace, replay harness (2-3 weeks)
+## Phase 7: Canonical trace + replay harness (2-3 weeks) 🔄 NEXT
 
 **Goal:** prove the trace replay model works.
 
 **What to build:**
 
-1. **Author your first real quest file** — pick a slightly more complex ARR quest than the Phase 4 test. Maybe 5-10 steps, one duty (or skip duties entirely on the first one), one NPC interaction with dialogue choices.
-2. **Run it in-game** with the Phase 6 plugin. Capture the trace.
-3. **Commit the trace as a canonical fixture** in the quest's directory in `questforge-data`.
-4. **Build the replay harness:**
+1. **Commit the Phase 6 canonical trace** — the trace from the successful quest 66130 run lives in `pluginConfigs\QuestForge\traces\`. Copy it into `questforge-data` as `quests/arr/msq/66130-canonical-trace-phase6.jsonl`.
+2. **Hoist recording proxies** — move `RecordingGameStateProvider` and `RecordingQuestState` from `QuestForge.Adapters.Fakes` to `QuestForge.Adapters` proper, updating all `using` statements (low-churn but cleaner).
+3. **Build the replay harness:**
    - `ReplayGameStateProvider` reads observations from a trace and serves them in order
    - `ReplayQuestState` does the same for quest data
    - Fake adapters for everything else, scripted from the trace

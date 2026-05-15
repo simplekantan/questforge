@@ -1,6 +1,6 @@
 # Phase 6 Implementation Plan: Dalamud-Backed Adapters + Plugin Entry
 
-**Status:** ready to implement
+**Status:** complete ✅
 **Input docs:** docs/NEXT_STEPS.md §Phase 6, docs/ADAPTERS.md §4–§13, docs/SPIKE_NOTES.md (Phase 0 IPC contracts), docs/ARCHITECTURE.md (three-layer separation), docs/DESIGN.md §5–§7
 **Output:** plugin builds and loads in-game; user accepts quest 66130 ("Coming to Ul'dah"); engine drives the same `EngineAction` sequence that passed Phase 4 fakes, against real Dalamud adapters, and the quest completes.
 **Predecessor:** Phase 5 complete — `TraceWriter`, `RecordingGameStateProvider`, `RecordingQuestState`, six event types; 103 tests green.
