@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QuestForge.Schema.Tests", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QuestForge.Adapters", "QuestForge.Adapters\QuestForge.Adapters.csproj", "{63BC783A-4BA3-423E-9D54-CBA7F121ED17}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QuestForge.Adapters.Fakes", "QuestForge.Adapters.Fakes\QuestForge.Adapters.Fakes.csproj", "{FEC7C1BA-1FA4-4A37-86BD-2488E9EF0563}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -48,6 +50,18 @@ Global
 		{63BC783A-4BA3-423E-9D54-CBA7F121ED17}.Release|x64.Build.0 = Release|Any CPU
 		{63BC783A-4BA3-423E-9D54-CBA7F121ED17}.Release|x86.ActiveCfg = Release|Any CPU
 		{63BC783A-4BA3-423E-9D54-CBA7F121ED17}.Release|x86.Build.0 = Release|Any CPU
+		{FEC7C1BA-1FA4-4A37-86BD-2488E9EF0563}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FEC7C1BA-1FA4-4A37-86BD-2488E9EF0563}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FEC7C1BA-1FA4-4A37-86BD-2488E9EF0563}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{FEC7C1BA-1FA4-4A37-86BD-2488E9EF0563}.Debug|x64.Build.0 = Debug|Any CPU
+		{FEC7C1BA-1FA4-4A37-86BD-2488E9EF0563}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{FEC7C1BA-1FA4-4A37-86BD-2488E9EF0563}.Debug|x86.Build.0 = Debug|Any CPU
+		{FEC7C1BA-1FA4-4A37-86BD-2488E9EF0563}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FEC7C1BA-1FA4-4A37-86BD-2488E9EF0563}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FEC7C1BA-1FA4-4A37-86BD-2488E9EF0563}.Release|x64.ActiveCfg = Release|Any CPU
+		{FEC7C1BA-1FA4-4A37-86BD-2488E9EF0563}.Release|x64.Build.0 = Release|Any CPU
+		{FEC7C1BA-1FA4-4A37-86BD-2488E9EF0563}.Release|x86.ActiveCfg = Release|Any CPU
+		{FEC7C1BA-1FA4-4A37-86BD-2488E9EF0563}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
