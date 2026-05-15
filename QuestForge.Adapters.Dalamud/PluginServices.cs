@@ -14,4 +14,5 @@ public sealed record PluginServices(
     IChatGui ChatGui,
     IGameGui GameGui,
     IPluginLog Log,
-    IGameInteropProvider Hooks);
+    IGameInteropProvider Hooks,
+    IGameConfig GameConfig);

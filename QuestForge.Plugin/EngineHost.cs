@@ -1,3 +1,4 @@
+using Dalamud.Game.Config;
 using Microsoft.Extensions.Logging;
 using QuestForge.Adapters.Combat;
 using QuestForge.Adapters.Dalamud;
@@ -42,6 +43,10 @@ public sealed class EngineHost : IDisposable
     private QuestEngine? _engine;
     private string? _runId;
     private QuestId _currentQuestId;
+
+    // Saved cutscene skip settings — null means not saved (no run active or settings not changed)
+    private uint? _savedCutsceneSkipContents;
+    private uint? _savedCutsceneSkipShip;
 
     public EngineHost(PluginServices services)
     {
@@ -90,8 +95,9 @@ public sealed class EngineHost : IDisposable
 
     public void BeginRun(QuestDefinition quest, string runId)
     {
-        EndRun(); // clean up any previous run
+        EndRun(); // clean up any previous run (also restores cutscene settings)
 
+        EnableCutsceneSkip();
         _runId          = runId;
         _currentQuestId = new QuestId(quest.Id);
         _trace          = TraceWriter.OpenFile(BuildTracePath(runId));
@@ -180,9 +186,42 @@ public sealed class EngineHost : IDisposable
         _trace?.Dispose();
         _trace  = null;
         _runId  = null;
+        RestoreCutsceneSkip();
     }
 
     public void Dispose() => EndRun();
+
+    private void EnableCutsceneSkip()
+    {
+        // Save current settings and set to maximum (skip all). Uses props.Maximum so we don't
+        // hardcode a value — the game defines what "skip all" means per option.
+        if (_services.GameConfig.TryGet(UiConfigOption.CutsceneSkipIsContents, out uint cur1))
+        {
+            _savedCutsceneSkipContents = cur1;
+            if (_services.GameConfig.TryGet(UiConfigOption.CutsceneSkipIsContents, out UIntConfigProperties? props) && props is not null)
+                _services.GameConfig.Set(UiConfigOption.CutsceneSkipIsContents, props.Maximum);
+        }
+        if (_services.GameConfig.TryGet(UiConfigOption.CutsceneSkipIsShip, out uint cur2))
+        {
+            _savedCutsceneSkipShip = cur2;
+            if (_services.GameConfig.TryGet(UiConfigOption.CutsceneSkipIsShip, out UIntConfigProperties? props) && props is not null)
+                _services.GameConfig.Set(UiConfigOption.CutsceneSkipIsShip, props.Maximum);
+        }
+    }
+
+    private void RestoreCutsceneSkip()
+    {
+        if (_savedCutsceneSkipContents is { } v1)
+        {
+            _services.GameConfig.Set(UiConfigOption.CutsceneSkipIsContents, v1);
+            _savedCutsceneSkipContents = null;
+        }
+        if (_savedCutsceneSkipShip is { } v2)
+        {
+            _services.GameConfig.Set(UiConfigOption.CutsceneSkipIsShip, v2);
+            _savedCutsceneSkipShip = null;
+        }
+    }
 
     // Deterministic seed from runId — same runId → same timing sequence (Phase 7 replay)
     private static int StableHash(string s)

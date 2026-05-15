@@ -24,14 +24,15 @@ public sealed class Plugin : IDalamudPlugin
         IChatGui chatGui,
         IGameGui gameGui,
         IPluginLog log,
-        IGameInteropProvider hooks)
+        IGameInteropProvider hooks,
+        IGameConfig gameConfig)
     {
         _framework = framework;
 
         var services = new PluginServices(
             pi, framework, clientState, condition,
             objectTable, dataManager, targetManager,
-            chatGui, gameGui, log, hooks);
+            chatGui, gameGui, log, hooks, gameConfig);
 
         _host    = new EngineHost(services);
         _command = new QfCommand(_host, commandManager, chatGui, log, pi);
