@@ -1,9 +1,23 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <Platforms>x64</Platforms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Description>QuestForge — FFXIV quest automation</Description>
+    <Authors>QuestForge contributors</Authors>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\QuestForge.Adapters\QuestForge.Adapters.csproj" />
+    <ProjectReference Include="..\QuestForge.Adapters.Dalamud\QuestForge.Adapters.Dalamud.csproj" />
+    <ProjectReference Include="..\QuestForge.Adapters.Fakes\QuestForge.Adapters.Fakes.csproj" />
+    <ProjectReference Include="..\QuestForge.Engine\QuestForge.Engine.csproj" />
+    <ProjectReference Include="..\QuestForge.Schema\QuestForge.Schema.csproj" />
+    <PackageReference Include="ECommons" Version="3.*" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.5" />
+  </ItemGroup>
 
 </Project>
