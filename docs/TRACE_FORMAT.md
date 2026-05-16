@@ -1,6 +1,6 @@
 # Trace Format Specification
 
-**Status:** v1 draft — additive changes accepted until implementation begins; will hard-lock at first plugin release
+**Status:** v1 — implemented through Phase 8; event types in §5 are stable; file layout (§3) revised in Phase 7
 **Format version:** `v: 1`
 **Owners:** QuestForge maintainers
 **Related:** [DESIGN.md](./DESIGN.md), [ADAPTERS.md](./ADAPTERS.md)
@@ -32,23 +32,26 @@ If profiling later proves disk size dominates a real workflow, the format may be
 
 ## 3. File layout
 
+**User traces** (opt-in, written by the plugin during a run):
+
 ```
-traces/
-└── <expansion>/
-    └── <category>/
-        └── <quest-id>-<slug>/
-            ├── canonical.trace.jsonl     # the test fixture (single file, no rotation)
-            └── candidates/               # other recorded runs, for promotion or diversity testing
-                ├── 2026-05-12T14-22-01Z.run-7f3a.trace.jsonl
-                └── 2026-05-15T09-14-30Z.run-a8b2.trace.jsonl
+%APPDATA%\XIVLauncher\pluginConfigs\QuestForge\traces\
+└── <runId>.jsonl
 ```
 
-- One **canonical** trace per quest is the CI replay fixture. It never rotates.
-- Candidate traces are kept alongside but not run by default. Promotion to canonical is a deliberate PR.
-- Filenames for candidates encode ISO 8601 UTC timestamp + short `runId` for ordering and collision avoidance.
-- Trace files are tracked with **git LFS** to keep working clones lean.
+Enabled via `/qf config trace on` or automatically when Authoring mode is active. Off by default — traces can be large (hundreds of KB per run). The user controls retention; no automatic rotation in Phase 8.
 
-The directory structure mirrors `quests/` so a quest definition and its trace fixture are reviewable in the same PR.
+**Engine fixture files** (CI regression corpus, not full traces):
+
+```
+questforge-data/
+└── fixtures/
+    └── engine/
+        ├── simple-linear-acceptance.json
+        └── ...
+```
+
+The Phase 7 implementation replaced the original "canonical trace in `questforge-data`" plan with transition-based engine fixtures (see `docs/FIXTURES.md`). Fixtures capture only the unique consecutive `(stepId, actionType)` decisions the engine emits, not tick-by-tick observations. This makes them ~50× smaller, human-readable, and regeneration-friendly. Full-trace replay is retained as a future tool (`qf-trace replay`, Phase 10) but is no longer the primary CI regression mechanism.
 
 ---
 
@@ -86,14 +89,14 @@ Every event is a JSON object with these required top-level fields:
 
 ### 4.2 Per-tick concatenation
 
-The engine processes ticks in this loop:
+The engine host processes ticks in this loop:
 
-1. Read game state (zero or more property accesses recorded as one `observation`)
+1. Read game state (zero or more property accesses recorded as `observation` events via the recording proxy)
 2. Decide next action (one `decision`)
-3. Optionally submit action (`action.submitted` → `action.completed`)
-4. Optionally trigger recovery or surface errors
+3. Submit and dispatch action (`action.submitted` → `action.completed`)
+4. **Ambient quest flag poll** — `EngineHost` calls `GetQuestFlags` on the active quest after each dispatch when tracing is enabled. The dedup layer emits an `observation` event only when the flags byte changes. This captures quest flag bit transitions as they occur naturally during a run without requiring `questFlag()` predicates in the quest file — making unknown bits discoverable for authoring.
 
-**Exactly one `decision` event follows each `observation` event within a single engine tick.** If the engine reads state multiple times within a tick, the recording proxy concatenates all reads into a single `observation` event before the `decision`.
+**Exactly one `decision` event follows each group of `observation` events within a single engine tick.** If the engine reads state multiple times within a tick, each read is a separate `observation` event (deduplication suppresses repeated identical reads across ticks, not within a tick).
 
 ---
 

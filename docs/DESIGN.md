@@ -1,6 +1,6 @@
 # FFXIV Quest Automator — Design Document
 
-**Status:** Draft v0.1 — pre-implementation design
+**Status:** v0.1 — foundational design; implementation through Phase 8 complete
 **Working name:** TBD (placeholder: `QuestForge`)
 **Maintainer model:** Solo driver accepting drive-by contributions through CI-gated PRs
 

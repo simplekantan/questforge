@@ -21,6 +21,7 @@ using QuestForge.Adapters.Timing;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine;
+using QuestForge.Engine.Scheduling;
 using QuestForge.Engine.Tracing;
 using QuestForge.Plugin.Logging;
 using QuestForge.Schema;
@@ -44,12 +45,19 @@ public sealed class EngineHost : IDisposable
 
     private ITraceWriter _trace = NullTraceWriter.Instance;
     private QuestEngine? _engine;
+    private RecordingQuestState? _recordingQs;
     private string? _runId;
     private QuestId _currentQuestId;
 
     // Saved cutscene skip settings — null means not saved (no run active or settings not changed)
     private uint? _savedCutsceneSkipContents;
     private uint? _savedCutsceneSkipShip;
+
+    private IQuestScheduler? _scheduler;
+    private bool _autoMode;
+    private bool _tracingEnabled;
+    private DateTimeOffset _lastSchedulerPollAt = DateTimeOffset.MinValue;
+    private static readonly TimeSpan SchedulerPollInterval = TimeSpan.FromSeconds(2);
 
     // Debounced logging: log immediately on change, then at most once per interval for repeats
     private string? _lastDebounceKey;
@@ -74,9 +82,38 @@ public sealed class EngineHost : IDisposable
     public bool IsRunActive => _engine is not null;
     public string? ActiveRunId => _runId;
 
+    public bool IsAutoMode => _autoMode;
+    public QuestId? CurrentQuestId => _engine is not null ? _currentQuestId : null;
+    public SchedulerStatus? SchedulerStatus => _scheduler?.CurrentStatus;
+
+    // Exposed for QuestScheduler construction in Plugin.cs
+    internal IQuestState QuestState => _questStateInner;
+    internal IGameStateProvider GameState => _gameStateInner;
+
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
     public void StopRun() => EndRun();
+
+    public void StartAutoMode(IQuestScheduler scheduler, bool enableTracing)
+    {
+        StopAutoMode();
+        _scheduler = scheduler;
+        _autoMode = true;
+        _tracingEnabled = enableTracing;
+        _lastSchedulerPollAt = DateTimeOffset.MinValue; // fire immediately on first tick
+        _services.Log.Info("QuestForge: auto mode started");
+        _services.ChatGui.Print("QuestForge: auto mode started — will run all available quests");
+    }
+
+    public void StopAutoMode()
+    {
+        _autoMode = false;
+        _scheduler = null;
+        StopRun();
+    }
+
+    public void UpdateSchedulerOptions(SchedulerOptions options)
+        => _scheduler?.UpdateOptions(options);
 
     public string GetGameStateSummary()
     {
@@ -116,8 +153,12 @@ public sealed class EngineHost : IDisposable
 
         IGameStateProvider gs = new RecordingGameStateProvider(
             _gameStateInner, _trace, () => _runId, skipIfNoRunId: true);
-        IQuestState qs = new RecordingQuestState(
+        var recordingQs = new RecordingQuestState(
             _questStateInner, _trace, () => _runId, skipIfNoRunId: true);
+        IQuestState qs = recordingQs;
+        // Hold reference for ambient flag polling only when tracing is active.
+        // Nullness of _recordingQs is the gate — saves the poll overhead for normal users.
+        _recordingQs = enableTracing ? recordingQs : null;
 
         _engine = new QuestEngine(
             gs, qs, _navigator, _teleporter, _interactor,
@@ -129,7 +170,16 @@ public sealed class EngineHost : IDisposable
 
     public async Task TickAsync(CancellationToken ct)
     {
-        if (_engine is null) return;
+        if (_engine is null)
+        {
+            if (_autoMode && _scheduler is { } scheduler
+                && DateTimeOffset.UtcNow - _lastSchedulerPollAt > SchedulerPollInterval)
+            {
+                _lastSchedulerPollAt = DateTimeOffset.UtcNow;
+                await TryStartNextQuestAsync(scheduler, ct);
+            }
+            return;
+        }
 
         EngineAction action;
         try { action = await _engine.Tick(ct); }
@@ -148,6 +198,12 @@ public sealed class EngineHost : IDisposable
             _services.Log.Error(ex, $"QuestForge: dispatch error for {action.GetType().Name}");
             _services.ChatGui.PrintError($"QuestForge: dispatch error — {ex.Message}");
         }
+
+        // Ambient quest flag polling: emit a trace observation whenever the active quest's
+        // flags byte changes. The dedup layer in RecordingQuestState suppresses unchanged frames.
+        // _recordingQs is null when tracing is off (DispatchAction.Done also clears it via EndRun).
+        if (_recordingQs is not null)
+            await _recordingQs.GetQuestFlags(_currentQuestId, ct);
     }
 
     private async Task DispatchAction(EngineAction action, CancellationToken ct)
@@ -184,7 +240,15 @@ public sealed class EngineHost : IDisposable
             case EngineAction.AwaitUser au:
                 _services.Log.Warning($"QuestForge run {_runId} paused: {au.Reason}");
                 _services.ChatGui.PrintError($"QuestForge: run paused — {au.Reason}");
-                EndRun();
+                if (_autoMode)
+                {
+                    StopAutoMode();
+                    _services.ChatGui.PrintError("QuestForge: auto mode stopped — manual intervention required");
+                }
+                else
+                {
+                    EndRun();
+                }
                 break;
 
             case EngineAction.Done:
@@ -195,9 +259,70 @@ public sealed class EngineHost : IDisposable
         }
     }
 
+    private async Task TryStartNextQuestAsync(IQuestScheduler scheduler, CancellationToken ct)
+    {
+        Result<QuestId?> result;
+        try { result = await scheduler.NextQuestToRun(ct); }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _services.Log.Error(ex, "QuestForge: scheduler threw");
+            StopAutoMode();
+            return;
+        }
+
+        if (result is Result<QuestId?>.Failure f)
+        {
+            _services.Log.Warning($"QuestForge: scheduler returned failure {f.Reason}: {f.Detail}");
+            return;
+        }
+
+        if (result is not Result<QuestId?>.Success { Value: { } questId })
+        {
+            // Success(null) → Idle or AwaitingUser. Surface the blocker once via debounced log+chat.
+            if (scheduler.CurrentStatus is SchedulerStatus.AwaitingUser au)
+                DebounceLog(
+                    $"awaiting:{au.BlockedQuest.Value}",
+                    $"QuestForge: auto mode blocked — quest {au.BlockedQuest.Value}: {FormatAwaitReason(au.Reason)}");
+            return;
+        }
+
+        var quest = TryLoadQuest(questId);
+        if (quest is null)
+        {
+            _services.Log.Warning($"QuestForge: scheduler selected quest {questId.Value} but no quest file found");
+            return;
+        }
+
+        var runId = $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"[..24];
+        BeginRun(quest, runId, _tracingEnabled);
+        _services.ChatGui.Print($"QuestForge: starting quest {questId.Value}");
+    }
+
+    private static string FormatAwaitReason(QuestUnlockReason r)
+    {
+        if (r.LevelTooLow)            return $"level too low (need {r.RequiredLevel})";
+        if (r.WrongJob)               return "wrong job";
+        if (r.PrerequisiteIncomplete) return "missing prerequisites";
+        if (r.AlreadyCompleted)       return "already completed (data inconsistency)";
+        return r.Detail ?? "unavailable";
+    }
+
+    private QuestDefinition? TryLoadQuest(QuestId questId)
+    {
+        var path = Path.Combine(
+            _services.PluginInterface.GetPluginConfigDirectory(),
+            "quests",
+            $"{questId.Value}.json");
+        if (!File.Exists(path)) return null;
+        try { return QuestFileLoader.Load(path); }
+        catch { return null; }
+    }
+
     private void EndRun()
     {
-        _engine = null;
+        _engine      = null;
+        _recordingQs = null;
         (_trace as IDisposable)?.Dispose();
         _trace  = NullTraceWriter.Instance;
         _runId  = null;

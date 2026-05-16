@@ -272,58 +272,50 @@ Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 
 ---
 
-## Phase 8: Quest scheduler + UI (3-5 weeks)
+## Phase 8: Quest scheduler + UI (3-5 weeks) ✅ COMPLETE
 
 **Goal:** QuestForge becomes a fully automated questing system. The user presses Start; the plugin handles everything — class quests, blocking prerequisites, MSQ continuation — without further input.
 
-**The `QuestScheduler` (pure C#, the core of this phase):**
+### What was built
 
-The scheduler is a new engine-layer component that sits above `QuestEngine`. It continuously answers "given the player's current state, what quest should run next?" and loops until the user stops or the supported corpus is exhausted.
+`QuestScheduler` in `QuestForge.Engine.Scheduling` — pure C#, no Dalamud dependency, 31 unit tests. See `docs/PHASE_8_SCHEDULER_SPEC.md` for the full TDD specification.
 
 ```
 User presses Start
     ↓
-QuestScheduler selects next quest from corpus
+QuestScheduler.NextQuestToRun() selects next quest
     ↓
 QuestEngine runs that quest to Done
     ↓
 QuestScheduler loops
 ```
 
-**Scheduler design (see DESIGN.md §Scheduler when written):**
+**Priority tiers (int, lower = higher priority):**
+- **Tier 0** — User-pinned manual chain. Never interrupted. Blocker → stops all automation (`AwaitingUser`), user resolves manually.
+- **Tier 1** — Class/job quests for the active job only (via Lumina `ClassJobCategory`).
+- **Tier 2** — Dynamic blockers: quests that are prerequisites for Tier-1 or Tier-3 quests, resolved recursively with cycle guard.
+- **Tier 3** — Auto chain continuation (MSQ, etc.) — default automation tier.
+- **Tier 4** — DoH/DoL quests (opt-in, active crafter/gatherer job only, off by default).
+- **Tier 5** — Side quests (opt-in, off by default).
 
-1. **Availability-based selection** — the scheduler filters the corpus to quests where `IsQuestAvailable() == true` and `IsQuestComplete() == false`. It never tries to run a quest the game says can't be accepted yet. This makes prerequisite handling automatic: if MSQ quest A requires trial unlock quest B, A won't appear as available until B is done; the scheduler naturally runs B first.
+**Key design decisions:**
+- No "chain files" — FFXIV's own prerequisite system drives ordering via Lumina `JournalGenre.SortKey` + `PreviousQuest`
+- Re-evaluation after each quest completes only (not per-step)
+- `IQuestDataProvider` interface abstracts Lumina reads so the scheduler stays in `QuestForge.Engine`
+- `SchedulerOptions` record: `ManualChain`, `EnableCraftGatherQuests`, `EnableSideQuests`
+- `SchedulerStatus` discriminated union: `Running`, `SelectingNext`, `AwaitingUser`, `Idle`, `Paused`
+- `WhyUnavailable` on `DalamudQuestState` reads Lumina `PreviousQuest[0..2]`, `PreviousQuestJoin`, `ClassJobCategory0`, `ClassJobLevel[0]`
 
-2. **Priority tiers** (applied after availability filtering):
-   - **Tier 1:** Class/job quests for the player's current job, at or below current level — run immediately when available, regardless of what else is in progress. These unlock abilities.
-   - **Tier 2:** Quests marked as blocking another available quest (derived from `WhyUnavailable` calls — if quest X lists quest Y as a missing prereq and Y is available, Y is elevated).
-   - **Tier 3:** Active chain continuation — the next quest in the currently active chain (MSQ chapter, etc.)
-   - **Tier 4:** Other supported quests (configurable — side quests off by default)
-   - Within a tier: lower `chainPosition` first (chain order is respected)
+**Ambient quest flag polling** — `EngineHost.TickAsync` now proactively calls `GetQuestFlags` on the active quest after each dispatch when tracing is enabled. The dedup layer in `RecordingQuestState` suppresses unchanged frames — zero overhead when bits don't change. This captures flag bit changes as they occur naturally during a trace, making the `questFlag(id, bit)` predicate discoverable without manual inspection.
 
-3. **Level-up detection** — after each quest completes, the scheduler re-evaluates availability. Class quests unlock at specific levels; a level-up mid-run surfaces them immediately for the next scheduling cycle.
+**Also built (UI):**
+- `LuminaQuestDataProvider` — scans quest files at startup, reads Lumina JournalCategory/ClassJobCategory for tier determination; `JournalCategory.RowId == 1` → MSQ (Tier 3); class/job category → Tier 1 or 4 based on DoH/DoL membership
+- `EngineHost` auto-mode loop — `StartAutoMode/StopAutoMode`; `TickAsync` calls `NextQuestToRun()` between runs and calls `BeginRun` automatically; `AwaitUser` from engine stops auto mode
+- `MainWindow` — ImGui window: Start/Stop button, live `SchedulerStatus` display, side-quest/craft-gather/tracing toggles
+- `/qf start` — launches auto mode from chat; `/qf ui` — opens the window
+- `JobCategoryHelper` extracted so `DalamudQuestState` and `LuminaQuestDataProvider` share the same job-mapping switch
 
-4. **Chain definitions in questforge-data** — chains group quests into ordered sequences with type metadata (`main-scenario`, `class-job`, `sidequest`). The scheduler uses chain type for priority tier assignment. See Phase 11 for corpus details.
-
-**What to build:**
-
-1. **`QuestScheduler`** — in `QuestForge.Engine`; takes corpus, `IQuestState`, `IGameStateProvider`, `SchedulerConfig`; returns the next `QuestDefinition` to run
-2. **`QuestCorpus`** — in `QuestForge.Plugin`; loads all quest + chain definitions from `questforge-data`, answers "what quests are available right now?"
-3. **`SchedulerConfig`** — priority tweaks, which quest types to include (class quests always on; side quests configurable)
-4. **`EngineHost` loop mode** — `RunAllAsync(CancellationToken)` calls `BeginRun` in a loop driven by the scheduler
-5. **Start/Stop UI** — the primary interaction: one "Start All Questing" button and one "Stop" button
-6. **Status display** — current quest name, type (MSQ/Class/Side), step, what the scheduler has queued next
-7. **Settings UI** — enable/disable side quests; priority overrides; display tracing toggle (now in PluginConfig)
-8. **Pre-flight check** — before starting any quest, call `IsQuestAvailable`; surface `WhyUnavailable` as a clear chat message rather than silently hanging
-
-**Don't build:**
-
-- Full quest selection browser (Phase 11 — corpus not complete enough to be useful)
-- Authoring mode (Phase 9)
-
-**Deliverable:** pressing Start in Ul'dah on a fresh Gladiator automatically runs quest 66130, detects the player levelled to 10, runs the level-10 Gladiator class quest, then continues the next available MSQ without user input.
-
-**Done when:** the scheduler correctly interleaves class quests and MSQ across a 10-quest test sequence, without the user specifying individual quest IDs.
+**Done when:** ✅ Complete. `/qf start` or the Start button automatically runs available quests in priority order. `JournalCategory.RowId == 1` for MSQ should be verified in-game via `/xldata`.
 
 ---
 

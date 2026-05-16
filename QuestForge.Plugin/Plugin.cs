@@ -1,3 +1,4 @@
+using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using ECommons;
@@ -13,6 +14,11 @@ public sealed class Plugin : IDalamudPlugin
     private readonly QfCommand _command;
     private readonly IFramework _framework;
     private readonly CancellationTokenSource _cts = new();
+    private readonly IDalamudPluginInterface _pi;
+    private readonly WindowSystem _windowSystem = new("QuestForge");
+    private readonly UI.MainWindow _mainWindow;
+    private readonly QuestForge.Engine.Scheduling.QuestScheduler _scheduler;
+    private readonly QuestForge.Adapters.Dalamud.Scheduling.LuminaQuestDataProvider _questData;
 
     public Plugin(
         IDalamudPluginInterface pi,
@@ -30,6 +36,7 @@ public sealed class Plugin : IDalamudPlugin
         IGameConfig gameConfig)
     {
         _framework = framework;
+        _pi = pi;
 
         // ECommons must be initialized before AutoCutsceneSkipper
         ECommonsMain.Init(pi, this);
@@ -41,10 +48,27 @@ public sealed class Plugin : IDalamudPlugin
 
         var config = PluginConfig.Load(pi);
 
-        _host    = new EngineHost(services);
-        _command = new QfCommand(_host, commandManager, chatGui, log, pi, config);
+        _host = new EngineHost(services);
 
-        Directory.CreateDirectory(Path.Combine(pi.GetPluginConfigDirectory(), "quests"));
+        var questsDir = Path.Combine(pi.GetPluginConfigDirectory(), "quests");
+        var questCategories = BuildQuestCategories(questsDir);
+        _questData = new QuestForge.Adapters.Dalamud.Scheduling.LuminaQuestDataProvider(dataManager, questCategories);
+        var questData = _questData;
+        _scheduler = new QuestForge.Engine.Scheduling.QuestScheduler(
+            _host.QuestState,
+            _host.GameState,
+            questData,
+            new QuestForge.Engine.Scheduling.SchedulerOptions([], config.EnableCraftGatherQuests, config.EnableSideQuests, config.EnableBlueQuests),
+            new QuestForge.Plugin.Logging.DalamudLogger<QuestForge.Engine.Scheduling.QuestScheduler>(log));
+
+        _mainWindow = new UI.MainWindow(_host, _scheduler, config, pi);
+        _windowSystem.AddWindow(_mainWindow);
+        pi.UiBuilder.Draw += _windowSystem.Draw;
+        pi.UiBuilder.OpenMainUi += _mainWindow.Toggle;
+
+        _command = new QfCommand(_host, _scheduler, _mainWindow, _questData, dataManager, commandManager, chatGui, log, pi, config);
+
+        Directory.CreateDirectory(questsDir);
 
         // Hook the game's cutscene handler to press Escape when a run is active.
         // If another plugin (e.g. TextAdvance) already holds the hook, Init throws —
@@ -53,6 +77,24 @@ public sealed class Plugin : IDalamudPlugin
         catch { /* Hook already owned by another plugin — IGameConfig covers ESC */ }
 
         _framework.Update += OnFrameworkUpdate;
+    }
+
+    private static Dictionary<QuestForge.Adapters.Types.QuestId, string> BuildQuestCategories(string questsDir)
+    {
+        var result = new Dictionary<QuestForge.Adapters.Types.QuestId, string>();
+        if (!Directory.Exists(questsDir)) return result;
+        foreach (var file in Directory.EnumerateFiles(questsDir, "*.json", SearchOption.TopDirectoryOnly))
+        {
+            if (!uint.TryParse(Path.GetFileNameWithoutExtension(file), out var rawId)) continue;
+            try
+            {
+                var def = QuestFileLoader.Load(file);
+                if (def?.Category is { } cat)
+                    result[new QuestForge.Adapters.Types.QuestId(rawId)] = cat;
+            }
+            catch { /* malformed file — skip */ }
+        }
+        return result;
     }
 
     private Task? _inflight;
@@ -70,6 +112,8 @@ public sealed class Plugin : IDalamudPlugin
     {
         _framework.Update -= OnFrameworkUpdate;
         _cts.Cancel();
+        _pi.UiBuilder.Draw -= _windowSystem.Draw;
+        _pi.UiBuilder.OpenMainUi -= _mainWindow.Toggle;
         _command.Dispose();
         _host.Dispose();
         _cts.Dispose();

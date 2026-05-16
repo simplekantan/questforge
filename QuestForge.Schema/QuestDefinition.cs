@@ -6,7 +6,7 @@ public record class QuestDefinition
     public uint Id { get; init; }
     public string Name { get; init; } = default!;
     public string Expansion { get; init; } = default!;   // "arr"|"heavensward"|"stormblood"|"shadowbringers"|"endwalker"|"dawntrail"
-    public string Category { get; init; } = default!;    // "msq"|"class"|"job"
+    public string Category { get; init; } = default!;    // "msq"|"class"|"job"|"role"|"blue-urgent"|"blue"|"side"
     public bool Enabled { get; init; } = true;
     public SupportStatus? SupportStatus { get; init; }   // required — validator checks non-null
     public string? LastVerifiedPatch { get; init; }      // required — validator checks non-null
