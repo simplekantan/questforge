@@ -2,11 +2,15 @@ using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using QuestForge.Adapters.Dalamud;
 using QuestForge.Adapters.Dalamud.Authoring;
+using QuestForge.Adapters.State;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Authoring;
 using QuestForge.Schema;
 
 namespace QuestForge.Plugin.Authoring;
+
+/// <summary>Lumina-backed quest info for a single NPC target, cached by AuthoringHost.</summary>
+public sealed record NpcQuestInfo(uint QuestId, string QuestName, bool IsAvailable, bool IsComplete);
 
 /// <summary>
 /// Plugin-side authoring coordinator. Subscribes to Dalamud events, maintains
@@ -18,7 +22,13 @@ public sealed class AuthoringHost : IDisposable
     private readonly IPluginLog _log;
     private readonly DraftManager _draftManager;
     private readonly StepInferenceEngine _inferenceEngine = new();
+    private readonly IQuestState _questState;
     private SnapshotAggregator _aggregator;
+
+    // NPC quest cache — refreshed only when target.BaseId changes
+    private uint _lastQuestQueryNpcBaseId;
+    private IReadOnlyList<NpcQuestInfo> _cachedNpcQuests = [];
+    private PluginConfig _config;
 
     // Quest-state polling: track last known (seq, flags) per quest to detect changes
     private readonly Dictionary<ushort, (byte Seq, byte Flags)> _lastKnownQuestState = new();
@@ -34,10 +44,17 @@ public sealed class AuthoringHost : IDisposable
     // Recent change tracking for QuestStatePanel highlight
     public (QuestId QuestId, string Description, DateTimeOffset When)? RecentChange { get; private set; }
 
-    public AuthoringHost(PluginServices services, FileDraftStorage storage, IPluginLog log)
+    public IReadOnlyList<NpcQuestInfo> NpcQuests => _cachedNpcQuests;
+
+    /// <summary>Force a cache refresh on the next heartbeat tick. Call when settings change.</summary>
+    public void InvalidateNpcCache() => _lastQuestQueryNpcBaseId = 0;
+
+    public AuthoringHost(PluginServices services, FileDraftStorage storage, IPluginLog log, PluginConfig config, IQuestState questState)
     {
         _services = services;
         _log = log;
+        _config = config;
+        _questState = questState;
         _draftManager = new DraftManager(storage, SystemClock.Instance, TimeSpan.FromSeconds(60));
         _aggregator = new SnapshotAggregator(null, SystemClock.Instance);
 
@@ -208,17 +225,86 @@ public sealed class AuthoringHost : IDisposable
     private void PollTargetNpc()
     {
         var target = _services.TargetManager.Target;
-        if (target is null) return;
-
-        // Only report NPC-type targets
-        if (target.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc &&
-            target.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc)
+        if (target is null || (target.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc &&
+                               target.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc))
+        {
+            // No valid NPC target — clear the quest cache
+            if (_lastQuestQueryNpcBaseId != 0)
+            {
+                _cachedNpcQuests = [];
+                _lastQuestQueryNpcBaseId = 0;
+            }
             return;
+        }
 
         var npcId = new NpcId(target.BaseId);
         var p = target.Position;
         var npcPos = new WorldPosition(p.X, p.Y, p.Z);
         _aggregator.OnInteraction(npcId, npcPos);
+
+        UpdateNpcQuestCache(target.BaseId);
+    }
+
+    // WHY: Lumina Quest sheet has 5000+ rows. A linear scan per NPC retarget would
+    // run on the Framework thread and could stutter. Build the index once and look up in O(1).
+    private Dictionary<uint, List<uint>>? _npcQuestIndex; // npcBaseId -> list of quest RowIds
+
+    private Dictionary<uint, List<uint>> GetOrBuildNpcQuestIndex()
+    {
+        if (_npcQuestIndex != null) return _npcQuestIndex;
+        var questSheet = _services.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Quest>();
+        var index = new Dictionary<uint, List<uint>>();
+        if (questSheet != null)
+        {
+            foreach (var quest in questSheet)
+            {
+                var issuerId = quest.IssuerStart.RowId;
+                if (issuerId == 0 || string.IsNullOrEmpty(quest.Name.ToString())) continue;
+                if (!index.TryGetValue(issuerId, out var list))
+                    index[issuerId] = list = new List<uint>();
+                list.Add(quest.RowId);
+            }
+        }
+        _npcQuestIndex = index;
+        return _npcQuestIndex;
+    }
+
+    private void UpdateNpcQuestCache(uint npcBaseId)
+    {
+        if (npcBaseId == _lastQuestQueryNpcBaseId) return;
+        _lastQuestQueryNpcBaseId = npcBaseId;
+
+        var index = GetOrBuildNpcQuestIndex();
+        if (!index.TryGetValue(npcBaseId, out var questRowIds)) { _cachedNpcQuests = []; return; }
+
+        var questSheet = _services.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Quest>();
+        if (questSheet == null) { _cachedNpcQuests = []; return; }
+
+        var results = new List<NpcQuestInfo>();
+        var ct = CancellationToken.None;
+
+        foreach (var rowId in questRowIds)
+        {
+            var quest = questSheet.GetRow(rowId);
+            var name = quest.Name.ToString();
+            if (string.IsNullOrEmpty(name)) continue;
+
+            var publicId = new QuestId((uint)(quest.RowId | 0x10000u));
+
+            var availableResult = _questState.IsQuestAvailable(publicId, ct).GetAwaiter().GetResult();
+            var isAvailable = availableResult is Result<bool>.Success { Value: true };
+
+            var completeResult = _questState.IsQuestComplete(publicId, ct).GetAwaiter().GetResult();
+            var isComplete = completeResult is Result<bool>.Success { Value: true };
+
+            // Skip completed quests unless the setting is enabled
+            if (isComplete && !_config.ShowCompletedQuestsInAuthorPanel) continue;
+
+            results.Add(new NpcQuestInfo(publicId.Value, name, isAvailable, isComplete));
+            if (results.Count >= 10) break;
+        }
+
+        _cachedNpcQuests = results;
     }
 
     private WorldPosition GetPlayerPosition()

@@ -1,5 +1,6 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using Dalamud.Plugin;
 using QuestForge.Engine.Authoring;
 using QuestForge.Plugin.Authoring;
 
@@ -11,6 +12,8 @@ public sealed class AuthoringSessionPanel : Window
     private readonly RecordStepModal _recordModal;
     private readonly StepEditModal _editModal;
     private readonly ExportDialog _exportDialog;
+    private readonly PluginConfig _config;
+    private readonly IDalamudPluginInterface _pi;
 
     // Validation result display
     private List<DraftValidationError> _lastErrors = new();
@@ -19,13 +22,16 @@ public sealed class AuthoringSessionPanel : Window
     private readonly DraftValidator _validator = new();
 
     public AuthoringSessionPanel(AuthoringHost host,
-        RecordStepModal recordModal, StepEditModal editModal, ExportDialog exportDialog)
+        RecordStepModal recordModal, StepEditModal editModal, ExportDialog exportDialog,
+        PluginConfig config, IDalamudPluginInterface pi)
         : base("QuestForge — Authoring Session", ImGuiWindowFlags.None)
     {
         _host = host;
         _recordModal = recordModal;
         _editModal = editModal;
         _exportDialog = exportDialog;
+        _config = config;
+        _pi = pi;
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new System.Numerics.Vector2(420, 300),
@@ -50,6 +56,21 @@ public sealed class AuthoringSessionPanel : Window
             case AuthoringMode.Author:
                 DrawAuthorMode();
                 break;
+        }
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        DrawSettings();
+    }
+
+    private void DrawSettings()
+    {
+        var showCompleted = _config.ShowCompletedQuestsInAuthorPanel;
+        if (ImGui.Checkbox("Show completed quests in Interaction panel", ref showCompleted))
+        {
+            _config.ShowCompletedQuestsInAuthorPanel = showCompleted;
+            _config.Save(_pi);
+            _host.InvalidateNpcCache(); // refresh list immediately on next heartbeat
         }
     }
 

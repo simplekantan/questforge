@@ -73,12 +73,12 @@ public sealed class Plugin : IDalamudPlugin
         var draftsDir = Path.Combine(pi.GetPluginConfigDirectory(), "drafts");
         Directory.CreateDirectory(draftsDir);
         var draftStorage = new FileDraftStorage(draftsDir, log);
-        _authoringHost = new AuthoringHost(services, draftStorage, log);
+        _authoringHost = new AuthoringHost(services, draftStorage, log, config, _host.QuestState);
 
         var recordModal = new RecordStepModal(_authoringHost);
         var editModal = new StepEditModal(_authoringHost);
         var exportDialog = new ExportDialog(_authoringHost, pi);
-        _authoringSessionPanel = new AuthoringSessionPanel(_authoringHost, recordModal, editModal, exportDialog);
+        _authoringSessionPanel = new AuthoringSessionPanel(_authoringHost, recordModal, editModal, exportDialog, config, pi);
 
         _windowSystem.AddWindow(_authoringSessionPanel);
         _windowSystem.AddWindow(recordModal);
@@ -86,7 +86,7 @@ public sealed class Plugin : IDalamudPlugin
         _windowSystem.AddWindow(exportDialog);
         _windowSystem.AddWindow(new PlayerStatePanel(_authoringHost));
         _windowSystem.AddWindow(new QuestStatePanel(_authoringHost));
-        _windowSystem.AddWindow(new InteractionPanel(_authoringHost));
+        _windowSystem.AddWindow(new InteractionPanel(_authoringHost, config, pi));
 
         pi.UiBuilder.Draw += _windowSystem.Draw;
         pi.UiBuilder.OpenMainUi += _mainWindow.Toggle;
