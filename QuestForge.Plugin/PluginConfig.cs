@@ -17,6 +17,8 @@ public sealed class PluginConfig
     public bool EnableCraftGatherQuests { get; set; } = false;
     public bool EnableBlueQuests { get; set; } = false;
 
+    public int AuthoringHeartbeatMs { get; set; } = 250;
+
     public static PluginConfig Load(IDalamudPluginInterface pi)
     {
         try
