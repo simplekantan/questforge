@@ -2,7 +2,10 @@
 
 A Dalamud plugin that automates FFXIV quest completion.
 
-![CI](https://github.com/simplekantan/questforge/actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/simplekantan/questforge/actions/workflows/ci.yml/badge.svg)](https://github.com/simplekantan/questforge/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![.NET 10](https://img.shields.io/badge/.NET-10-blueviolet)](https://dotnet.microsoft.com/download/dotnet/10.0)
+[![Dalamud](https://img.shields.io/badge/plugin-Dalamud-7b4fa3)](https://github.com/goatcorp/Dalamud)
 
 ---
 
