@@ -412,6 +412,27 @@ qf-trace extract-quest <runId>.jsonl --quest-data ../questforge-data --out 66130
 
 ---
 
+## Phase 11B: Aetheryte and aethernet attunement
+
+**Goal:** enable automated questing through zones and cities the player has not previously visited by supporting aetheryte and aethernet attunement as a first-class step type.
+
+**Why here:** corpus expansion immediately hits aetheryte gates. Any MSQ quest that routes through a new zone or city requires attunement before Lifestream can teleport there on subsequent quests. Without this, the scheduler silently fails when trying to return to a zone the player has never visited.
+
+**What to build (full feature, no deferral):**
+
+1. **`AttunementStep`** — new step type in `QuestForge.Schema/Step.cs` with `Target: AetheryteId` (works identically for main aetherytes and aethernet shards — both require physical interaction to unlock)
+2. **`IGameStateProvider.IsAttuned(AetheryteId, ct)`** — new adapter method; `DalamudGameStateProvider` reads attunement state from ClientStructs `PlayerState`
+3. **`isAttuned(id)` predicate** — registered in `FunctionRegistry` and `PredicateEvaluator` alongside existing predicates; used in `skipIf` so re-runs are no-ops on already-attuned crystals
+4. **`GameStateSnapshot` attunement field** — `SnapshotAggregator` polls for attunement changes; `StepInferenceEngine` adds a new rule: interaction with no quest-state change but attunement change → infer `AttunementStep` automatically
+5. **Engine handler** — navigate to aetheryte/shard, interact, wait for `isAttuned(id)` postcondition
+6. **Fake/test support** — `FakeGameStateProvider.SetAttuned(AetheryteId, bool)` for deterministic tests
+
+**Key design decision:** `AttunementStep` is a schema-level distinction from `interact-object`; the underlying trace events are identical (same `Interact` action). The step type enables `CapabilityInferrer` to emit `step:attune` and lets the scheduler eventually pre-flight check attunement requirements before starting a quest chain.
+
+**Done when:** a quest file can include an `AttunementStep`, the engine executes it (navigates to crystal, interacts, confirms attunement), and `skipIf: isAttuned(aetheryteId)` makes the step a no-op on characters who are already attuned.
+
+---
+
 ## Phase 11: Incremental corpus expansion (ongoing)
 
 **Goal:** quest count grows. Step types are added as needed.
