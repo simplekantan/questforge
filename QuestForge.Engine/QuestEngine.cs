@@ -191,8 +191,7 @@ public sealed class QuestEngine
         TalkStep talk when talk.Target is null && talk.Targets is { Length: > 0 } =>
             throw new NotSupportedException("Phase 4 does not support multi-target talk steps"),
 
-        AttunementStep =>
-            throw new NotImplementedException("Phase 11B: AttunementStep dispatch not yet implemented"),
+        AttunementStep attune => new EngineAction.Interact(new NpcId(attune.Target.Value)),
 
         _ => throw new NotSupportedException($"Phase 4 does not support step type {step.GetType().Name}")
     };

@@ -103,6 +103,6 @@ public sealed class SnapshotAggregator
     /// </summary>
     public void OnAttunementChanged(AetheryteId aetheryte)
     {
-        throw new NotImplementedException("Phase 11B: OnAttunementChanged not yet implemented");
+        _lastAttuned = aetheryte;
     }
 }
