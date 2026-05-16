@@ -88,7 +88,7 @@ Quest files are JSON. Quest data lives in the [`questforge-data`](../questforge-
 | `id` | Yes | FFXIV quest ID (uint). Must exist in game data. |
 | `name` | Yes | Display name. Should match the in-game quest name. |
 | `expansion` | Yes | `arr`, `heavensward`, `stormblood`, `shadowbringers`, `endwalker`, `dawntrail`, future-named values. |
-| `category` | Yes | `msq`, `class`, `job`. Future: `side`, `tribe`, etc. |
+| `category` | Yes | `msq`, `class`, `job`, `role`, `blue-urgent`, `blue`, `side`. Drives scheduler tier (see `NEXT_STEPS.md` §Phase 8). |
 | `enabled` | No | Defaults `true`. Set `false` to temporarily disable a quest. |
 | `supportStatus` | Yes | See §2.2. |
 | `lastVerifiedPatch` | Yes | Patch version string. Used by support-status UI. |

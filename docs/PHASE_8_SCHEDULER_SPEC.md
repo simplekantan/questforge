@@ -1,9 +1,18 @@
 # Phase 8 — `QuestScheduler` Testable Specification
 
-**Status:** ready for test creation
+**Status:** implemented — see amendment below
 **Stage in TDD workflow:** Architect deliverable (input to Tester)
 **Project scope:** `QuestForge.Engine.Scheduling` namespace; pure C#; no Dalamud reference
 **Related:** `docs/NEXT_STEPS.md` §Phase 8, `QuestForge.Adapters/State/IQuestState.cs`, `QuestForge.Adapters.Dalamud/State/DalamudQuestState.cs`
+
+> **Amendment (post-implementation):** Tier 4 was redesigned after this spec was written.
+> The original spec describes Tier 4 as DoH/DoL quests (`EnableCraftGatherQuests` gate, job-range 9–19 check).
+> The implemented Tier 4 is **blue feature-unlock quests** (`EnableBlueQuests` gate, no job filter).
+> DoH/DoL class quests are now Tier 1 via `category="class"` in quest files.
+> `EnableCraftGatherQuests` is retained in `SchedulerOptions` but not currently used by the scheduler.
+> Quest categories `"blue"`, `"blue-urgent"`, `"role"`, `"side"` were added post-spec.
+> Tier 1 now also includes quests with `classJobCatId==0` (blue-urgent, no class restriction).
+> Scenarios 7, 8a, 8b were updated accordingly; Scenarios 26–28 were added. All other scenarios are accurate.
 
 ---
 

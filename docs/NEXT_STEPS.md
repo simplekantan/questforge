@@ -292,30 +292,32 @@ QuestScheduler loops
 
 **Priority tiers (int, lower = higher priority):**
 - **Tier 0** — User-pinned manual chain. Never interrupted. Blocker → stops all automation (`AwaitingUser`), user resolves manually.
-- **Tier 1** — Class/job quests for the active job only (via Lumina `ClassJobCategory`).
+- **Tier 1** — Class/job/role quests for the active job + `"blue-urgent"` quests (no job filter). Class quests filtered by `IsClassQuestForJob`; blue-urgent included via `classJobCatId==0` check.
 - **Tier 2** — Dynamic blockers: quests that are prerequisites for Tier-1 or Tier-3 quests, resolved recursively with cycle guard.
 - **Tier 3** — Auto chain continuation (MSQ, etc.) — default automation tier.
-- **Tier 4** — DoH/DoL quests (opt-in, active crafter/gatherer job only, off by default).
-- **Tier 5** — Side quests (opt-in, off by default).
+- **Tier 4** — `"blue"` feature-unlock quests (opt-in, `EnableBlueQuests`, no job filter — e.g. Hildebrand, Gold Saucer).
+- **Tier 5** — Side quests (opt-in, `EnableSideQuests`, off by default).
 
 **Key design decisions:**
 - No "chain files" — FFXIV's own prerequisite system drives ordering via Lumina `JournalGenre.SortKey` + `PreviousQuest`
 - Re-evaluation after each quest completes only (not per-step)
 - `IQuestDataProvider` interface abstracts Lumina reads so the scheduler stays in `QuestForge.Engine`
-- `SchedulerOptions` record: `ManualChain`, `EnableCraftGatherQuests`, `EnableSideQuests`
+- `SchedulerOptions` record: `ManualChain`, `EnableCraftGatherQuests` (reserved), `EnableSideQuests`, `EnableBlueQuests`
 - `SchedulerStatus` discriminated union: `Running`, `SelectingNext`, `AwaitingUser`, `Idle`, `Paused`
 - `WhyUnavailable` on `DalamudQuestState` reads Lumina `PreviousQuest[0..2]`, `PreviousQuestJoin`, `ClassJobCategory0`, `ClassJobLevel[0]`
 
 **Ambient quest flag polling** — `EngineHost.TickAsync` now proactively calls `GetQuestFlags` on the active quest after each dispatch when tracing is enabled. The dedup layer in `RecordingQuestState` suppresses unchanged frames — zero overhead when bits don't change. This captures flag bit changes as they occur naturally during a trace, making the `questFlag(id, bit)` predicate discoverable without manual inspection.
 
 **Also built (UI):**
-- `LuminaQuestDataProvider` — scans quest files at startup, reads Lumina JournalCategory/ClassJobCategory for tier determination; `JournalCategory.RowId == 1` → MSQ (Tier 3); class/job category → Tier 1 or 4 based on DoH/DoL membership
-- `EngineHost` auto-mode loop — `StartAutoMode/StopAutoMode`; `TickAsync` calls `NextQuestToRun()` between runs and calls `BeginRun` automatically; `AwaitUser` from engine stops auto mode
-- `MainWindow` — ImGui window: Start/Stop button, live `SchedulerStatus` display, side-quest/craft-gather/tracing toggles
-- `/qf start` — launches auto mode from chat; `/qf ui` — opens the window
-- `JobCategoryHelper` extracted so `DalamudQuestState` and `LuminaQuestDataProvider` share the same job-mapping switch
+- `LuminaQuestDataProvider` — reads `QuestDefinition.Category` from quest files for tier; Lumina used for prerequisites, level, `IsClassQuestForJob` only. Unknown categories → null (scheduler skips). Poll throttled to 2s between runs.
+- `EngineHost` auto-mode loop — `StartAutoMode/StopAutoMode`; `TickAsync` polls scheduler every 2s between runs; `AwaitUser` surfaces to chat via debounced log.
+- `MainWindow` — ImGui window: Start/Stop button, live `SchedulerStatus` display, toggles for blue/side/tracing.
+- `/qf start` — launches auto mode; `/qf ui` — opens window; `/qf debug quest <id>` — prints Lumina fields + tier for any corpus quest.
+- `JobCategoryHelper` extracted so `DalamudQuestState` and `LuminaQuestDataProvider` share the job-mapping switch.
 
-**Done when:** ✅ Complete. `/qf start` or the Start button automatically runs available quests in priority order. `JournalCategory.RowId == 1` for MSQ should be verified in-game via `/xldata`.
+**Quest categories:** `"msq"` → 3, `"class"`/`"job"`/`"role"` → 1, `"blue-urgent"` → 1 (no job filter), `"blue"` → 4, `"side"` → 5, unknown → null.
+
+**Done when:** ✅ Complete.
 
 ---
 
