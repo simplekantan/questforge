@@ -286,7 +286,8 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         var shopOpen         = !_svc.GameGui.GetAddonByName("Shop").IsNull;
         var deathOpen        = !_svc.GameGui.GetAddonByName("_NoticeWidget").IsNull; // approximate
 
-        var cutscene = _svc.Condition[ConditionFlag.WatchingCutscene]
+        var cutscene = _svc.Condition[ConditionFlag.OccupiedInCutSceneEvent]   // skippable
+                    || _svc.Condition[ConditionFlag.WatchingCutscene]
                     || _svc.Condition[ConditionFlag.WatchingCutscene78];
         var loading  = _svc.Condition[ConditionFlag.BetweenAreas]
                     || _svc.Condition[ConditionFlag.BetweenAreas51];

@@ -202,8 +202,9 @@ public sealed class QuestEngine
 
         AttunementStep attune => new EngineAction.Interact(new NpcId(attune.Target.Value)),
 
-        CutsceneStep => throw new NotImplementedException(
-            "CutsceneStep dispatch not yet implemented — RED phase stub"),
+        CutsceneStep => ui.CutscenePlaying
+            ? new EngineAction.Wait("cutscene playing")
+            : new EngineAction.Wait("cutscene ended; awaiting sequence advance"),
 
         _ => throw new NotSupportedException($"Phase 4 does not support step type {step.GetType().Name}")
     };
