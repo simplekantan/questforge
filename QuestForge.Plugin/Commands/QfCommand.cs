@@ -144,7 +144,7 @@ internal sealed class QfCommand : IDisposable
             _chat.PrintError($"QuestForge: invalid quest ID '{questIdStr}'");
             return;
         }
-        var info = _questData.GetLuminaDebugInfo(new QuestId(rawId), _dataManager);
+        var info = _questData.GetDebugInfo(new QuestId(rawId), _dataManager);
         _chat.Print($"QuestForge: {info}");
         _log.Info($"[debug quest] {info}");
     }

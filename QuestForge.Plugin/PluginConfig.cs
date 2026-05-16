@@ -15,6 +15,7 @@ public sealed class PluginConfig
 
     public bool EnableSideQuests { get; set; } = false;
     public bool EnableCraftGatherQuests { get; set; } = false;
+    public bool EnableBlueQuests { get; set; } = false;
 
     public static PluginConfig Load(IDalamudPluginInterface pi)
     {

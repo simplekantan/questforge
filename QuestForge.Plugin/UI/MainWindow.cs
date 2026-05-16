@@ -96,6 +96,16 @@ public sealed class MainWindow : Window
             _host.UpdateSchedulerOptions(BuildOptions());
         }
 
+        var blueQuests = _config.EnableBlueQuests;
+        if (ImGui.Checkbox("Feature Unlock Quests (blue)", ref blueQuests))
+        {
+            _config.EnableBlueQuests = blueQuests;
+            _config.Save(_pi);
+            _host.UpdateSchedulerOptions(BuildOptions());
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Run blue quests (Gold Saucer, Hildebrand, etc.).\n\"blue-urgent\" quests (e.g. chocobo companion) always run regardless of this setting.");
+
         ImGui.Spacing();
 
         var tracing = _config.UserTracingEnabled;
@@ -112,7 +122,8 @@ public sealed class MainWindow : Window
     private SchedulerOptions BuildOptions() => new(
         ManualChain: [],
         EnableCraftGatherQuests: _config.EnableCraftGatherQuests,
-        EnableSideQuests: _config.EnableSideQuests);
+        EnableSideQuests: _config.EnableSideQuests,
+        EnableBlueQuests: _config.EnableBlueQuests);
 
     private static string FormatAwaitingUser(SchedulerStatus.AwaitingUser s)
     {

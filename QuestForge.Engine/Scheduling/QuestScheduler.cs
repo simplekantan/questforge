@@ -103,7 +103,9 @@ public sealed class QuestScheduler : IQuestScheduler
         if (hasJob)
         {
             var tier1 = knownQuests
-                .Where(q => _questData.GetQuestTier(q) == 1 && _questData.IsClassQuestForJob(q, currentJob))
+                .Where(q => _questData.GetQuestTier(q) == 1
+                         && (_questData.IsClassQuestForJob(q, currentJob)
+                             || _questData.GetClassJobCategoryId(q) == 0))
                 .OrderBy(q => _questData.GetJournalSortKey(q))
                 .ThenBy(q => q.Value);
 
@@ -122,16 +124,13 @@ public sealed class QuestScheduler : IQuestScheduler
         var tier3 = await EvaluateTier(knownQuests, tier: 3, currentJob: default, requireJob: false, ct, visited);
         if (tier3 is not null) return tier3;
 
-        // --- Rule 4: Tier 4 — Crafter/Gatherer (opt-in) ------------------------------------------
-        if (options.EnableCraftGatherQuests && hasJob)
+        // --- Rule 4: Tier 4 — Blue (feature unlock) quests (opt-in) ------------------------------
+        // "blue-urgent" quests run at Tier 1 unconditionally. "blue" quests run here when opted in.
+        // Blue quests have no class restriction — no job filter applied.
+        if (options.EnableBlueQuests)
         {
-            uint jobId = currentJob.Value;
-            // DoH = Lumina rows 9–16, DoL = 17–19 (contiguous range).
-            if (jobId is >= 9 and <= 19)
-            {
-                var tier4 = await EvaluateTier(knownQuests, tier: 4, currentJob, requireJob: true, ct, visited);
-                if (tier4 is not null) return tier4;
-            }
+            var tier4 = await EvaluateTier(knownQuests, tier: 4, currentJob: default, requireJob: false, ct, visited);
+            if (tier4 is not null) return tier4;
         }
 
         // --- Rule 5: Tier 5 — Side quests (opt-in) -----------------------------------------------

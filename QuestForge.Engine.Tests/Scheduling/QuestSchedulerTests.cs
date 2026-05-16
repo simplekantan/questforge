@@ -241,34 +241,29 @@ public sealed class QuestSchedulerTests
     }
 
     // =========================================================================
-    // Scenario 7 — Tier4OffByDefault_DoHQuestSkippedEvenWhenAvailable
+    // Scenario 7 — Tier4OffByDefault_BlueQuestSkippedEvenWhenAvailable
     // =========================================================================
     [Fact]
-    public async Task Tier4OffByDefault_DoHQuestSkippedEvenWhenAvailable()
+    public async Task Tier4OffByDefault_BlueQuestSkippedEvenWhenAvailable()
     {
-        // Arrange
         var questState = new FakeQuestState();
         var gameState = new FakeGameStateProvider();
-        gameState.SetJob(J(9), 1); // CRP
 
         var questData = new FakeQuestDataProvider()
-            .WithQuest(Q(400), tier: 4, classJob: J(9), sortKey: 0)
+            .WithQuest(Q(400), tier: 4, sortKey: 0)   // no classJob — blue quest
             .WithQuest(Q(300), tier: 3, sortKey: 0);
 
         questState.SetQuestStatus(Q(400), QuestStatus.Available);
         questState.SetQuestStatus(Q(300), QuestStatus.Available);
 
-        // Default options: EnableCraftGatherQuests = false
+        // Default options: EnableBlueQuests = false
         var scheduler = BuildScheduler(questState, gameState, questData);
 
-        // Act
         var result = await scheduler.NextQuestToRun(CancellationToken.None);
 
-        // Assert
         Assert.IsType<Result<QuestId?>.Success>(result);
         Assert.Equal(Q(300), result.ValueOrThrow);
-        var status = Assert.IsType<SchedulerStatus.Running>(scheduler.CurrentStatus);
-        Assert.Equal(Q(300), status.CurrentQuest);
+        Assert.IsType<SchedulerStatus.Running>(scheduler.CurrentStatus);
     }
 
     // =========================================================================
@@ -277,25 +272,21 @@ public sealed class QuestSchedulerTests
     [Fact]
     public async Task Tier4EnabledExplicitly_Tier3StillWins_WhenTier3Available()
     {
-        // Arrange
         var questState = new FakeQuestState();
         var gameState = new FakeGameStateProvider();
-        gameState.SetJob(J(9), 1); // CRP
 
         var questData = new FakeQuestDataProvider()
-            .WithQuest(Q(400), tier: 4, classJob: J(9), sortKey: 0)
+            .WithQuest(Q(400), tier: 4, sortKey: 0)   // blue quest, no classJob
             .WithQuest(Q(300), tier: 3, sortKey: 0);
 
         questState.SetQuestStatus(Q(400), QuestStatus.Available);
         questState.SetQuestStatus(Q(300), QuestStatus.Available);
 
-        var options = SchedulerOptions.Default with { EnableCraftGatherQuests = true };
+        var options = SchedulerOptions.Default with { EnableBlueQuests = true };
         var scheduler = BuildScheduler(questState, gameState, questData, options);
 
-        // Act
         var result = await scheduler.NextQuestToRun(CancellationToken.None);
 
-        // Assert
         Assert.IsType<Result<QuestId?>.Success>(result);
         Assert.Equal(Q(300), result.ValueOrThrow);
     }
@@ -306,25 +297,21 @@ public sealed class QuestSchedulerTests
     [Fact]
     public async Task Tier4EnabledExplicitly_Tier4SelectedWhenTier3Exhausted()
     {
-        // Arrange
         var questState = new FakeQuestState();
         var gameState = new FakeGameStateProvider();
-        gameState.SetJob(J(9), 1); // CRP
 
         var questData = new FakeQuestDataProvider()
-            .WithQuest(Q(400), tier: 4, classJob: J(9), sortKey: 0)
+            .WithQuest(Q(400), tier: 4, sortKey: 0)   // blue quest, no classJob
             .WithQuest(Q(300), tier: 3, sortKey: 0);
 
         questState.SetQuestStatus(Q(300), QuestStatus.Complete);
         questState.SetQuestStatus(Q(400), QuestStatus.Available);
 
-        var options = SchedulerOptions.Default with { EnableCraftGatherQuests = true };
+        var options = SchedulerOptions.Default with { EnableBlueQuests = true };
         var scheduler = BuildScheduler(questState, gameState, questData, options);
 
-        // Act
         var result = await scheduler.NextQuestToRun(CancellationToken.None);
 
-        // Assert
         Assert.IsType<Result<QuestId?>.Success>(result);
         Assert.Equal(Q(400), result.ValueOrThrow);
         var status = Assert.IsType<SchedulerStatus.Running>(scheduler.CurrentStatus);
@@ -861,5 +848,92 @@ public sealed class QuestSchedulerTests
         Assert.Equal(Q(300), result.ValueOrThrow);
         var status = Assert.IsType<SchedulerStatus.Running>(scheduler.CurrentStatus);
         Assert.Equal(Q(300), status.CurrentQuest);
+    }
+
+    // =========================================================================
+    // Scenario 26 — BlueUrgentQuest_Tier1_SelectedBeforeTier3
+    // blue-urgent (Tier 1, no class restriction) beats Tier 3
+    // =========================================================================
+    [Fact]
+    public async Task BlueUrgentQuest_Tier1_SelectedBeforeTier3()
+    {
+        var questState = new FakeQuestState();
+        var gameState = new FakeGameStateProvider();
+        gameState.SetJob(J(2), 1); // GLA
+
+        var questData = new FakeQuestDataProvider()
+            .WithQuest(Q(201), tier: 1, sortKey: 0)  // blue-urgent: Tier 1, no classJob
+            .WithQuest(Q(300), tier: 3, sortKey: 0);
+
+        questState.SetQuestStatus(Q(201), QuestStatus.Available);
+        questState.SetQuestStatus(Q(300), QuestStatus.Available);
+
+        var scheduler = BuildScheduler(questState, gameState, questData);
+
+        var result = await scheduler.NextQuestToRun(CancellationToken.None);
+
+        Assert.IsType<Result<QuestId?>.Success>(result);
+        Assert.Equal(Q(201), result.ValueOrThrow);
+        var status = Assert.IsType<SchedulerStatus.Running>(scheduler.CurrentStatus);
+        Assert.Equal(Q(201), status.CurrentQuest);
+    }
+
+    // =========================================================================
+    // Scenario 27 — BlueUrgentQuest_Tier1_RunsWhenNoJobMatchForClassQuests
+    // blue-urgent runs even when current job matches no class quest in Tier 1
+    // =========================================================================
+    [Fact]
+    public async Task BlueUrgentQuest_Tier1_RunsWhenNoJobMatchForClassQuests()
+    {
+        var questState = new FakeQuestState();
+        var gameState = new FakeGameStateProvider();
+        gameState.SetJob(J(2), 1); // GLA
+
+        var questData = new FakeQuestDataProvider()
+            .WithQuest(Q(200), tier: 1, classJob: J(6), sortKey: 0) // CNJ-only class quest — wrong job
+            .WithQuest(Q(201), tier: 1, sortKey: 0)                  // blue-urgent: no class restriction
+            .WithQuest(Q(300), tier: 3, sortKey: 0);
+
+        // Q(200) is wrong job — not available
+        questState.SetQuestStatus(Q(201), QuestStatus.Available);
+        questState.SetQuestStatus(Q(300), QuestStatus.Available);
+
+        var scheduler = BuildScheduler(questState, gameState, questData);
+
+        var result = await scheduler.NextQuestToRun(CancellationToken.None);
+
+        // Q(201) wins — blue-urgent Tier 1 beats Tier 3
+        Assert.IsType<Result<QuestId?>.Success>(result);
+        Assert.Equal(Q(201), result.ValueOrThrow);
+    }
+
+    // =========================================================================
+    // Scenario 28 — BlueQuest_Tier4_RunsOnCombatJob_WhenEnabled
+    // blue quests have no job restriction — runs even when player is on combat job
+    // =========================================================================
+    [Fact]
+    public async Task BlueQuest_Tier4_RunsOnCombatJob_WhenEnabled()
+    {
+        var questState = new FakeQuestState();
+        var gameState = new FakeGameStateProvider();
+        gameState.SetJob(J(2), 1); // GLA — a combat job, not DoH/DoL
+
+        var questData = new FakeQuestDataProvider()
+            .WithQuest(Q(400), tier: 4, sortKey: 0)  // blue quest, no class restriction
+            .WithQuest(Q(300), tier: 3, sortKey: 0);
+
+        questState.SetQuestStatus(Q(300), QuestStatus.Complete);
+        questState.SetQuestStatus(Q(400), QuestStatus.Available);
+
+        var options = SchedulerOptions.Default with { EnableBlueQuests = true };
+        var scheduler = BuildScheduler(questState, gameState, questData, options);
+
+        var result = await scheduler.NextQuestToRun(CancellationToken.None);
+
+        // Q(400) wins — blue quest runs regardless of active job
+        Assert.IsType<Result<QuestId?>.Success>(result);
+        Assert.Equal(Q(400), result.ValueOrThrow);
+        var status = Assert.IsType<SchedulerStatus.Running>(scheduler.CurrentStatus);
+        Assert.Equal(Q(400), status.CurrentQuest);
     }
 }

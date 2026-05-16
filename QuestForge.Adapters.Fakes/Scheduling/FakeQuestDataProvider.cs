@@ -28,7 +28,8 @@ public sealed class FakeQuestDataProvider : IQuestDataProvider
     }
 
     public uint GetClassJobCategoryId(QuestId quest)
-        => 0; // Not needed by scheduler; IsClassQuestForJob is the relevant API.
+        => _quests.TryGetValue(quest, out var e) && e.ClassJob.HasValue ? 1u : 0u;
+        // Returns non-zero when a class restriction exists, zero for unrestricted (blue-urgent) quests.
 
     public int GetRequiredLevel(QuestId quest)
         => _quests.TryGetValue(quest, out var e) ? 0 : 0; // Always 0; level checks use WhyUnavailable.
