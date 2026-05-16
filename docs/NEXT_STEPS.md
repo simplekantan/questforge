@@ -321,7 +321,7 @@ QuestScheduler loops
 
 ---
 
-## Phase 9: Authoring mode (3-4 weeks)
+## Phase 9: Authoring mode (3-4 weeks) ✅ COMPLETE
 
 **Goal:** contributors can author quest files without manually editing JSON.
 

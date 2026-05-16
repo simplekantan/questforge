@@ -1,6 +1,6 @@
 # Phase 9 Plan — Authoring Mode
 
-**Status:** TDD specification — ready for test creation
+**Status:** ✅ COMPLETE — TDD cycle + Dalamud-side implementation delivered; reviewer fixes applied
 **Owners:** QuestForge maintainers
 **Related:** [AUTHORING.md](./AUTHORING.md), [SCHEMA.md](./SCHEMA.md), [NEXT_STEPS.md](./NEXT_STEPS.md), [ADAPTERS.md](./ADAPTERS.md)
 

@@ -1,6 +1,6 @@
 # Authoring Mode Specification
 
-**Status:** v1 draft — additive changes accepted until implementation begins; will hard-lock at first plugin release
+**Status:** v1 — Phase 9 delivered the core recording workflow; several sections describe planned future capability, noted below
 **Owners:** QuestForge maintainers
 **Related:** [DESIGN.md](./DESIGN.md), [SCHEMA.md](./SCHEMA.md), [ADAPTERS.md](./ADAPTERS.md), [TRACE_FORMAT.md](./TRACE_FORMAT.md)
 
@@ -62,11 +62,9 @@ Transitions require explicit user action. No mode silently switches based on sta
 
 ## 3. Lifecycle
 
-Authoring mode UI and supporting infrastructure are **lazily loaded on first activation**. The base plugin's runtime cost doesn't include authoring overhead for users who never author.
+Authoring state (drafts, configuration) persists across plugin restarts via the standard config storage location.
 
-After activation, authoring mode unloads after a configurable idle timeout (default 30 minutes). "Idle" means no panels open and no recording activity for the timeout duration.
-
-Authoring state (drafts, configuration) persists across unload/reload via the plugin's standard config storage.
+> **Phase 9 note:** `AuthoringHost` is currently eager-loaded at plugin startup. Lazy-load (no overhead for users who never author) and idle-unload (30-minute timeout) are deferred to a future phase.
 
 ---
 
@@ -91,9 +89,9 @@ Three panels in v1. Each is independently toggleable and remembers its position 
 └──────────────────────────────────────┘
 ```
 
-Position updates on a 250ms heartbeat. Zone, job, mount state, combat state, HP, instance kind update on Dalamud framework events. Copy-as-JSON produces a position object ready to paste into quest data.
+Position and zone update on a 250ms heartbeat. Copy-as-JSON produces a position object ready to paste into quest data. The heartbeat interval is configurable via `PluginConfig.AuthoringHeartbeatMs` (default 250ms).
 
-The 250ms heartbeat is configurable in plugin settings for users with performance concerns.
+> **Phase 9 note:** Job, mount state, combat, HP, and instance kind are not yet shown — `GameStateSnapshot` doesn't capture those fields. They can be added when `SnapshotAggregator` is extended to poll `IGameStateProvider`.
 
 ### 4.2 Quest state panel
 
@@ -158,18 +156,21 @@ Active recording (Author mode only) collects steps into a draft.
 
 A single "Record current action" button. Pressing it captures the player's most recent action and infers the step type from context:
 
-| Recent action | Inferred type |
-|---------------|---------------|
-| Talked to an NPC | `talk` (with observed dialogue choices) |
-| Interacted with an EventObject | `interact-object` or `pickup-item` (inferred from whether inventory or flag changed) |
-| Zone change | `travel` (with the destination zone) |
-| Duty entry | `duty` (with observed `DutyId`) |
-| Used emote | `use-emote` (with observed `emoteId` and target if any) |
-| Sent chat message | `say-chat-message` |
-| Equipped an item | `equip-gear-for-quest` |
-| Quest accepted | `accept` |
-| Quest completed | `turn-in` |
-| Cutscene start/end | `cutscene` |
+| Recent action | Inferred type | Phase 9 |
+|---------------|---------------|---------|
+| Quest completed | `turn-in` | ✅ Auto-inferred |
+| Quest accepted | `accept` | ✅ Auto-inferred |
+| Quest sequence advanced | `talk` | ✅ Auto-inferred |
+| Zone changed | `travel` | ✅ Auto-inferred |
+| Quest flags changed (no seq change) | `talk` (flag predicate) | ✅ Auto-inferred |
+| Dialogue answer changed only | `talk` | ✅ Auto-inferred |
+| NPC target changed only | `talk` (low confidence) | ✅ Auto-inferred |
+| Interacted with an EventObject | `interact-object` or `pickup-item` | Override required |
+| Duty entry | `duty` | Override required |
+| Used emote | `use-emote` | Override required |
+| Sent chat message | `say-chat-message` | Override required |
+| Equipped an item | `equip-gear-for-quest` | Override required |
+| Cutscene start/end | `cutscene` | Override required |
 
 The inference is shown in a preview modal:
 
@@ -214,7 +215,7 @@ The recorder observes state changes during the action and suggests an `expect` b
 - Zone changed → `playerZone() == N`
 - Inventory changed → `playerHasItem(item:N, count)`
 
-Multiple simultaneous changes produce an `all` structure. The author can edit before recording.
+`StepInferenceEngine` always emits a **single** predicate string (the strongest signal wins). If the author needs to combine predicates, they edit the expect field manually in the record modal. See `PHASE_9_PLAN.md §2.3` for the single-predicate policy rationale.
 
 ### 5.3 No observed change — author writes manually
 
@@ -353,9 +354,11 @@ The interaction panel (§4.3) shows the current dialogue's sheet references when
 - Search for a specific text string across game data
 - Verify a sheet reference resolves in all four languages
 
+> **Phase 9 note:** The dialogue browser and cross-language verification (§8.1–8.2) are not yet implemented. The `InteractionPanel` shows the most recently observed dialogue prompt and answer strings captured by `SnapshotAggregator.OnDialogueChoice`. Full sheet-reference browsing is deferred.
+
 ### 8.1 Quest dialogue browser
 
-Available via a `[📚 Browse dialogue]` button when a quest is the authoring target:
+Available via a `[📚 Browse dialogue]` button when a quest is the authoring target (planned):
 
 ```
 ┌─ Quest #2054 Dialogue ───────────────────────┐
