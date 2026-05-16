@@ -335,13 +335,15 @@ Then build the recorder (Author mode, per `AUTHORING.md` §2.2). Inference rules
 
 ---
 
-## Phase 10: Fixture extractor CLI (`questforge-tools`) (1-2 weeks)
+## Phase 10: Trace extractor CLI (`questforge-tools`) (2-3 weeks)
 
-**Goal:** complete the authoring pipeline — play through a quest with Authoring mode, get a quest definition AND a regression fixture draft with one command.
+**Goal:** complete the authoring pipeline — run a quest with the engine, get a regression fixture AND a recoverable quest draft with one command.
 
-**Why here:** Phase 9 (Authoring) produces traces automatically. Phase 10 processes those traces into fixtures. Phase 11 (corpus expansion) benefits from both tools working together. Without Phase 10, every fixture must be hand-authored after Phase 9 — expensive at scale.
+**Why here:** Phase 9 produces quest drafts via manual recording. Phase 10 adds a second, complementary extraction path: the engine trace. Phase 11 (corpus expansion) benefits from both tools. Without Phase 10, fixtures must be hand-authored and quest files cannot be recovered from traces.
 
 **What to build** (in `questforge-tools`, alongside `qf-validate`):
+
+### Fixture extraction
 
 1. **`qf-trace extract-fixture <runId>.jsonl`** — reads a local trace, produces a fixture JSON draft:
    - `expectedTransitions` derived from the trace's `DecisionEvent` entries (unique consecutive pairs)
@@ -357,9 +359,35 @@ Then build the recorder (Author mode, per `AUTHORING.md` §2.2). Inference rules
 
 **Integration into questforge-data CI:** run `qf-trace validate-fixture` on every fixture file in every PR, failing if a step ID or quest file reference is invalid.
 
-**Deliverable:** `qf-trace extract-fixture` produces a valid fixture draft from a local trace in under 5 seconds. Developer reviews, writes description, commits.
+### Quest extraction (new)
 
-**Done when:** authoring a new quest (Phase 9) + extracting its fixture (Phase 10) + committing both takes under 10 minutes of developer effort.
+4. **`qf-trace extract-quest <runId>.jsonl`** — reads a trace and produces a `QuestDefinition` draft using the same `StepInferenceEngine` logic from Phase 9:
+   - Replays `observation` events as (before, after) `GameStateSnapshot` pairs across each action boundary
+   - Calls `StepInferenceEngine.Infer(before, after)` for each action to get step type and suggested `expect` predicate
+   - Pulls destination coordinates from `action.submitted Navigate` events → `TravelStep.Destination`
+   - Pulls NPC IDs from `action.submitted Interact` events → `TalkStep.Target.NpcId` / `AcceptStep.Target.NpcId`
+   - Pulls quest sequence/flag predicates from observation deltas → `expect` field
+   - Synthesises step IDs from the same slug rules as `StepInferenceEngine.SuggestedStepId`
+   - Outputs a draft `.json` with `supportStatus.implementation = "partial"` and a `TODO` on any field that couldn't be inferred (NPC names, zone names, prerequisites)
+
+   **Primary use cases:**
+   - **Recovery** — quest file was lost; reconstruct from a saved trace of a successful run
+   - **Bootstrap** — rough first draft for a quest with no file yet; author reviews and edits before committing
+   - **Validation** — compare extracted draft against committed quest file to detect drift between what the engine ran and what the file says
+
+   **What `extract-quest` cannot infer from a trace** (must be filled in manually):
+   - Quest `name`, `expansion`, `category` (not present in trace — resolve from Lumina via the questId in `RunStartEvent`)
+   - NPC names (IDs only; names come from Lumina)
+   - `Requirements` (level, job prerequisites — come from Lumina, not trace)
+   - `prerequisites` / `chain` metadata
+
+   **Implementation note:** `extract-quest` shares the `StepInferenceEngine` class from `QuestForge.Engine.Authoring` — the `questforge-tools` project references `QuestForge.Engine` so no code is duplicated.
+
+**Deliverables:**
+- `qf-trace extract-fixture` produces a valid fixture draft in under 5 seconds
+- `qf-trace extract-quest` produces an editable quest draft in under 5 seconds
+
+**Done when:** running a quest with tracing on → `extract-fixture` → `extract-quest` → edit two fields → commit takes under 15 minutes of developer effort.
 
 ---
 
