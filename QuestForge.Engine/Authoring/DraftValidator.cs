@@ -54,9 +54,14 @@ public sealed class DraftValidator
             var predicate = ExtractPredicate(step.Raw.Expect);
             if (predicate is not null && !HasKnownFunction(predicate))
             {
+                // TODO(E3): wire up the Phase 2 predicate parser for full syntax validation
+                // once it is accessible from QuestForge.Engine without a Dalamud reference.
+                // Currently E3 and E5 are collapsed into a single function-name check.
+                var candidate = ExtractFunctionName(predicate);
+                var suggestion = candidate is not null ? FindClosest(candidate) : null;
+                var hint = suggestion is not null ? $" Did you mean '{suggestion}'?" : $" Known functions: {string.Join(", ", KnownFunctions)}.";
                 errors.Add(new DraftValidationError("E5",
-                    $"Step '{step.StepId}' predicate '{predicate}' references an unknown function. " +
-                    $"Known functions: {string.Join(", ", KnownFunctions)}. Did you mean one of those?",
+                    $"Step '{step.StepId}' predicate '{predicate}' references an unknown function.{hint}",
                     [i]));
             }
         }
@@ -141,6 +146,36 @@ public sealed class DraftValidator
     {
         if (predicate is null) return true; // no predicate = no parse error
         return KnownFunctions.Any(f => predicate.Contains(f, StringComparison.Ordinal));
+    }
+
+    // Extracts the first function name (identifier before '(') from a predicate string.
+    private static string? ExtractFunctionName(string predicate)
+    {
+        var paren = predicate.IndexOf('(');
+        if (paren <= 0) return null;
+        var name = predicate[..paren].Trim();
+        return name.Length > 0 ? name : null;
+    }
+
+    // Returns the known function whose name shares the most leading characters with candidate.
+    // Provides a "did you mean" hint for typos like "questSequnece" → "questSequence".
+    private static string? FindClosest(string candidate)
+    {
+        var best = KnownFunctions
+            .Select(f => (name: f, score: CommonPrefixLength(candidate, f)))
+            .Where(x => x.score >= 4) // minimum overlap to be a plausible suggestion
+            .OrderByDescending(x => x.score)
+            .FirstOrDefault();
+        return best.name;
+    }
+
+    private static int CommonPrefixLength(string a, string b)
+    {
+        var len = Math.Min(a.Length, b.Length);
+        for (var i = 0; i < len; i++)
+            if (char.ToLowerInvariant(a[i]) != char.ToLowerInvariant(b[i]))
+                return i;
+        return len;
     }
 
     private static string? ExtractPredicate(ExpectValue? expect)

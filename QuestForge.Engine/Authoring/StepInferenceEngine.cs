@@ -85,7 +85,7 @@ public sealed class StepInferenceEngine
             while (temp != 0)
             {
                 flippedBits.Add(BitOperations.TrailingZeroCount(temp));
-                temp &= temp - 1; // clear lowest set bit
+                temp &= temp - 1; // WHY: n & (n-1) clears the lowest set bit — standard bit iteration trick
             }
 
             if (flippedBits.Count > 1)

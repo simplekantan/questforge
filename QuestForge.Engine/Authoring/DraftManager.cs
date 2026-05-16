@@ -73,11 +73,15 @@ public sealed class DraftManager
     public IReadOnlyList<QuestId> ActiveDraftIds => _cache.Keys.ToArray();
 
     /// <summary>Persist draft and rotate backups.</summary>
+    /// <remarks>Not thread-safe. Expected to be invoked from the Dalamud framework thread only.</remarks>
     public async Task SaveNow(QuestId quest, CancellationToken ct)
     {
         if (!_cache.TryGetValue(quest, out var draft))
             return;
 
+        // WHY: backup before save so the backup reflects the previous on-disk state,
+        // not the version we're about to write. If no file exists yet, CreateBackup
+        // returns Ok(false) as a no-op — this is intentional and not an error.
         await _storage.CreateBackup(quest, ct);
         await _storage.Save(quest, draft, ct);
         _dirty.Remove(quest);
@@ -85,6 +89,11 @@ public sealed class DraftManager
     }
 
     /// <summary>Save if dirty AND elapsed >= autoSaveInterval. No-op otherwise.</summary>
+    /// <remarks>
+    /// WHY: auto-save is best-effort persistence only — no backup rotation.
+    /// Backups rotate only on explicit SaveNow (user-initiated or export).
+    /// Frequent auto-saves that rotate backups would exhaust the 5-slot history.
+    /// </remarks>
     public async Task MaybeAutoSave(QuestId quest, CancellationToken ct)
     {
         if (!_dirty.Contains(quest))

@@ -2,9 +2,11 @@ using QuestForge.Adapters.Types;
 
 namespace QuestForge.Engine.Authoring;
 
+/// <remarks>Not thread-safe. Expected to be invoked from the Dalamud framework thread only.</remarks>
 public sealed class SnapshotAggregator
 {
     private readonly QuestId? _activeQuest;
+    private readonly IClock _clock;
     private ZoneId _zone = new(0);
     private WorldPosition _position = new(0, 0, 0);
     private int _questSequence;
@@ -17,13 +19,16 @@ public sealed class SnapshotAggregator
     private string? _lastDialogueAnswer;
     private uint _inventoryHash;
 
-    public SnapshotAggregator(QuestId? activeQuest)
+    // clock defaults to SystemClock so production callers need only pass activeQuest;
+    // tests inject FakeClock for deterministic CapturedAt values.
+    public SnapshotAggregator(QuestId? activeQuest, IClock? clock = null)
     {
         _activeQuest = activeQuest;
+        _clock = clock ?? SystemClock.Instance;
     }
 
     public GameStateSnapshot Current => new(
-        CapturedAt: DateTimeOffset.UtcNow,
+        CapturedAt: _clock.UtcNow,
         Zone: _zone,
         Position: _position,
         ActiveQuest: _activeQuest,
