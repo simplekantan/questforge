@@ -4,6 +4,8 @@ using Dalamud.Plugin.Services;
 using QuestForge.Adapters.Dalamud.Scheduling;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Scheduling;
+using QuestForge.Plugin.Authoring;
+using QuestForge.Plugin.UI.Authoring;
 using QuestForge.Schema;
 
 namespace QuestForge.Plugin.Commands;
@@ -13,6 +15,8 @@ internal sealed class QfCommand : IDisposable
     private const string Cmd = "/qf";
 
     private readonly EngineHost _host;
+    private readonly AuthoringHost _authoringHost;
+    private readonly AuthoringSessionPanel _authoringSessionPanel;
     private readonly IQuestScheduler _scheduler;
     private readonly UI.MainWindow _mainWindow;
     private readonly LuminaQuestDataProvider _questData;
@@ -25,6 +29,8 @@ internal sealed class QfCommand : IDisposable
 
     public QfCommand(
         EngineHost host,
+        AuthoringHost authoringHost,
+        AuthoringSessionPanel authoringSessionPanel,
         IQuestScheduler scheduler,
         UI.MainWindow mainWindow,
         LuminaQuestDataProvider questData,
@@ -36,6 +42,8 @@ internal sealed class QfCommand : IDisposable
         PluginConfig config)
     {
         _host = host;
+        _authoringHost = authoringHost;
+        _authoringSessionPanel = authoringSessionPanel;
         _scheduler = scheduler;
         _mainWindow = mainWindow;
         _questData = questData;
@@ -47,7 +55,7 @@ internal sealed class QfCommand : IDisposable
         _config = config;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
-            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf debug quest <id> | /qf config trace on|off"
+            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf debug quest <id> | /qf config trace on|off"
         });
     }
 
@@ -69,6 +77,14 @@ internal sealed class QfCommand : IDisposable
                 break;
             case "ui":
                 _mainWindow.Toggle();
+                break;
+            case "inspect":
+                _authoringHost.EnterInspectMode();
+                _authoringSessionPanel.Toggle();
+                _chat.Print("QuestForge: inspect mode active — authoring panels now visible");
+                break;
+            case "author" when parts.Length >= 2:
+                HandleAuthor(parts[1]);
                 break;
             case "config" when parts.Length >= 3:
                 HandleConfig(parts[1], parts[2]);
@@ -193,8 +209,20 @@ internal sealed class QfCommand : IDisposable
         }
     }
 
+    private void HandleAuthor(string questIdStr)
+    {
+        if (!uint.TryParse(questIdStr, out var questId))
+        {
+            _chat.PrintError($"QuestForge: invalid quest ID '{questIdStr}'");
+            return;
+        }
+        _authoringHost.EnterAuthorMode(new QuestId(questId));
+        _authoringSessionPanel.Toggle();
+        _chat.Print($"QuestForge: author mode active for quest {questId}");
+    }
+
     private void PrintUsage()
-        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf debug quest <id> | /qf config trace on|off");
+        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf debug quest <id> | /qf config trace on|off");
 
     public void Dispose() => _commands.RemoveHandler(Cmd);
 }

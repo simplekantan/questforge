@@ -4,19 +4,24 @@ using Dalamud.Plugin.Services;
 using ECommons;
 using ECommons.Automation;
 using QuestForge.Adapters.Dalamud;
+using QuestForge.Adapters.Dalamud.Authoring;
+using QuestForge.Plugin.Authoring;
 using QuestForge.Plugin.Commands;
+using QuestForge.Plugin.UI.Authoring;
 
 namespace QuestForge.Plugin;
 
 public sealed class Plugin : IDalamudPlugin
 {
     private readonly EngineHost _host;
+    private readonly AuthoringHost _authoringHost;
     private readonly QfCommand _command;
     private readonly IFramework _framework;
     private readonly CancellationTokenSource _cts = new();
     private readonly IDalamudPluginInterface _pi;
     private readonly WindowSystem _windowSystem = new("QuestForge");
     private readonly UI.MainWindow _mainWindow;
+    private readonly AuthoringSessionPanel _authoringSessionPanel;
     private readonly QuestForge.Engine.Scheduling.QuestScheduler _scheduler;
     private readonly QuestForge.Adapters.Dalamud.Scheduling.LuminaQuestDataProvider _questData;
 
@@ -63,10 +68,30 @@ public sealed class Plugin : IDalamudPlugin
 
         _mainWindow = new UI.MainWindow(_host, _scheduler, config, pi);
         _windowSystem.AddWindow(_mainWindow);
+
+        // Authoring infrastructure
+        var draftsDir = Path.Combine(pi.GetPluginConfigDirectory(), "drafts");
+        Directory.CreateDirectory(draftsDir);
+        var draftStorage = new FileDraftStorage(draftsDir, log);
+        _authoringHost = new AuthoringHost(services, draftStorage, log);
+
+        var recordModal = new RecordStepModal(_authoringHost);
+        var editModal = new StepEditModal(_authoringHost);
+        var exportDialog = new ExportDialog(_authoringHost, pi);
+        _authoringSessionPanel = new AuthoringSessionPanel(_authoringHost, recordModal, editModal, exportDialog);
+
+        _windowSystem.AddWindow(_authoringSessionPanel);
+        _windowSystem.AddWindow(recordModal);
+        _windowSystem.AddWindow(editModal);
+        _windowSystem.AddWindow(exportDialog);
+        _windowSystem.AddWindow(new PlayerStatePanel(_authoringHost));
+        _windowSystem.AddWindow(new QuestStatePanel(_authoringHost));
+        _windowSystem.AddWindow(new InteractionPanel(_authoringHost));
+
         pi.UiBuilder.Draw += _windowSystem.Draw;
         pi.UiBuilder.OpenMainUi += _mainWindow.Toggle;
 
-        _command = new QfCommand(_host, _scheduler, _mainWindow, _questData, dataManager, commandManager, chatGui, log, pi, config);
+        _command = new QfCommand(_host, _authoringHost, _authoringSessionPanel, _scheduler, _mainWindow, _questData, dataManager, commandManager, chatGui, log, pi, config);
 
         Directory.CreateDirectory(questsDir);
 
@@ -116,6 +141,7 @@ public sealed class Plugin : IDalamudPlugin
         _pi.UiBuilder.OpenMainUi -= _mainWindow.Toggle;
         _command.Dispose();
         _host.Dispose();
+        _authoringHost.Dispose();
         _cts.Dispose();
         ECommonsMain.Dispose();
     }
