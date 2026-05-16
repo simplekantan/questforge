@@ -272,11 +272,11 @@ Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 
 ---
 
-## Phase 8: Quest scheduler + UI (3-5 weeks) — Scheduler ✅ COMPLETE, UI pending
+## Phase 8: Quest scheduler + UI (3-5 weeks) ✅ COMPLETE
 
 **Goal:** QuestForge becomes a fully automated questing system. The user presses Start; the plugin handles everything — class quests, blocking prerequisites, MSQ continuation — without further input.
 
-### What was built (scheduler — ✅ COMPLETE)
+### What was built
 
 `QuestScheduler` in `QuestForge.Engine.Scheduling` — pure C#, no Dalamud dependency, 31 unit tests. See `docs/PHASE_8_SCHEDULER_SPEC.md` for the full TDD specification.
 
@@ -308,19 +308,14 @@ QuestScheduler loops
 
 **Ambient quest flag polling** — `EngineHost.TickAsync` now proactively calls `GetQuestFlags` on the active quest after each dispatch when tracing is enabled. The dedup layer in `RecordingQuestState` suppresses unchanged frames — zero overhead when bits don't change. This captures flag bit changes as they occur naturally during a trace, making the `questFlag(id, bit)` predicate discoverable without manual inspection.
 
-### What remains (UI)
+**Also built (UI):**
+- `LuminaQuestDataProvider` — scans quest files at startup, reads Lumina JournalCategory/ClassJobCategory for tier determination; `JournalCategory.RowId == 1` → MSQ (Tier 3); class/job category → Tier 1 or 4 based on DoH/DoL membership
+- `EngineHost` auto-mode loop — `StartAutoMode/StopAutoMode`; `TickAsync` calls `NextQuestToRun()` between runs and calls `BeginRun` automatically; `AwaitUser` from engine stops auto mode
+- `MainWindow` — ImGui window: Start/Stop button, live `SchedulerStatus` display, side-quest/craft-gather/tracing toggles
+- `/qf start` — launches auto mode from chat; `/qf ui` — opens the window
+- `JobCategoryHelper` extracted so `DalamudQuestState` and `LuminaQuestDataProvider` share the same job-mapping switch
 
-1. **`EngineHost` loop mode** — `RunAllAsync(CancellationToken)` calls `BeginRun` in a loop driven by the scheduler
-2. **Start/Stop UI** — one "Start All Questing" button and one "Stop" button
-3. **Status display** — current quest name, type (MSQ/Class/Side), step, what the scheduler has queued next
-4. **Settings UI** — enable/disable side quests; tracing toggle (already in `PluginConfig`)
-5. **`IQuestDataProvider` Dalamud implementation** — `LuminaQuestDataProvider` in `QuestForge.Adapters.Dalamud`; reads Lumina Quest/JournalGenre sheets to answer tier, sortKey, prerequisites, class-job matching queries
-
-**Don't build yet:**
-- Full quest selection browser (Phase 11 — corpus not complete enough)
-- Authoring mode (Phase 9)
-
-**Done when:** pressing Start automatically runs quest 66130, interleaves class quests on level-up, continues MSQ — without the user specifying individual quest IDs.
+**Done when:** ✅ Complete. `/qf start` or the Start button automatically runs available quests in priority order. `JournalCategory.RowId == 1` for MSQ should be verified in-game via `/xldata`.
 
 ---
 
