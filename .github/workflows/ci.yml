@@ -34,12 +34,20 @@ jobs:
         with:
           dotnet-version: '10.x'
 
-      - name: Restore packages
-        working-directory: questforge
-        # --ignore-failed-sources: dalamud.dev returns 404 in GitHub Actions.
-        # Engine tests only need nuget.org packages; all required packages restore cleanly.
-        run: dotnet restore QuestForge.Engine.Tests/QuestForge.Engine.Tests.csproj --ignore-failed-sources
+      - name: Remove Dalamud NuGet feed
+        # dalamud.dev is unavailable in GitHub Actions and NU1801 is treated as
+        # an error in some projects. Replace the repo NuGet.Config with a CI-only
+        # version that only includes nuget.org (engine tests need no Dalamud packages).
+        run: |
+          cat > questforge/NuGet.Config << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" protocolVersion="3" />
+            </packageSources>
+          </configuration>
+          EOF
 
       - name: Run engine tests
         working-directory: questforge
-        run: dotnet test QuestForge.Engine.Tests/QuestForge.Engine.Tests.csproj --configuration Release --no-restore
+        run: dotnet test QuestForge.Engine.Tests/QuestForge.Engine.Tests.csproj --configuration Release
