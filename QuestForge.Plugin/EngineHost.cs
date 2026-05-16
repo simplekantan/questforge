@@ -44,6 +44,7 @@ public sealed class EngineHost : IDisposable
 
     private ITraceWriter _trace = NullTraceWriter.Instance;
     private QuestEngine? _engine;
+    private RecordingQuestState? _recordingQs;
     private string? _runId;
     private QuestId _currentQuestId;
 
@@ -116,8 +117,12 @@ public sealed class EngineHost : IDisposable
 
         IGameStateProvider gs = new RecordingGameStateProvider(
             _gameStateInner, _trace, () => _runId, skipIfNoRunId: true);
-        IQuestState qs = new RecordingQuestState(
+        var recordingQs = new RecordingQuestState(
             _questStateInner, _trace, () => _runId, skipIfNoRunId: true);
+        IQuestState qs = recordingQs;
+        // Hold reference for ambient flag polling only when tracing is active.
+        // Nullness of _recordingQs is the gate — saves the poll overhead for normal users.
+        _recordingQs = enableTracing ? recordingQs : null;
 
         _engine = new QuestEngine(
             gs, qs, _navigator, _teleporter, _interactor,
@@ -148,6 +153,12 @@ public sealed class EngineHost : IDisposable
             _services.Log.Error(ex, $"QuestForge: dispatch error for {action.GetType().Name}");
             _services.ChatGui.PrintError($"QuestForge: dispatch error — {ex.Message}");
         }
+
+        // Ambient quest flag polling: emit a trace observation whenever the active quest's
+        // flags byte changes. The dedup layer in RecordingQuestState suppresses unchanged frames.
+        // _recordingQs is null when tracing is off (DispatchAction.Done also clears it via EndRun).
+        if (_recordingQs is not null)
+            await _recordingQs.GetQuestFlags(_currentQuestId, ct);
     }
 
     private async Task DispatchAction(EngineAction action, CancellationToken ct)
@@ -197,7 +208,8 @@ public sealed class EngineHost : IDisposable
 
     private void EndRun()
     {
-        _engine = null;
+        _engine      = null;
+        _recordingQs = null;
         (_trace as IDisposable)?.Dispose();
         _trace  = NullTraceWriter.Instance;
         _runId  = null;

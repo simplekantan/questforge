@@ -1,6 +1,6 @@
 # Adapter Interfaces Specification
 
-**Status:** v1 draft — open for revision until implementation begins
+**Status:** v1 — implemented through Phase 8; revise alongside code changes
 **Owners:** QuestForge maintainers
 **Related:** [DESIGN.md](./DESIGN.md), [TRACE_FORMAT.md](./TRACE_FORMAT.md)
 
