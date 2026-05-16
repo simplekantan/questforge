@@ -38,6 +38,8 @@ QuestForge works on FFXIV for Windows with the [Dalamud](https://goatcorp.github
 | `/qf ui` | Open the main window |
 | `/qf inspect` | Open authoring inspect panels |
 | `/qf author <questId>` | Start authoring a quest |
+| `/qf author stop` | Exit authoring mode |
+| `/qf quest <name>` | Search for a quest by name — shows ID, level, and availability |
 | `/qf config trace on\|off` | Enable or disable trace recording |
 | `/qf debug quest <id>` | Print Lumina data for a quest (authoring aid) |
 

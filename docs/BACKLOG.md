@@ -111,8 +111,8 @@ The `ManualChain` in `SchedulerOptions` is always `[]` from the UI — there's n
 
 ### 4.2 Dialogue sheet reference browser
 
-`AUTHORING.md §8` specifies a `[📚 Browse dialogue]` button showing all Lumina text sheet references for the active quest, filterable, with all four language variants side by side. Currently `InteractionPanel` shows only the most recently observed prompt/answer string (not a sheet reference). Requires Lumina `Quest` text-sheet enumeration and a new `DialogueBrowserWindow`.
-- Source: `docs/AUTHORING.md:349–387`
+`AUTHORING.md §8.1` specifies a `[📚 Browse dialogue]` button showing all Lumina text sheet references for the active quest, filterable, with all four language variants side by side. Currently `InteractionPanel` shows the most recently observed prompt/answer strings **and available quests from the targeted NPC** (up to 5, filtered by `IsQuestAvailable` — shipped post-Phase 9). Full dialogue sheet-reference browsing still requires Lumina `Quest` text-sheet enumeration and a new `DialogueBrowserWindow`.
+- Source: `docs/AUTHORING.md §8.1`
 
 ### 4.3 Player state panel — missing game state fields
 

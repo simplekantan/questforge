@@ -331,7 +331,11 @@ Then build the recorder (Author mode, per `AUTHORING.md` §2.2). Inference rules
 
 **Deliverable:** you can author a new quest by playing through it once in Author mode and exporting the result.
 
-**Done when:** you've personally authored at least one quest using only authoring mode (no manual JSON editing).
+**Done when:** ✅ COMPLETE. Core authoring loop works. Additional authoring quality-of-life features shipped post-Phase 9:
+- `InteractionPanel` shows available quests from targeted NPC (up to 5, filtered by `IsQuestAvailable`; handles class-specific same-name quests like "Close to Home" automatically)
+- "Show completed quests" toggle in panel settings (default off)
+- `/qf quest <name>` — Lumina search returning up to 10 results with ID, level, and availability status
+- `/qf author stop` — explicit authoring exit with mid-session warning
 
 ---
 

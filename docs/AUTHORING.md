@@ -45,7 +45,7 @@ Active recording. Debug panels plus the "Record current action" workflow.
 
 **Mutually exclusive with engine execution.** The engine must be stopped before entering Author mode. Activated via `/qf author <questId>` or the plugin UI's "Start authoring" button.
 
-Author mode scopes recording to a single quest at a time. Switching quests requires explicit action.
+Author mode scopes recording to a single quest at a time. Switching quests requires explicit action. Exit authoring with `/qf author stop` or the "Stop authoring" button in the Authoring Session panel. If you start authoring a new quest while another is active, a warning appears in the `InteractionPanel` with the stop command hint — your current draft is saved automatically before the switch.
 
 ### 2.3 Mode display
 
@@ -136,9 +136,13 @@ Flag display defaults to compact hex with click-to-expand for per-bit detail.
 └──────────────────────────────────────┘
 ```
 
-Shows the current target (NPC or interactable), currently-open UI addon (from the allowlist matching `UiState` exposes), and the most recent interaction and dialogue choice.
+Shows the current target (NPC or interactable), available quests from the targeted NPC, and the most recent interaction and dialogue choice.
 
-Sheet references are displayed prominently because they're the field authors most need to capture. Click-to-copy on each.
+**Available quests from this NPC** — when the player targets an NPC, the panel displays up to five quests filtered by `IsQuestAvailable`. This naturally handles class-specific quests (e.g. "Close to Home" for Gladiator vs Marauder — only the one valid for your current job appears). Each quest shows its name, ID, and a "Start Authoring" button. A "Show completed quests" toggle (default off) reveals already-finished quests for re-recording purposes.
+
+> **Finding a quest ID without targeting the NPC:** use `/qf quest <name>` — searches Lumina by name and returns up to 10 results with quest ID, level, and availability status. Then use `/qf author <id>` with the specific ID.
+
+Dialogue prompt and answer strings are shown with click-to-copy. Full sheet-reference browsing is deferred — see `BACKLOG.md §4.2`.
 
 ### 4.4 Allowlisted UI addons
 
@@ -346,19 +350,27 @@ The engine never abandons quests. This is per `ADAPTERS.md` §8 — `AbandonQues
 
 ## 8. Sheet reference discovery
 
-The most-asked authoring question is "what's the sheet reference for this dialogue option?"
+Two related discovery needs: finding the quest ID for a quest you want to author, and finding dialogue sheet references for quest steps.
 
-The interaction panel (§4.3) shows the current dialogue's sheet references when one is open. But the author may also want to:
+### Finding a quest by name
 
-- Browse all dialogue references for the current quest
-- Search for a specific text string across game data
-- Verify a sheet reference resolves in all four languages
+Use `/qf quest <name>` — searches Lumina for quests matching the name (partial, case-insensitive) and returns up to 10 results:
 
-> **Phase 9 note:** The dialogue browser and cross-language verification (§8.1–8.2) are not yet implemented. The `InteractionPanel` shows the most recently observed dialogue prompt and answer strings captured by `SnapshotAggregator.OnDialogueChoice`. Full sheet-reference browsing is deferred.
+```
+[66104] Close to Home — Lv1, Gladiator — available ✓
+[66105] Close to Home — Lv1, Marauder — locked (wrong job)
+[66106] Close to Home — Lv1, Conjurer — locked (wrong job)
+```
 
-### 8.1 Quest dialogue browser
+Use the ID from the results with `/qf author <id>`. For class-specific quests the `InteractionPanel`'s NPC quest list (§4.3) handles this automatically when you're standing next to the quest-giver — only the valid class variant appears.
 
-Available via a `[📚 Browse dialogue]` button when a quest is the authoring target (planned):
+### Finding dialogue sheet references
+
+The `InteractionPanel` (§4.3) shows the most recently observed dialogue prompt and answer strings. Full sheet-reference browsing is deferred — see `BACKLOG.md §4.2`.
+
+### 8.1 Quest dialogue browser (planned)
+
+Available via a `[📚 Browse dialogue]` button when a quest is the authoring target (not yet implemented):
 
 ```
 ┌─ Quest #2054 Dialogue ───────────────────────┐
