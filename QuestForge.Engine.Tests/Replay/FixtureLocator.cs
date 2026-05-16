@@ -2,6 +2,7 @@ using Xunit;
 
 namespace QuestForge.Engine.Tests.Replay;
 
+
 /// <summary>
 /// Locates canonical trace fixtures from the questforge-data sibling repository.
 /// Walks upward from a starting directory until a directory containing
@@ -34,6 +35,22 @@ internal static class FixtureLocator
     /// </summary>
     public static string? TryFindQuestForgeDataFixture(string relativePath)
         => TryFindFixtureFromAncestor(AppContext.BaseDirectory, relativePath);
+
+    /// <summary>
+    /// Returns the questforge-data root directory (not a file within it), or null if absent.
+    /// Used to resolve questFile paths inside fixture JSON files.
+    /// </summary>
+    public static string? TryGetQuestForgeDataRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "questforge-data");
+            if (Directory.Exists(candidate)) return candidate;
+            dir = dir.Parent;
+        }
+        return null;
+    }
 
     /// <summary>
     /// Returns the fixture path, or skips the current test via Assert.Skip (xUnit v3)

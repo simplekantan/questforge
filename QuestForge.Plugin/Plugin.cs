@@ -39,8 +39,10 @@ public sealed class Plugin : IDalamudPlugin
             objectTable, dataManager, targetManager,
             chatGui, gameGui, log, hooks, gameConfig);
 
+        var config = PluginConfig.Load(pi);
+
         _host    = new EngineHost(services);
-        _command = new QfCommand(_host, commandManager, chatGui, log, pi);
+        _command = new QfCommand(_host, commandManager, chatGui, log, pi, config);
 
         Directory.CreateDirectory(Path.Combine(pi.GetPluginConfigDirectory(), "quests"));
 

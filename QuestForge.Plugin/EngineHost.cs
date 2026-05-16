@@ -1,6 +1,7 @@
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Config;
 using FFXIVClientStructs.FFXIV.Component.GUI;
+using QuestForge.Adapters;
 using Microsoft.Extensions.Logging;
 using QuestForge.Adapters.Combat;
 using QuestForge.Adapters.Dalamud;
@@ -41,7 +42,7 @@ public sealed class EngineHost : IDisposable
     private readonly LuminaDialogueResolver _dialogue;
     private readonly SeededTimingProfile _timing;
 
-    private TraceWriter? _trace;
+    private ITraceWriter _trace = NullTraceWriter.Instance;
     private QuestEngine? _engine;
     private string? _runId;
     private QuestId _currentQuestId;
@@ -100,14 +101,17 @@ public sealed class EngineHost : IDisposable
         return $"quest={questRowId} seq={seq} complete={complete} accepted={accepted}";
     }
 
-    public void BeginRun(QuestDefinition quest, string runId)
+    public void BeginRun(QuestDefinition quest, string runId, bool enableTracing)
     {
         EndRun(); // clean up any previous run (also restores cutscene settings)
 
         EnableCutsceneSkip();
         _runId          = runId;
         _currentQuestId = new QuestId(quest.Id);
-        _trace          = TraceWriter.OpenFile(BuildTracePath(runId));
+        // Tracing is opt-in — normal users get NullTraceWriter; authoring/debug users get a real file.
+        _trace = enableTracing
+            ? TraceWriter.OpenFile(BuildTracePath(runId))
+            : (ITraceWriter)NullTraceWriter.Instance;
         _timing.Reseed(StableHash(runId));
 
         IGameStateProvider gs = new RecordingGameStateProvider(
@@ -194,8 +198,8 @@ public sealed class EngineHost : IDisposable
     private void EndRun()
     {
         _engine = null;
-        _trace?.Dispose();
-        _trace  = null;
+        (_trace as IDisposable)?.Dispose();
+        _trace  = NullTraceWriter.Instance;
         _runId  = null;
         RestoreCutsceneSkip();
     }

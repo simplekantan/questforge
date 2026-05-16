@@ -14,18 +14,20 @@ internal sealed class QfCommand : IDisposable
     private readonly IChatGui _chat;
     private readonly IPluginLog _log;
     private readonly IDalamudPluginInterface _pi;
+    private readonly PluginConfig _config;
 
     public QfCommand(
         EngineHost host,
         ICommandManager commands,
         IChatGui chat,
         IPluginLog log,
-        IDalamudPluginInterface pi)
+        IDalamudPluginInterface pi,
+        PluginConfig config)
     {
-        _host = host; _commands = commands; _chat = chat; _log = log; _pi = pi;
+        _host = host; _commands = commands; _chat = chat; _log = log; _pi = pi; _config = config;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
-            HelpMessage = "QuestForge: /qf run <questId> | /qf stop | /qf test <gamestate|queststate|navigate|interact>"
+            HelpMessage = "QuestForge: /qf run <questId> | /qf stop | /qf config trace on|off | /qf test <gamestate|queststate>"
         });
     }
 
@@ -41,6 +43,9 @@ internal sealed class QfCommand : IDisposable
                 break;
             case "stop":
                 HandleStop();
+                break;
+            case "config" when parts.Length >= 3:
+                HandleConfig(parts[1], parts[2]);
                 break;
             case "test" when parts.Length >= 2:
                 HandleTest(parts[1..]);
@@ -83,8 +88,9 @@ internal sealed class QfCommand : IDisposable
         }
 
         var runId = $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"[..24];
-        _host.BeginRun(quest, runId);
-        _chat.Print($"QuestForge: run {runId} started for quest {questId}");
+        _host.BeginRun(quest, runId, _config.UserTracingEnabled);
+        var traceNote = _config.UserTracingEnabled ? " (tracing on)" : "";
+        _chat.Print($"QuestForge: run {runId} started for quest {questId}{traceNote}");
     }
 
     private void HandleStop()
@@ -125,8 +131,22 @@ internal sealed class QfCommand : IDisposable
         }
     }
 
+    private void HandleConfig(string key, string value)
+    {
+        if (key == "trace")
+        {
+            if (value == "on")  { _config.UserTracingEnabled = true;  _config.Save(_pi); _chat.Print("QuestForge: tracing enabled — runs will write to pluginConfigs\\QuestForge\\traces\\"); }
+            else if (value == "off") { _config.UserTracingEnabled = false; _config.Save(_pi); _chat.Print("QuestForge: tracing disabled"); }
+            else _chat.PrintError($"QuestForge: /qf config trace on|off");
+        }
+        else
+        {
+            _chat.PrintError($"QuestForge: unknown config key '{key}'. Known keys: trace");
+        }
+    }
+
     private void PrintUsage()
-        => _chat.Print("QuestForge: /qf run <questId> | /qf stop | /qf test <gamestate|queststate|navigate|interact>");
+        => _chat.Print("QuestForge: /qf run <questId> | /qf stop | /qf config trace on|off | /qf test <gamestate|queststate>");
 
     public void Dispose() => _commands.RemoveHandler(Cmd);
 }

@@ -10,7 +10,7 @@ using QuestForge.Adapters.Fakes.State;
 using QuestForge.Adapters.Fakes.Timing;
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Types;
-using QuestForge.Engine.Tests.Fakes;
+using QuestForge.Adapters;
 using QuestForge.Engine.Tests.Helpers;
 using QuestForge.Schema;
 using Xunit;

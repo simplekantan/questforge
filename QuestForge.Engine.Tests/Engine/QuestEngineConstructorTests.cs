@@ -6,7 +6,7 @@ using QuestForge.Adapters.Fakes.Minigames;
 using QuestForge.Adapters.Fakes.Movement;
 using QuestForge.Adapters.Fakes.State;
 using QuestForge.Adapters.Fakes.Timing;
-using QuestForge.Engine.Tests.Fakes;
+using QuestForge.Adapters;
 using Xunit;
 
 namespace QuestForge.Engine.Tests.Engine;
