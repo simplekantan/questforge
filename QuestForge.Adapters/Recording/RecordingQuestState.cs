@@ -20,6 +20,7 @@ public sealed class RecordingQuestState : IQuestState
     };
 
     private readonly bool _skipIfNoRunId;
+    private readonly Dictionary<string, string?> _lastEmitted = new();
 
     public RecordingQuestState(
         IQuestState inner,
@@ -40,11 +41,16 @@ public sealed class RecordingQuestState : IQuestState
         try
         {
             var runId = _runIdAccessor();
-            // If configured to skip when no run is active, skip emission.
             if (_skipIfNoRunId && runId is null or "") return;
             var argEl = argument is null ? (JsonElement?)null
                 : JsonSerializer.SerializeToElement(argument, _jsonOpts);
             var valEl = Unwrap(result);
+
+            var dedupKey = $"{method}:{argEl?.GetRawText() ?? ""}";
+            var valJson = valEl?.GetRawText();
+            if (_lastEmitted.TryGetValue(dedupKey, out var prev) && prev == valJson) return;
+            _lastEmitted[dedupKey] = valJson;
+
             _trace.Write(new ObservationEvent(
                 runId,
                 method,

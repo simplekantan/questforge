@@ -796,5 +796,7 @@ The trace recorder produces a structurally simpler output than the full spec abo
 | Cutscene skip confirmation | **Not recorded.** Cutscene skip is deterministic from `IsRunActive` — the same condition that drives the hook also drives replay — so the action doesn't need to appear in the trace for deterministic replay. | No change needed. |
 | `action.submitted` / `action.completed` pairs | **Not emitted** for Navigate/Interact/Wait dispatch. Only `decision` events appear. | Phase 7: emit action pairs from `EngineHost.DispatchAction` to complete the trace spec. |
 
+**Observation deduplication (added Phase 7):** `RecordingGameStateProvider` and `RecordingQuestState` now emit an `observation` event only when the value changes from the previous emission for that `(method, argument)` pair. Repeated identical reads (e.g., `GetQuestSequence` returning `0` for 2,400 consecutive ticks) produce a single observation. `ObservationScanner` uses a last-known-value fallback so replay remains correct: when the cursor finds no further observation for a given pair, it returns the last successfully returned observation for that pair rather than throwing starvation.
+
 **Impact on replay (Phase 7):** The replay harness must tolerate Phase 5–6 traces (no `seq`, no `ts`, flat payload, no action pairs). Either the harness reads both formats or the recorder is upgraded to spec shape first. This is Phase 7's first task.
 
