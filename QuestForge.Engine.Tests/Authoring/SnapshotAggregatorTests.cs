@@ -121,6 +121,86 @@ public sealed class SnapshotAggregatorTests
     }
 
     // =========================================================================
+    // Phase 11B — SnapshotAggregator attunement tests (B1-B3 from §3.6)
+    // =========================================================================
+
+    [Fact]
+    public void SnapshotAggregator_FreshInstance_LastAttuned_IsNull()
+    {
+        /*
+         * RED: Will fail until Builder implements OnAttunementChanged
+         *      (the _lastAttuned field must be initialized to null and included in Current).
+         *
+         * CONTRACT: Given a fresh SnapshotAggregator,
+         *           When Current is read,
+         *           Then LastAttuned == null.
+         *
+         * BUILDER GUIDANCE: _lastAttuned = null is the field initializer (already added as a stub).
+         *   Current must include LastAttuned: _lastAttuned.
+         *   This test will PASS once the stub compiles correctly — but it's included to document
+         *   the contract and guard against regressions.
+         */
+
+        // Arrange
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+
+        // Act
+        var snapshot = aggregator.Current;
+
+        // Assert
+        Assert.Null(snapshot.LastAttuned);
+    }
+
+    [Fact]
+    public void SnapshotAggregator_OnAttunementChanged_SetsLastAttuned()
+    {
+        /*
+         * RED: Will fail until Builder implements OnAttunementChanged.
+         *
+         * CONTRACT: Given aggregator.OnAttunementChanged(new AetheryteId(500)),
+         *           When Current is read,
+         *           Then LastAttuned == new AetheryteId(500).
+         *
+         * BUILDER GUIDANCE: OnAttunementChanged sets _lastAttuned = aetheryte.
+         *   The NotImplementedException stub must be replaced with: _lastAttuned = aetheryte;
+         */
+
+        // Arrange
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+
+        // Act
+        aggregator.OnAttunementChanged(new AetheryteId(500));
+
+        // Assert
+        Assert.Equal(new AetheryteId(500), aggregator.Current.LastAttuned);
+    }
+
+    [Fact]
+    public void SnapshotAggregator_OnAttunementChanged_Overwrite_TracksLatest()
+    {
+        /*
+         * RED: Will fail until Builder implements OnAttunementChanged.
+         *
+         * CONTRACT: Given OnAttunementChanged(AetheryteId(500)) then OnAttunementChanged(AetheryteId(501)),
+         *           When Current is read,
+         *           Then LastAttuned == new AetheryteId(501).
+         *           (Aggregator tracks most-recent attunement event — same semantics as LastNpcInteracted.)
+         *
+         * BUILDER GUIDANCE: _lastAttuned is overwritten on each call; no history is retained.
+         */
+
+        // Arrange
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+
+        // Act
+        aggregator.OnAttunementChanged(new AetheryteId(500));
+        aggregator.OnAttunementChanged(new AetheryteId(501));
+
+        // Assert
+        Assert.Equal(new AetheryteId(501), aggregator.Current.LastAttuned);
+    }
+
+    // =========================================================================
     // Scenario 45 — SnapshotAggregator_OnQuestAccepted_SetsAcceptedFlag
     // =========================================================================
     [Fact]

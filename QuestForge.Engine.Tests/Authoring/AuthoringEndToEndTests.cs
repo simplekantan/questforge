@@ -39,7 +39,8 @@ public sealed class AuthoringEndToEndTests
             LastNpcPosition: lastNpc.HasValue ? new WorldPosition(9.5f, 40f, 14.2f) : null,
             LastDialoguePrompt: dialogueAnswer != null ? "prompt-ref" : null,
             LastDialogueAnswer: dialogueAnswer,
-            InventoryHash: 0);
+            InventoryHash: 0,
+            LastAttuned: null);
 
     // =========================================================================
     // Scenario 46 — AuthorOneQuest_EndToEnd_ProducesValidDefinition

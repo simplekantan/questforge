@@ -603,6 +603,152 @@ public sealed class PredicateEvaluatorTests
             () => expectEval.Evaluate(expect, CancellationToken.None));
     }
 
+    // =========================================================================
+    // Phase 11B — isAttuned predicate tests (B1-B5 from PHASE_11B_PLAN.md §3.3)
+    // =========================================================================
+
+    [Fact]
+    public async Task IsAttuned_NotAttuned_ReturnsFalse()
+    {
+        /*
+         * RED: Will fail until Builder implements the isAttuned switch arm.
+         *
+         * CONTRACT: Given FakeGameStateProvider with no SetAetheryteAttuned call for ID 1000,
+         *           When evaluator evaluates "isAttuned(1000)",
+         *           Then result is false.
+         *
+         * BUILDER GUIDANCE: Add "isAttuned" arm to EvaluateFunction:
+         *   "isAttuned" => (await _gameState.IsAetheryteAttuned(
+         *       new AetheryteId((uint)(long)args[0]), ct)).ValueOrThrow,
+         *   Note: args[0] is a boxed long (IntLiteral evaluates to long).
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        // No SetAetheryteAttuned call — default is false
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("isAttuned(1000)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.False(result, "Aetheryte 1000 is not attuned — isAttuned(1000) should be false");
+    }
+
+    [Fact]
+    public async Task IsAttuned_Attuned_ReturnsTrue()
+    {
+        /*
+         * RED: Will fail until Builder implements the isAttuned switch arm.
+         *
+         * CONTRACT: Given gameState.SetAetheryteAttuned(new AetheryteId(1000), true),
+         *           When evaluator evaluates "isAttuned(1000)",
+         *           Then result is true.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        gameState.SetAetheryteAttuned(new QuestForge.Adapters.Types.AetheryteId(1000), true);
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("isAttuned(1000)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.True(result, "Aetheryte 1000 was set attuned — isAttuned(1000) should be true");
+    }
+
+    [Fact]
+    public async Task IsAttuned_StateFlip_ObservableWithoutCaching()
+    {
+        /*
+         * RED: Will fail until Builder implements the isAttuned switch arm.
+         *
+         * CONTRACT: Given initial state not attuned (B1 scenario),
+         *           When SetAetheryteAttuned(1000, true) is called and then re-evaluated,
+         *           Then the second evaluation returns true.
+         *           (Validates no internal caching of predicate results.)
+         *
+         * BUILDER GUIDANCE: The ExpectEvaluator caches parse trees, not values.
+         *   The evaluator re-reads IGameStateProvider on every call.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("isAttuned(1000)").Ast!;
+
+        // Act — first evaluation: not attuned
+        var firstResult = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Now flip the state
+        gameState.SetAetheryteAttuned(new QuestForge.Adapters.Types.AetheryteId(1000), true);
+
+        // Second evaluation: now attuned
+        var secondResult = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.False(firstResult, "Before SetAetheryteAttuned — should be false");
+        Assert.True(secondResult, "After SetAetheryteAttuned(true) — should be true (no caching)");
+    }
+
+    [Fact]
+    public async Task IsAttuned_ComposedInNot_InvertsResult()
+    {
+        /*
+         * RED: Will fail until Builder implements the isAttuned switch arm.
+         *
+         * CONTRACT: Given isAttuned(1000) == false (aetheryte not attuned),
+         *           When evaluator parses and evaluates "not isAttuned(1000)",
+         *           Then result is true.
+         *
+         * BUILDER GUIDANCE: The Not node delegates to EvaluateInternal(inner) — no extra work needed
+         *   once the isAttuned arm returns a bool.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        // Not attuned — isAttuned(1000) == false
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("not isAttuned(1000)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.True(result, "not isAttuned(1000) where 1000 is not attuned — should be true");
+    }
+
+    [Fact]
+    public async Task IsAttuned_ComposedInAnd_ShortCircuitsCorrectly()
+    {
+        /*
+         * RED: Will fail until Builder implements the isAttuned switch arm.
+         *
+         * CONTRACT: Given questSequence(66130) == 0 (>= 0 is true) AND isAttuned(1000) == false,
+         *           When evaluator evaluates "questSequence(66130) >= 0 and isAttuned(1000)",
+         *           Then result is false (and short-circuits after second operand).
+         *
+         * BUILDER GUIDANCE: Tests that isAttuned integrates with the And short-circuit logic.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        // Not attuned
+        var questState = new FakeQuestState();
+        questState.SetQuestSequence(new QuestId(66130), 0);
+        var evaluator = CreateEvaluator(gameState, questState);
+        var ast = PredicateParser.Parse("questSequence(66130) >= 0 and isAttuned(1000)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.False(result, "questSequence(66130)>=0 (true) AND isAttuned(1000) (false) = false");
+    }
+
     // -------------------------------------------------------------------------
     // Factory helpers
     // -------------------------------------------------------------------------

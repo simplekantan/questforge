@@ -105,6 +105,7 @@ public sealed class PredicateEvaluator
             "playerZone" => (long)(await _gameState.GetPlayerZone(ct)).ValueOrThrow.Value,
             "playerNear" => await EvaluatePlayerNear((WorldPosition)args[0], (long)args[1], ct),
             "playerInCombat" => (await _gameState.IsPlayerInCombat(ct)).ValueOrThrow,
+            "isAttuned" => throw new NotImplementedException("isAttuned predicate not yet implemented"),
             _ => throw new UnknownStateFunctionException(name)
         };
     }

@@ -4,6 +4,11 @@ namespace QuestForge.Schema;
 // Shared value types — immutable records used across quest and fragment types.
 // ---------------------------------------------------------------------------
 
+// Schema-side AetheryteId alias. Lives here (not in Adapters) to keep Schema as a leaf
+// with no upward dependency. The engine converts Schema.AetheryteId → Adapters.Types.AetheryteId
+// via .Value when dispatching AttunementStep.
+public readonly record struct AetheryteId(uint Value);
+
 public record Position3(float X, float Y, float Z);
 
 public record NpcLocation(uint NpcId, int Zone, Position3 Position);

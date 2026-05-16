@@ -15,4 +15,5 @@ public sealed record GameStateSnapshot(
     WorldPosition? LastNpcPosition,
     string? LastDialoguePrompt,
     string? LastDialogueAnswer,
-    uint InventoryHash);
+    uint InventoryHash,
+    AetheryteId? LastAttuned);   // Phase 11B — appended last to minimise call-site churn
