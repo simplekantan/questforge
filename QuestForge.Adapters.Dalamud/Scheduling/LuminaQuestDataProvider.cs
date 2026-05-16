@@ -8,8 +8,8 @@ namespace QuestForge.Adapters.Dalamud.Scheduling;
 
 public sealed class LuminaQuestDataProvider : IQuestDataProvider
 {
-    // JournalCategory.RowId for Main Scenario quests.
-    // Verify in-game: /xldata → JournalCategory sheet → row 1 should be "Main Scenario".
+    // JournalCategory.RowId values — verify with /qf debug quest <id> in-game.
+    // Use GetLuminaDebugInfo() to print the actual IDs for any quest in the corpus.
     private const uint MainScenarioCategoryId = 1;
 
     private sealed record Entry(
@@ -69,7 +69,13 @@ public sealed class LuminaQuestDataProvider : IQuestDataProvider
             if (genreRowId != 0)
             {
                 var genre = genreSheet.GetRow(genreRowId);
-                tier = genre.JournalCategory.RowId == MainScenarioCategoryId ? 3 : 5;
+                // Known MSQ category → Tier 3; anything else with a genre → Tier 3 too.
+                // Seasonal events, dailies, etc. are excluded by corpus membership only —
+                // if no quest file exists for them, the scheduler never sees them.
+                // This avoids silently dropping corpus quests whose JournalCategory ID
+                // we haven't confirmed yet (e.g. ARR prologue / starting area quests).
+                _ = genre.JournalCategory.RowId; // read to surface data errors early
+                tier = 3;
             }
         }
 
@@ -113,4 +119,38 @@ public sealed class LuminaQuestDataProvider : IQuestDataProvider
 
     public IReadOnlyCollection<QuestId> EnumerateKnownQuests()
         => _entries.Keys.ToArray();
+
+    // Returns a one-line summary of the raw Lumina fields used for tier determination.
+    // Call via /qf debug quest <id> to verify JournalCategory IDs in-game.
+    public string GetLuminaDebugInfo(QuestId quest, IDataManager dataManager)
+    {
+        if (!_entries.TryGetValue(quest, out var entry))
+            return $"quest {quest.Value}: not in corpus";
+
+        try
+        {
+            var questSheet = dataManager.GetExcelSheet<Quest>();
+            var genreSheet = dataManager.GetExcelSheet<JournalGenre>();
+            if (questSheet is null || genreSheet is null)
+                return $"quest {quest.Value}: sheets unavailable";
+
+            var row = questSheet.GetRow(quest.Value);
+            var genreRowId = row.JournalGenre.RowId;
+            var journalCategoryId = 0u;
+            if (genreRowId != 0)
+                journalCategoryId = genreSheet.GetRow(genreRowId).JournalCategory.RowId;
+
+            return $"quest {quest.Value}: " +
+                   $"classJobCat={entry.ClassJobCategoryId} " +
+                   $"level={entry.RequiredLevel} " +
+                   $"genre={genreRowId} " +
+                   $"journalCat={journalCategoryId} " +
+                   $"tier={entry.Tier?.ToString() ?? "null"} " +
+                   $"prereqs=[{string.Join(",", entry.Prerequisites.Select(p => p.Value))}]";
+        }
+        catch (Exception ex)
+        {
+            return $"quest {quest.Value}: error — {ex.Message}";
+        }
+    }
 }

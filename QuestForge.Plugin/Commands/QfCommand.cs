@@ -1,6 +1,8 @@
 using Dalamud.Game.Command;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using QuestForge.Adapters.Dalamud.Scheduling;
+using QuestForge.Adapters.Types;
 using QuestForge.Engine.Scheduling;
 using QuestForge.Schema;
 
@@ -13,6 +15,8 @@ internal sealed class QfCommand : IDisposable
     private readonly EngineHost _host;
     private readonly IQuestScheduler _scheduler;
     private readonly UI.MainWindow _mainWindow;
+    private readonly LuminaQuestDataProvider _questData;
+    private readonly IDataManager _dataManager;
     private readonly ICommandManager _commands;
     private readonly IChatGui _chat;
     private readonly IPluginLog _log;
@@ -23,6 +27,8 @@ internal sealed class QfCommand : IDisposable
         EngineHost host,
         IQuestScheduler scheduler,
         UI.MainWindow mainWindow,
+        LuminaQuestDataProvider questData,
+        IDataManager dataManager,
         ICommandManager commands,
         IChatGui chat,
         IPluginLog log,
@@ -32,6 +38,8 @@ internal sealed class QfCommand : IDisposable
         _host = host;
         _scheduler = scheduler;
         _mainWindow = mainWindow;
+        _questData = questData;
+        _dataManager = dataManager;
         _commands = commands;
         _chat = chat;
         _log = log;
@@ -39,7 +47,7 @@ internal sealed class QfCommand : IDisposable
         _config = config;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
-            HelpMessage = "QuestForge: /qf run <questId> | /qf start | /qf stop | /qf ui | /qf config trace on|off | /qf test <gamestate|queststate>"
+            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf debug quest <id> | /qf config trace on|off"
         });
     }
 
@@ -64,6 +72,9 @@ internal sealed class QfCommand : IDisposable
                 break;
             case "config" when parts.Length >= 3:
                 HandleConfig(parts[1], parts[2]);
+                break;
+            case "debug" when parts.Length >= 3 && parts[1] == "quest":
+                HandleDebugQuest(parts[2]);
                 break;
             case "test" when parts.Length >= 2:
                 HandleTest(parts[1..]);
@@ -126,6 +137,18 @@ internal sealed class QfCommand : IDisposable
         _chat.Print($"QuestForge: run {runId} stopped");
     }
 
+    private void HandleDebugQuest(string questIdStr)
+    {
+        if (!uint.TryParse(questIdStr, out var rawId))
+        {
+            _chat.PrintError($"QuestForge: invalid quest ID '{questIdStr}'");
+            return;
+        }
+        var info = _questData.GetLuminaDebugInfo(new QuestId(rawId), _dataManager);
+        _chat.Print($"QuestForge: {info}");
+        _log.Info($"[debug quest] {info}");
+    }
+
     private void HandleTest(string[] args)
     {
         switch (args[0])
@@ -171,7 +194,7 @@ internal sealed class QfCommand : IDisposable
     }
 
     private void PrintUsage()
-        => _chat.Print("QuestForge: /qf run <questId> | /qf start | /qf stop | /qf ui | /qf config trace on|off | /qf test <gamestate|queststate>");
+        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf debug quest <id> | /qf config trace on|off");
 
     public void Dispose() => _commands.RemoveHandler(Cmd);
 }

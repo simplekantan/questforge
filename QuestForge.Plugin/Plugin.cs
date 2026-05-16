@@ -18,6 +18,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly WindowSystem _windowSystem = new("QuestForge");
     private readonly UI.MainWindow _mainWindow;
     private readonly QuestForge.Engine.Scheduling.QuestScheduler _scheduler;
+    private readonly QuestForge.Adapters.Dalamud.Scheduling.LuminaQuestDataProvider _questData;
 
     public Plugin(
         IDalamudPluginInterface pi,
@@ -50,7 +51,8 @@ public sealed class Plugin : IDalamudPlugin
         _host = new EngineHost(services);
 
         var questsDir = Path.Combine(pi.GetPluginConfigDirectory(), "quests");
-        var questData = new QuestForge.Adapters.Dalamud.Scheduling.LuminaQuestDataProvider(dataManager, questsDir);
+        _questData = new QuestForge.Adapters.Dalamud.Scheduling.LuminaQuestDataProvider(dataManager, questsDir);
+        var questData = _questData;
         _scheduler = new QuestForge.Engine.Scheduling.QuestScheduler(
             _host.QuestState,
             _host.GameState,
@@ -63,7 +65,7 @@ public sealed class Plugin : IDalamudPlugin
         pi.UiBuilder.Draw += _windowSystem.Draw;
         pi.UiBuilder.OpenMainUi += _mainWindow.Toggle;
 
-        _command = new QfCommand(_host, _scheduler, _mainWindow, commandManager, chatGui, log, pi, config);
+        _command = new QfCommand(_host, _scheduler, _mainWindow, _questData, dataManager, commandManager, chatGui, log, pi, config);
 
         Directory.CreateDirectory(questsDir);
 
