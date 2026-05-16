@@ -11,6 +11,8 @@ public sealed class FakeQuestState : IQuestState
     private readonly Dictionary<QuestId, uint> _flags = new();
     private readonly HashSet<QuestId> _accepted = new();
     private readonly Dictionary<QuestId, IReadOnlyList<QuestReward>> _rewards = new();
+    private readonly Dictionary<QuestId, QuestUnlockReason?> _whyUnavailable = new();
+    private readonly Dictionary<QuestId, (string Reason, string? Detail)> _availabilityFailures = new();
 
     // ----- observable recording -----
     public record StateRead(string Method, DateTimeOffset At) : AdapterCall(At);
@@ -38,6 +40,19 @@ public sealed class FakeQuestState : IQuestState
 
     public void SetQuestRewards(QuestId quest, IReadOnlyList<QuestReward> rewards) =>
         _rewards[quest] = rewards;
+
+    // Scripts a specific WhyUnavailable result for a quest.
+    // Pass null to clear scripting (reverts to the default null-reason response).
+    public void SetWhyUnavailable(QuestId quest, QuestUnlockReason? reason) =>
+        _whyUnavailable[quest] = reason;
+
+    // Scripts IsQuestAvailable to return a Failure result for a specific quest.
+    public void SetIsQuestAvailableFail(QuestId quest, string reason, string? detail = null) =>
+        _availabilityFailures[quest] = (reason, detail);
+
+    // Clears all scripted IsQuestAvailable failures.
+    public void ClearIsQuestAvailableFail(QuestId quest) =>
+        _availabilityFailures.Remove(quest);
 
     // ----- Reset -----
     public void Reset() => RecordedReads.Clear();
@@ -96,6 +111,8 @@ public sealed class FakeQuestState : IQuestState
     {
         ct.ThrowIfCancellationRequested();
         Record(nameof(IsQuestAvailable));
+        if (_availabilityFailures.TryGetValue(quest, out var failure))
+            return Task.FromResult<Result<bool>>(Result.Fail<bool>(failure.Reason, failure.Detail));
         bool available = _statuses.TryGetValue(quest, out var s) && s == QuestStatus.Available;
         return Task.FromResult<Result<bool>>(Result.Ok(available));
     }
@@ -104,7 +121,7 @@ public sealed class FakeQuestState : IQuestState
     {
         ct.ThrowIfCancellationRequested();
         Record(nameof(WhyUnavailable));
-        QuestUnlockReason? reason = null;
+        QuestUnlockReason? reason = _whyUnavailable.TryGetValue(quest, out var scripted) ? scripted : null;
         return Task.FromResult<Result<QuestUnlockReason?>>(Result.Ok(reason));
     }
 

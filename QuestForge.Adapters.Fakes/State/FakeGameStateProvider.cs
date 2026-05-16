@@ -13,6 +13,7 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     private WorldPosition _position = new(0f, 0f, 0f);
     private JobId _job = new(1);
     private int _jobLevel = 1;
+    private (string Reason, string? Detail)? _currentJobFailure;
     private bool _inCombat;
     private MountState _mountState = MountState.Dismounted;
     private bool _dead;
@@ -44,7 +45,9 @@ public sealed class FakeGameStateProvider : IGameStateProvider
 
     public void SetZone(ZoneId zone)                 { lock (_lock) _zone = zone; }
     public void SetPosition(WorldPosition position)  { lock (_lock) _position = position; }
-    public void SetJob(JobId job, int level)         { lock (_lock) { _job = job; _jobLevel = level; } }
+    public void SetJob(JobId job, int level)          { lock (_lock) { _job = job; _jobLevel = level; _currentJobFailure = null; } }
+    public void SetCurrentJobFail(string reason, string? detail = null) { lock (_lock) _currentJobFailure = (reason, detail); }
+    public void ClearCurrentJobFail()                { lock (_lock) _currentJobFailure = null; }
     public void SetInCombat(bool v)                  { lock (_lock) _inCombat = v; }
     public void SetMountState(MountState v)          { lock (_lock) _mountState = v; }
     public void SetDead(bool v)                      { lock (_lock) _dead = v; }
@@ -162,7 +165,12 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     {
         ct.ThrowIfCancellationRequested();
         Record(nameof(GetCurrentJob));
-        lock (_lock) return Task.FromResult<Result<JobId>>(Result.Ok(_job));
+        lock (_lock)
+        {
+            if (_currentJobFailure is { } f)
+                return Task.FromResult<Result<JobId>>(Result.Fail<JobId>(f.Reason, f.Detail));
+            return Task.FromResult<Result<JobId>>(Result.Ok(_job));
+        }
     }
 
     public Task<Result<int>> GetJobLevel(JobId job, CancellationToken ct)
