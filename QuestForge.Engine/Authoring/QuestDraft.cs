@@ -26,22 +26,38 @@ public sealed class QuestDraft
     /// <exception cref="InvalidOperationException">Thrown when stepId already exists in the draft.</exception>
     public void AddStep(DraftStep step, DateTimeOffset now)
     {
-        throw new NotImplementedException();
+        if (_steps.Any(s => s.StepId == step.StepId))
+            throw new InvalidOperationException($"A step with id '{step.StepId}' already exists in this draft.");
+
+        _steps.Add(step);
+        LastModifiedAt = now;
     }
 
     public bool RemoveStep(string stepId, DateTimeOffset now)
     {
-        throw new NotImplementedException();
+        var index = _steps.FindIndex(s => s.StepId == stepId);
+        if (index < 0)
+            return false;
+
+        _steps.RemoveAt(index);
+        LastModifiedAt = now;
+        return true;
     }
 
     public bool ReplaceStep(string stepId, DraftStep newStep, DateTimeOffset now)
     {
-        throw new NotImplementedException();
+        var index = _steps.FindIndex(s => s.StepId == stepId);
+        if (index < 0)
+            return false;
+
+        _steps[index] = newStep;
+        LastModifiedAt = now;
+        return true;
     }
 
     public DraftStep? GetStep(string stepId)
     {
-        throw new NotImplementedException();
+        return _steps.FirstOrDefault(s => s.StepId == stepId);
     }
 
     /// <summary>
@@ -51,6 +67,41 @@ public sealed class QuestDraft
     /// </summary>
     public QuestDefinition ToQuestDefinition()
     {
-        throw new NotImplementedException();
+        // Check for null Raw
+        var nullStep = _steps.FirstOrDefault(s => s.Raw is null);
+        if (nullStep is not null)
+            throw new DraftSerializationException(
+                $"Step '{nullStep.StepId}' has no Raw value — confirm the step in the record modal before exporting.");
+
+        var grouped = _steps
+            .GroupBy(s => s.SequenceNumber)
+            .OrderBy(g => g.Key)
+            .Select(g => new QuestSequence
+            {
+                Sequence = g.Key,
+                Steps = g.Select(s => s.Raw!).ToArray()
+            })
+            .ToArray();
+
+        return new QuestDefinition
+        {
+            SchemaVersion = "1.0.0",
+            Id = QuestId.Value,
+            Name = QuestName ?? "",
+            Expansion = Expansion,
+            Category = Category,
+            Enabled = true,
+            SupportStatus = new SupportStatus { Implementation = "partial", KnownIssues = [] },
+            LastVerifiedPatch = LastVerifiedPatch ?? "unknown",
+            Requirements = new Requirements(),
+            AcceptFrom = InferAcceptFrom(),
+            Sequences = grouped
+        };
+    }
+
+    private NpcLocation? InferAcceptFrom()
+    {
+        var acceptStep = _steps.FirstOrDefault(s => s.Raw is AcceptStep);
+        return (acceptStep?.Raw as AcceptStep)?.Target;
     }
 }

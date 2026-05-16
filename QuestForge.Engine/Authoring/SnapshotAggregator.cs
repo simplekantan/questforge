@@ -4,58 +4,88 @@ namespace QuestForge.Engine.Authoring;
 
 public sealed class SnapshotAggregator
 {
+    private readonly QuestId? _activeQuest;
+    private ZoneId _zone = new(0);
+    private WorldPosition _position = new(0, 0, 0);
+    private int _questSequence;
+    private uint _questFlags;
+    private bool _questAccepted;
+    private bool _questCompleted;
+    private NpcId? _lastNpcInteracted;
+    private WorldPosition? _lastNpcPosition;
+    private string? _lastDialoguePrompt;
+    private string? _lastDialogueAnswer;
+    private uint _inventoryHash;
+
     public SnapshotAggregator(QuestId? activeQuest)
     {
-        throw new NotImplementedException();
+        _activeQuest = activeQuest;
     }
 
-    public GameStateSnapshot Current
-    {
-        get => throw new NotImplementedException();
-    }
+    public GameStateSnapshot Current => new(
+        CapturedAt: DateTimeOffset.UtcNow,
+        Zone: _zone,
+        Position: _position,
+        ActiveQuest: _activeQuest,
+        QuestSequence: _questSequence,
+        QuestFlags: _questFlags,
+        QuestAccepted: _questAccepted,
+        QuestCompleted: _questCompleted,
+        LastNpcInteracted: _lastNpcInteracted,
+        LastNpcPosition: _lastNpcPosition,
+        LastDialoguePrompt: _lastDialoguePrompt,
+        LastDialogueAnswer: _lastDialogueAnswer,
+        InventoryHash: _inventoryHash);
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
     {
-        throw new NotImplementedException();
+        _zone = zone;
+        _position = position;
     }
 
     public void OnPlayerMoved(WorldPosition position)
     {
-        throw new NotImplementedException();
+        _position = position;
     }
 
     public void OnQuestAccepted(QuestId quest)
     {
-        throw new NotImplementedException();
+        if (_activeQuest == quest || _activeQuest is null)
+            _questAccepted = true;
     }
 
     public void OnQuestCompleted(QuestId quest)
     {
-        throw new NotImplementedException();
+        if (_activeQuest == quest || _activeQuest is null)
+            _questCompleted = true;
     }
 
     public void OnQuestSequenceChanged(QuestId quest, int newSequence)
     {
-        throw new NotImplementedException();
+        if (_activeQuest == quest)
+            _questSequence = newSequence;
     }
 
     public void OnQuestFlagsChanged(QuestId quest, uint newFlags)
     {
-        throw new NotImplementedException();
+        if (_activeQuest == quest)
+            _questFlags = newFlags;
     }
 
     public void OnInteraction(NpcId npc, WorldPosition npcPosition)
     {
-        throw new NotImplementedException();
+        _lastNpcInteracted = npc;
+        _lastNpcPosition = npcPosition;
     }
 
     public void OnDialogueChoice(string promptSheetRef, string answerSheetRef)
     {
-        throw new NotImplementedException();
+        _lastDialoguePrompt = promptSheetRef;
+        _lastDialogueAnswer = answerSheetRef;
     }
 
     public void OnInventoryChanged(uint inventoryHash)
     {
-        throw new NotImplementedException();
+        _inventoryHash = inventoryHash;
     }
 }
