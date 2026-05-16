@@ -40,19 +40,20 @@ public sealed class LuminaQuestDataProvider : IQuestDataProvider
     }
 
     // Maps QuestDefinition.Category to a scheduler tier.
-    // "msq"           → 3  (auto chain, always runs)
-    // "class" | "job" → 1  (active-job class quests, highest priority)
-    // "role"          → 1  (role quests behave like class quests for scheduling)
-    // "side"          → 5  (opt-in, off by default)
-    // unknown         → 3  (safe default: treat as auto chain rather than silently drop)
-    private static int CategoryToTier(string category) => category switch
+    // "msq"                    → 3  (auto chain, always runs)
+    // "class" | "job" | "role" → 1  (active-job class quests)
+    // "blue-urgent"            → 1  (critical feature unlocks, no job filter)
+    // "blue"                   → 4  (opt-in feature unlocks, EnableBlueQuests gate)
+    // "side"                   → 5  (opt-in, off by default)
+    // unknown                  → null (scheduler ignores; fail-safe against category typos)
+    private static int? CategoryToTier(string category) => category switch
     {
-        "msq"                    => 3,
+        "msq"                      => 3,
         "class" or "job" or "role" => 1,
-        "blue-urgent"            => 1,
-        "blue"                   => 4,
-        "side"                   => 5,
-        _                        => 3,
+        "blue-urgent"              => 1,
+        "blue"                     => 4,
+        "side"                     => 5,
+        _                          => null,
     };
 
     private static Entry BuildEntry(QuestId questId, string category, Quest row)

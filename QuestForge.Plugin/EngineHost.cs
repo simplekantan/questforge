@@ -56,6 +56,8 @@ public sealed class EngineHost : IDisposable
     private IQuestScheduler? _scheduler;
     private bool _autoMode;
     private bool _tracingEnabled;
+    private DateTimeOffset _lastSchedulerPollAt = DateTimeOffset.MinValue;
+    private static readonly TimeSpan SchedulerPollInterval = TimeSpan.FromSeconds(2);
 
     // Debounced logging: log immediately on change, then at most once per interval for repeats
     private string? _lastDebounceKey;
@@ -98,6 +100,7 @@ public sealed class EngineHost : IDisposable
         _scheduler = scheduler;
         _autoMode = true;
         _tracingEnabled = enableTracing;
+        _lastSchedulerPollAt = DateTimeOffset.MinValue; // fire immediately on first tick
         _services.Log.Info("QuestForge: auto mode started");
         _services.ChatGui.Print("QuestForge: auto mode started — will run all available quests");
     }
@@ -169,8 +172,12 @@ public sealed class EngineHost : IDisposable
     {
         if (_engine is null)
         {
-            if (_autoMode && _scheduler is { } scheduler)
+            if (_autoMode && _scheduler is { } scheduler
+                && DateTimeOffset.UtcNow - _lastSchedulerPollAt > SchedulerPollInterval)
+            {
+                _lastSchedulerPollAt = DateTimeOffset.UtcNow;
                 await TryStartNextQuestAsync(scheduler, ct);
+            }
             return;
         }
 
@@ -233,12 +240,14 @@ public sealed class EngineHost : IDisposable
             case EngineAction.AwaitUser au:
                 _services.Log.Warning($"QuestForge run {_runId} paused: {au.Reason}");
                 _services.ChatGui.PrintError($"QuestForge: run paused — {au.Reason}");
-                EndRun();
                 if (_autoMode)
                 {
-                    _autoMode = false;
-                    _scheduler = null;
+                    StopAutoMode();
                     _services.ChatGui.PrintError("QuestForge: auto mode stopped — manual intervention required");
+                }
+                else
+                {
+                    EndRun();
                 }
                 break;
 
@@ -262,7 +271,21 @@ public sealed class EngineHost : IDisposable
             return;
         }
 
-        if (result is not Result<QuestId?>.Success { Value: { } questId }) return;
+        if (result is Result<QuestId?>.Failure f)
+        {
+            _services.Log.Warning($"QuestForge: scheduler returned failure {f.Reason}: {f.Detail}");
+            return;
+        }
+
+        if (result is not Result<QuestId?>.Success { Value: { } questId })
+        {
+            // Success(null) → Idle or AwaitingUser. Surface the blocker once via debounced log+chat.
+            if (scheduler.CurrentStatus is SchedulerStatus.AwaitingUser au)
+                DebounceLog(
+                    $"awaiting:{au.BlockedQuest.Value}",
+                    $"QuestForge: auto mode blocked — quest {au.BlockedQuest.Value}: {FormatAwaitReason(au.Reason)}");
+            return;
+        }
 
         var quest = TryLoadQuest(questId);
         if (quest is null)
@@ -274,6 +297,15 @@ public sealed class EngineHost : IDisposable
         var runId = $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"[..24];
         BeginRun(quest, runId, _tracingEnabled);
         _services.ChatGui.Print($"QuestForge: starting quest {questId.Value}");
+    }
+
+    private static string FormatAwaitReason(QuestUnlockReason r)
+    {
+        if (r.LevelTooLow)            return $"level too low (need {r.RequiredLevel})";
+        if (r.WrongJob)               return "wrong job";
+        if (r.PrerequisiteIncomplete) return "missing prerequisites";
+        if (r.AlreadyCompleted)       return "already completed (data inconsistency)";
+        return r.Detail ?? "unavailable";
     }
 
     private QuestDefinition? TryLoadQuest(QuestId questId)
