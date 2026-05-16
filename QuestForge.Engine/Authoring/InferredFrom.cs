@@ -8,6 +8,7 @@ public enum InferredFrom
     DialogueInteraction,
     QuestAccepted,
     QuestCompleted,
+    AttunementChange,
     Manual,
     None
 }

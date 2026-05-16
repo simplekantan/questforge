@@ -32,7 +32,8 @@ public sealed class DraftSerializationTests
         LastNpcPosition: null,
         LastDialoguePrompt: null,
         LastDialogueAnswer: null,
-        InventoryHash: 0);
+        InventoryHash: 0,
+        LastAttuned: null);
 
     private static DraftStep MakeDraftStep(string stepId, int seqNum, Step raw) =>
         new(

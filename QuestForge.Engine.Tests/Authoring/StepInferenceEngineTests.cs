@@ -28,7 +28,8 @@ public sealed class StepInferenceEngineTests
         string? lastDialoguePrompt = null,
         string? lastDialogueAnswer = null,
         uint inventoryHash = 0,
-        DateTimeOffset? capturedAt = null) =>
+        DateTimeOffset? capturedAt = null,
+        AetheryteId? lastAttuned = null) =>
         new(
             CapturedAt: capturedAt ?? T0,
             Zone: zone ?? new ZoneId(100),
@@ -42,7 +43,8 @@ public sealed class StepInferenceEngineTests
             LastNpcPosition: lastNpcPosition,
             LastDialoguePrompt: lastDialoguePrompt,
             LastDialogueAnswer: lastDialogueAnswer,
-            InventoryHash: inventoryHash);
+            InventoryHash: inventoryHash,
+            LastAttuned: lastAttuned);
 
     // =========================================================================
     // Scenario 1 — InferTravel_WhenZoneChanges
@@ -438,6 +440,254 @@ public sealed class StepInferenceEngineTests
 
         // Assert
         Assert.Equal("turn-in", result.StepType);
+    }
+
+    // =========================================================================
+    // Phase 11B — Rule 2.5: AttunementChange inference (B1-B8 from §3.7)
+    // =========================================================================
+
+    [Fact]
+    public void InferAttunement_HappyPath_NullToAttuned()
+    {
+        /*
+         * RED: Will fail until Builder implements Rule 2.5 in StepInferenceEngine.Infer.
+         *
+         * CONTRACT: Given before.LastAttuned == null, after.LastAttuned == new AetheryteId(1000)
+         *           (no quest delta),
+         *           When Infer(before, after),
+         *           Then:
+         *             result.StepType == "attune"
+         *             result.SuggestedStepId == "attune-aetheryte-1000"
+         *             result.SuggestedExpect == "isAttuned(1000)"
+         *             result.Confidence == Confidence.High
+         *             result.InferredFrom == InferredFrom.AttunementChange
+         *             result.Notes == null
+         *
+         * BUILDER GUIDANCE: Insert Rule 2.5 between Rule 2 (QuestAccepted) and Rule 3
+         *   (QuestSequence advanced):
+         *     if (after.LastAttuned != before.LastAttuned && after.LastAttuned.HasValue)
+         *     {
+         *         var id = after.LastAttuned.Value.Value;
+         *         return new InferenceResult(
+         *             StepType: "attune",
+         *             SuggestedStepId: $"attune-aetheryte-{id}",
+         *             SuggestedExpect: $"isAttuned({id})",
+         *             Confidence: Confidence.High,
+         *             InferredFrom: InferredFrom.AttunementChange,
+         *             Notes: null);
+         *     }
+         */
+
+        // Arrange
+        var engine = new StepInferenceEngine();
+        var before = BaseSnapshot(lastAttuned: null);
+        var after = BaseSnapshot(lastAttuned: new AetheryteId(1000), capturedAt: T1);
+
+        // Act
+        var result = engine.Infer(before, after);
+
+        // Assert
+        Assert.Equal("attune", result.StepType);
+        Assert.Equal("attune-aetheryte-1000", result.SuggestedStepId);
+        Assert.Equal("isAttuned(1000)", result.SuggestedExpect);
+        Assert.Equal(Confidence.High, result.Confidence);
+        Assert.Equal(InferredFrom.AttunementChange, result.InferredFrom);
+        Assert.Null(result.Notes);
+    }
+
+    [Fact]
+    public void InferAttunement_NoChange_FallsThrough()
+    {
+        /*
+         * RED: Will fail until Builder implements Rule 2.5.
+         *
+         * CONTRACT: Given before.LastAttuned == new AetheryteId(1000) and
+         *           after.LastAttuned == new AetheryteId(1000) (no delta, no other changes),
+         *           When Infer,
+         *           Then result is InferenceResult.Empty (Rule 2.5 does not fire).
+         *
+         * BUILDER GUIDANCE: Rule 2.5 fires only when after.LastAttuned != before.LastAttuned.
+         *   When both are equal (same AetheryteId), the rule is skipped. Falls through to Rule 8.
+         */
+
+        // Arrange
+        var engine = new StepInferenceEngine();
+        var before = BaseSnapshot(lastAttuned: new AetheryteId(1000));
+        var after = BaseSnapshot(lastAttuned: new AetheryteId(1000), capturedAt: T1);
+
+        // Act
+        var result = engine.Infer(before, after);
+
+        // Assert
+        Assert.Equal("", result.StepType);
+        Assert.Equal(Confidence.Low, result.Confidence);
+        Assert.Equal(InferredFrom.None, result.InferredFrom);
+    }
+
+    [Fact]
+    public void InferAttunement_ValueChanges_EmitsNewId()
+    {
+        /*
+         * RED: Will fail until Builder implements Rule 2.5.
+         *
+         * CONTRACT: Given before.LastAttuned == new AetheryteId(500),
+         *           after.LastAttuned == new AetheryteId(1000),
+         *           When Infer,
+         *           Then result.SuggestedExpect == "isAttuned(1000)".
+         *           (Rule emits the new attunement, not the old one.)
+         *
+         * BUILDER GUIDANCE: `after.LastAttuned.Value.Value` — .Value unwraps nullable,
+         *   second .Value accesses AetheryteId.Value (uint). The emit uses the after value.
+         */
+
+        // Arrange
+        var engine = new StepInferenceEngine();
+        var before = BaseSnapshot(lastAttuned: new AetheryteId(500));
+        var after = BaseSnapshot(lastAttuned: new AetheryteId(1000), capturedAt: T1);
+
+        // Act
+        var result = engine.Infer(before, after);
+
+        // Assert
+        Assert.Equal("attune", result.StepType);
+        Assert.Equal("isAttuned(1000)", result.SuggestedExpect);
+        Assert.Equal("attune-aetheryte-1000", result.SuggestedStepId);
+    }
+
+    [Fact]
+    public void InferAttunement_AttunementDisappears_DoesNotFire()
+    {
+        /*
+         * RED: Will fail until Builder implements Rule 2.5.
+         *
+         * CONTRACT: Given before.LastAttuned == new AetheryteId(500), after.LastAttuned == null,
+         *           When Infer,
+         *           Then Rule 2.5 does NOT fire (after.LastAttuned.HasValue == false).
+         *           Falls through; returns InferenceResult.Empty if no other delta.
+         *
+         * BUILDER GUIDANCE: The guard is `after.LastAttuned.HasValue` — null means the aggregator
+         *   was reset or no attunement occurred. "Disappearing" attunement is not a step event.
+         */
+
+        // Arrange
+        var engine = new StepInferenceEngine();
+        var before = BaseSnapshot(lastAttuned: new AetheryteId(500));
+        var after = BaseSnapshot(lastAttuned: null, capturedAt: T1);  // only change: LastAttuned → null
+
+        // Act
+        var result = engine.Infer(before, after);
+
+        // Assert
+        // Rule 2.5 must NOT fire. No other delta exists, so Rule 8 (Empty) should apply.
+        Assert.NotEqual("attune", result.StepType);
+        Assert.Equal("", result.StepType);
+    }
+
+    [Fact]
+    public void InferAttunement_PriorityOverQuestSequence()
+    {
+        /*
+         * RED: Will fail until Builder implements Rule 2.5.
+         *
+         * CONTRACT: Given attunement change AND after.QuestSequence > before.QuestSequence,
+         *           When Infer,
+         *           Then result.StepType == "attune" (Rule 2.5 fires before Rule 3).
+         *
+         * BUILDER GUIDANCE: Rule 2.5 is inserted between Rule 2 and Rule 3 in the cascade.
+         *   The attunement signal is more specific than a generic sequence advance.
+         */
+
+        // Arrange
+        var engine = new StepInferenceEngine();
+        var before = BaseSnapshot(questSequence: 0, lastAttuned: null);
+        var after = BaseSnapshot(questSequence: 1, lastAttuned: new AetheryteId(1000), capturedAt: T1);
+
+        // Act
+        var result = engine.Infer(before, after);
+
+        // Assert
+        Assert.Equal("attune", result.StepType);
+        Assert.Equal(InferredFrom.AttunementChange, result.InferredFrom);
+    }
+
+    [Fact]
+    public void InferAttunement_PriorityOverZoneChange()
+    {
+        /*
+         * RED: Will fail until Builder implements Rule 2.5.
+         *
+         * CONTRACT: Given attunement change AND zone change (no quest delta),
+         *           When Infer,
+         *           Then result.StepType == "attune" (Rule 2.5 fires before Rule 4).
+         *
+         * BUILDER GUIDANCE: Rule 2.5 (between Rule 2 and Rule 3) fires before Rule 4 (zone change).
+         */
+
+        // Arrange
+        var engine = new StepInferenceEngine();
+        var before = BaseSnapshot(zone: new ZoneId(100), lastAttuned: null);
+        var after = BaseSnapshot(zone: new ZoneId(200), lastAttuned: new AetheryteId(1000), capturedAt: T1);
+
+        // Act
+        var result = engine.Infer(before, after);
+
+        // Assert
+        Assert.Equal("attune", result.StepType);
+        Assert.Equal(InferredFrom.AttunementChange, result.InferredFrom);
+    }
+
+    [Fact]
+    public void InferAttunement_Rule1StillWins_QuestCompleted()
+    {
+        /*
+         * RED: Will fail until Builder implements Rule 2.5 (but in correct priority position).
+         *
+         * CONTRACT: Given after.QuestCompleted == true && !before.QuestCompleted AND attunement change,
+         *           When Infer,
+         *           Then result.StepType == "turn-in" (Rule 1 fires first).
+         *
+         * BUILDER GUIDANCE: Rule 1 (QuestCompleted) is evaluated before Rule 2.5.
+         *   Even if the attunement also changes, the quest-completion signal dominates.
+         */
+
+        // Arrange
+        var engine = new StepInferenceEngine();
+        var before = BaseSnapshot(questCompleted: false, lastAttuned: null);
+        var after = BaseSnapshot(questCompleted: true, lastAttuned: new AetheryteId(1000), capturedAt: T1);
+
+        // Act
+        var result = engine.Infer(before, after);
+
+        // Assert
+        Assert.Equal("turn-in", result.StepType);
+        Assert.Equal(InferredFrom.QuestCompleted, result.InferredFrom);
+    }
+
+    [Fact]
+    public void InferAttunement_Rule2StillWins_QuestAccepted()
+    {
+        /*
+         * RED: Will fail until Builder implements Rule 2.5 (but in correct priority position).
+         *
+         * CONTRACT: Given after.QuestAccepted == true && !before.QuestAccepted AND attunement change,
+         *           When Infer,
+         *           Then result.StepType == "accept" (Rule 2 fires before Rule 2.5).
+         *
+         * BUILDER GUIDANCE: Rule 2 (QuestAccepted) is evaluated before Rule 2.5.
+         *   Accepting a quest is a stronger signal than a coincident attunement.
+         */
+
+        // Arrange
+        var engine = new StepInferenceEngine();
+        var before = BaseSnapshot(questAccepted: false, lastAttuned: null);
+        var after = BaseSnapshot(questAccepted: true, lastAttuned: new AetheryteId(1000), capturedAt: T1);
+
+        // Act
+        var result = engine.Infer(before, after);
+
+        // Assert
+        Assert.Equal("accept", result.StepType);
+        Assert.Equal(InferredFrom.QuestAccepted, result.InferredFrom);
     }
 
     // =========================================================================

@@ -29,6 +29,7 @@ namespace QuestForge.Schema;
 [JsonDerivedType(typeof(AwaitUserStep),         "await-user")]
 [JsonDerivedType(typeof(BranchStep),            "branch")]
 [JsonDerivedType(typeof(FragmentStep),          "fragment")]
+[JsonDerivedType(typeof(AttunementStep),        "attune")]
 public class Step
 {
     public string Id { get; init; } = default!;
@@ -161,4 +162,17 @@ public class FragmentStep : Step
 {
     public string Ref { get; init; } = default!;
     public Dictionary<string, JsonElement>? Params { get; init; }
+}
+
+public class AttunementStep : Step
+{
+    /// <summary>The aetheryte or aethernet shard to attune to.</summary>
+    public AetheryteId Target { get; init; }
+
+    /// <summary>
+    /// Optional world-space location hint for authoring and validation.
+    /// At runtime (Option A), Location is metadata only — navigation must be authored
+    /// as a separate preceding TravelStep. The engine always emits Interact(Target).
+    /// </summary>
+    public NpcLocation? Location { get; init; }
 }

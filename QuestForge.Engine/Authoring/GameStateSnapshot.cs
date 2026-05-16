@@ -15,4 +15,7 @@ public sealed record GameStateSnapshot(
     WorldPosition? LastNpcPosition,
     string? LastDialoguePrompt,
     string? LastDialogueAnswer,
-    uint InventoryHash);
+    uint InventoryHash,
+    // WHY: appended last — positional record; inserting mid-record would force churn-only edits
+    // across all existing constructor call sites with no semantic benefit.
+    AetheryteId? LastAttuned);

@@ -38,6 +38,19 @@ public sealed class StepInferenceEngine
                 Notes: null);
         }
 
+        // Rule 2.5: Attunement changed (no higher-priority signal)
+        if (after.LastAttuned != before.LastAttuned && after.LastAttuned.HasValue)
+        {
+            var aetheryteId = after.LastAttuned.Value.Value;
+            return new InferenceResult(
+                StepType: "attune",
+                SuggestedStepId: $"attune-aetheryte-{aetheryteId}",
+                SuggestedExpect: $"isAttuned({aetheryteId})",
+                Confidence: Confidence.High,
+                InferredFrom: InferredFrom.AttunementChange,
+                Notes: null);
+        }
+
         // Rule 3: QuestSequence advanced
         if (after.QuestSequence > before.QuestSequence)
         {

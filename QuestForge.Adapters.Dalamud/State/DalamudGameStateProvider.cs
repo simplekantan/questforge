@@ -245,8 +245,11 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         return Task.FromResult<Result<bool>>(Result.Ok(false));
     }
 
+    // TODO(Phase 11B §3.9): replace with real ClientStructs read.
+    // While stubbed, isAttuned(...) always returns false in-game → AttunementStep always fires
+    // Interact, even on already-attuned aetherytes. Quest authoring with attune steps is
+    // unusable until this lands. Candidate: PlayerState.Instance()->IsAetheryteUnlocked(ushort).
     public Task<Result<bool>> IsAetheryteAttuned(AetheryteId aetheryte, CancellationToken ct)
-        // Phase 6 placeholder: quest 66130 never teleports — not exercised by done-criterion
         => Task.FromResult<Result<bool>>(Result.Ok(false));
 
     public Task<Result<IReadOnlyList<AetheryteId>>> GetAttunedAetherytes(CancellationToken ct)

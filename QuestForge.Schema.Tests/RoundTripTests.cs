@@ -372,6 +372,143 @@ public class RoundTripTests
         Assert.Equal("travel/uldah-to-gridania", result.Ref);
     }
 
+    // =========================================================================
+    // Phase 11B — AttunementStep schema tests (B1-B4 from PHASE_11B_PLAN.md §3.1)
+    // =========================================================================
+
+    [Fact]
+    public void AttunementStep_HappyPath_RoundTrips()
+    {
+        /*
+         * RED: Will fail until Builder implements AttunementStep schema type.
+         *
+         * CONTRACT: Given a JSON document with type "attune", target.value 53, and a location,
+         *           When deserialised through QuestForgeJsonContext,
+         *           Then result is AttunementStep with Target == new AetheryteId(53),
+         *                Location.NpcId == 2147491840, Location.Zone == 130.
+         *
+         * BUILDER GUIDANCE:
+         *   - Add [JsonDerivedType(typeof(AttunementStep), "attune")] to Step.cs.
+         *   - AttunementStep.Target is Schema.AetheryteId (the schema-side alias, not Adapters.Types).
+         *   - AttunementStep.Location is NpcLocation? (optional).
+         */
+
+        // Arrange
+        var json = """
+            {
+              "type": "attune",
+              "id": "attune-thal",
+              "target": { "value": 53 },
+              "location": {
+                "npcId": 2147491840,
+                "zone": 130,
+                "position": { "x": -15.5, "y": 4, "z": -7.2 }
+              }
+            }
+            """;
+
+        // Act
+        var step = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+
+        // Assert
+        var attune = Assert.IsType<AttunementStep>(step);
+        Assert.Equal(new AetheryteId(53), attune.Target);
+        Assert.NotNull(attune.Location);
+        Assert.Equal(2147491840u, attune.Location.NpcId);
+        Assert.Equal(130, attune.Location.Zone);
+    }
+
+    [Fact]
+    public void AttunementStep_LocationOmitted_IsNull()
+    {
+        /*
+         * RED: Will fail until Builder implements AttunementStep.
+         *
+         * CONTRACT: Given JSON with type "attune" and no location field,
+         *           When deserialised, Then Location == null.
+         *
+         * BUILDER GUIDANCE: Location is NpcLocation? — STJ treats omitted fields as null.
+         */
+
+        // Arrange
+        var json = """
+            {
+              "type": "attune",
+              "id": "attune-limsa",
+              "target": { "value": 8 }
+            }
+            """;
+
+        // Act
+        var step = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+
+        // Assert
+        var attune = Assert.IsType<AttunementStep>(step);
+        Assert.Equal(new AetheryteId(8), attune.Target);
+        Assert.Null(attune.Location);
+    }
+
+    [Fact]
+    public void AttunementStep_SkipIfPreserved_RoundTrips()
+    {
+        /*
+         * RED: Will fail until Builder implements AttunementStep.
+         *
+         * CONTRACT: Given a step with skipIf predicate "isAttuned(53)",
+         *           When round-tripped through STJ,
+         *           Then SkipIf is a PredicateExpect whose Predicate == "isAttuned(53)".
+         *
+         * BUILDER GUIDANCE: Step.SkipIf is ExpectValue? — the existing ExpectValue converter
+         *   handles deserialization. The predicate string is preserved verbatim.
+         */
+
+        // Arrange
+        var step = new AttunementStep
+        {
+            Id = "attune-gridania",
+            Target = new AetheryteId(2),
+            SkipIf = new PredicateExpect { Predicate = "isAttuned(53)" }
+        };
+
+        // Act
+        var result = RoundTrip(step);
+
+        // Assert
+        var skipIf = Assert.IsType<PredicateExpect>(result.SkipIf);
+        Assert.Equal("isAttuned(53)", skipIf.Predicate);
+    }
+
+    [Fact]
+    public void AttunementStep_MissingTarget_DefaultsToZero()
+    {
+        /*
+         * RED: Will fail until Builder implements AttunementStep.
+         *
+         * CONTRACT: Given JSON missing the target field,
+         *           When deserialised, Then Target == default (AetheryteId(0)).
+         *           No exception is expected — structural validation is the validator's job.
+         *
+         * BUILDER GUIDANCE: Schema types use { get; init; } with no [JsonRequired].
+         *   Missing fields default to the type's default value, not an exception.
+         */
+
+        // Arrange
+        var json = """
+            {
+              "type": "attune",
+              "id": "attune-missing-target"
+            }
+            """;
+
+        // Act
+        var step = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+
+        // Assert
+        var attune = Assert.IsType<AttunementStep>(step);
+        Assert.Equal(default(AetheryteId), attune.Target);
+        Assert.Equal(0u, attune.Target.Value);
+    }
+
     [Fact]
     public void Step_WithRecovery_RoundTrips()
     {
