@@ -17,7 +17,13 @@ jobs:
         with:
           path: questforge
 
-      - name: Checkout questforge-data (fixture tests)
+      - name: Checkout questforge-tools (QuestForge.Predicates dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: simplekantan/questforge-tools
+          path: questforge-tools
+
+      - name: Checkout questforge-data (fixture regression tests)
         uses: actions/checkout@v4
         with:
           repository: simplekantan/questforge-data
@@ -28,6 +34,12 @@ jobs:
         with:
           dotnet-version: '10.x'
 
+      - name: Restore packages
+        working-directory: questforge
+        # --ignore-failed-sources: dalamud.dev returns 404 in GitHub Actions.
+        # Engine tests only need nuget.org packages; all required packages restore cleanly.
+        run: dotnet restore QuestForge.Engine.Tests/QuestForge.Engine.Tests.csproj --ignore-failed-sources
+
       - name: Run engine tests
         working-directory: questforge
-        run: dotnet test QuestForge.Engine.Tests/QuestForge.Engine.Tests.csproj --configuration Release
+        run: dotnet test QuestForge.Engine.Tests/QuestForge.Engine.Tests.csproj --configuration Release --no-restore
