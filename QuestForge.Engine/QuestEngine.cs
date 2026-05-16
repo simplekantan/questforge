@@ -163,19 +163,28 @@ public sealed class QuestEngine
                 return (new EngineAction.AwaitUser("sequence skipped by skipIf — engine cannot self-advance in Phase 4"), null);
         }
 
+        // Read UiState once per tick so step dispatch arms can inspect UI without async.
+        // On adapter failure: use a safe default (CutscenePlaying=false) so non-cutscene
+        // steps are completely unaffected. A CutsceneStep will emit
+        // Wait("cutscene ended; awaiting sequence advance") — recoverable on the next tick.
+        var uiResult = await _gameState.GetUiState(ct);
+        var ui = uiResult is Result<UiState>.Success { Value: var uiValue }
+            ? uiValue
+            : new UiState(false, false, false, false, false, false, false, false, null);
+
         foreach (var step in matchingBlock.Steps)
         {
             if (step.Expect is not null && await _expectEvaluator.Evaluate(step.Expect, ct))
                 continue;
             if (step.SkipIf is not null && await _expectEvaluator.Evaluate(step.SkipIf, ct))
                 continue;
-            return (ResolveActionForStep(step), step.Id);
+            return (ResolveActionForStep(step, ui), step.Id);
         }
 
         return (new EngineAction.Wait("all steps in current sequence satisfied; awaiting game sequence advance"), null);
     }
 
-    private EngineAction ResolveActionForStep(Step step) => step switch
+    private EngineAction ResolveActionForStep(Step step, UiState ui) => step switch
     {
         TravelStep travel when travel.Destination.Position is { } pos =>
             new EngineAction.Navigate(
@@ -192,6 +201,9 @@ public sealed class QuestEngine
             throw new NotSupportedException("Phase 4 does not support multi-target talk steps"),
 
         AttunementStep attune => new EngineAction.Interact(new NpcId(attune.Target.Value)),
+
+        CutsceneStep => throw new NotImplementedException(
+            "CutsceneStep dispatch not yet implemented — RED phase stub"),
 
         _ => throw new NotSupportedException($"Phase 4 does not support step type {step.GetType().Name}")
     };
