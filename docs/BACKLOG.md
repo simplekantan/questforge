@@ -11,6 +11,11 @@ This document collects every explicit deferral, TODO, open question, and known g
 
 The Dalamud-backed adapters were minimally wired in Phase 6 to complete quest 66130. Many methods return `Result.Fail("notImplemented", ...)`. These block the engine from automating step types beyond `travel` and `talk`.
 
+### 1.0 `DalamudGameStateProvider.IsAetheryteAttuned` — real ClientStructs read
+
+`IsAetheryteAttuned` returns hardcoded `false` (Phase 6 stub). Phase 11B added the engine and predicate infrastructure; this is the last piece needed to make `AttunementStep` work in-game. Candidate: `FFXIVClientStructs.FFXIV.Client.Game.UI.PlayerState.Instance()->IsAetheryteUnlocked(ushort aetheryteId)`. Until this lands, `isAttuned(id)` always returns false in-game — every `AttunementStep` fires `Interact` regardless of actual attunement state.
+- Source: `QuestForge.Adapters.Dalamud/State/DalamudGameStateProvider.cs`, `docs/PHASE_11B_PLAN.md §3.9`
+
 ### 1.1 Interactor stubs — highest priority; block most step types
 
 `QuestForge.Adapters.Dalamud/Interaction/DalamudInteractor.cs` contains 23+ stub methods:
@@ -54,6 +59,8 @@ The Dalamud-backed adapters were minimally wired in Phase 6 to complete quest 66
 ## 2. Step type engine work (corpus expansion blockers)
 
 Each new step type beyond `travel` and `talk` requires: engine handling in `QuestEngine`, a schema entry in `SCHEMA.md`, a fake in `QuestForge.Adapters.Fakes`, tests, and a `FIXTURES.md` capability tag.
+
+✅ `attune` — implemented in Phase 11B (`AttunementStep`, `isAttuned` predicate, `StepInferenceEngine` Rule 2.5). Dalamud stub still needed — see §1.0.
 
 Ordered roughly by difficulty (`NEXT_STEPS.md §Phase 11`):
 

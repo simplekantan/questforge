@@ -1,6 +1,6 @@
 # Phase 11B Implementation Plan: Aetheryte & Aethernet Attunement
 
-**Status:** ready for test creation
+**Status:** ✅ COMPLETE — 224 engine tests passing; `DalamudGameStateProvider.IsAetheryteAttuned` is a documented TODO stub
 **Input docs:** `docs/NEXT_STEPS.md` §Phase 11B, `docs/CLAUDE.md` (architectural invariants), `docs/SCHEMA.md` (step taxonomy), `docs/ADAPTERS.md` §`IGameStateProvider`, `docs/AUTHORING.md` (snapshot/inference)
 **Output:** new step type `AttunementStep` (`"attune"` discriminator), new predicate `isAttuned(id)`, new authoring inference rule (Rule 2.5), engine handler dispatching to `Interact`, fake support, Dalamud-side stub.
 **Predates:** Phase 11A (CLI wired), Phase 10 (Tools.Trace library), Phase 9 (authoring), Phase 4 (engine skeleton).

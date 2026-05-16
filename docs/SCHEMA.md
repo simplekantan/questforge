@@ -259,7 +259,7 @@ The cost is one extra level of nesting in the JSON; well worth it.
 
 ## 4. Step types
 
-Nineteen step types, each with a clear single responsibility.
+Twenty step types, each with a clear single responsibility.
 
 | Type | Purpose |
 |------|---------|
@@ -269,6 +269,7 @@ Nineteen step types, each with a clear single responsibility.
 | `pickup-item` | Pick up a quest item (postcondition is usually a flag, not inventory) |
 | `accept` | Accept a quest from an NPC |
 | `turn-in` | Hand in a quest, including reward selection |
+| `attune` | Attune to an aetheryte or aethernet shard (`Target: AetheryteId`); use `skipIf: isAttuned(id)` for idempotency |
 | `combat` | Engage a target or wave of targets |
 | `duty` | Enter and complete a duty (full duty or single-player duty via `kind`) |
 | `cutscene` | Watch (or skip) a cutscene |
