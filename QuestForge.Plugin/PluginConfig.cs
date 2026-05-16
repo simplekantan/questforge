@@ -19,6 +19,8 @@ public sealed class PluginConfig
 
     public int AuthoringHeartbeatMs { get; set; } = 250;
 
+    public bool ShowCompletedQuestsInAuthorPanel { get; set; } = false;
+
     public static PluginConfig Load(IDalamudPluginInterface pi)
     {
         try

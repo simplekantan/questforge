@@ -258,8 +258,7 @@ public sealed class FileDraftStorage : IDraftStorage
         LastNpcPosZ: s.LastNpcPosition?.Z,
         LastDialoguePrompt: s.LastDialoguePrompt,
         LastDialogueAnswer: s.LastDialogueAnswer,
-        InventoryHash: s.InventoryHash,
-        LastAttuned: null);   // Phase 11B: not persisted in SnapshotFileDto yet
+        InventoryHash: s.InventoryHash);   // LastAttuned not persisted in SnapshotFileDto (Phase 11B)
 
     private static GameStateSnapshot FromSnapshotDto(SnapshotFileDto s, QuestId questId)
     {

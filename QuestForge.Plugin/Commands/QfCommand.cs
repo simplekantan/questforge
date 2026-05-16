@@ -55,7 +55,7 @@ internal sealed class QfCommand : IDisposable
         _config = config;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
-            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf debug quest <id> | /qf config trace on|off"
+            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug quest <id> | /qf config trace on|off"
         });
     }
 
@@ -83,8 +83,15 @@ internal sealed class QfCommand : IDisposable
                 _authoringSessionPanel.Toggle();
                 _chat.Print("QuestForge: inspect mode active — authoring panels now visible");
                 break;
+            case "author" when parts.Length >= 2 && parts[1] == "stop":
+                _authoringHost.ExitAuthoring();
+                _chat.Print("QuestForge: authoring stopped.");
+                break;
             case "author" when parts.Length >= 2:
                 HandleAuthor(parts[1]);
+                break;
+            case "quest" when parts.Length >= 2:
+                HandleQuestSearch(string.Join(" ", parts[1..]));
                 break;
             case "config" when parts.Length >= 3:
                 HandleConfig(parts[1], parts[2]);
@@ -209,6 +216,67 @@ internal sealed class QfCommand : IDisposable
         }
     }
 
+    private void HandleQuestSearch(string searchTerm)
+    {
+        var questSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Quest>();
+        if (questSheet == null)
+        {
+            _chat.PrintError("QuestForge: Lumina Quest sheet unavailable");
+            return;
+        }
+
+        var ct = CancellationToken.None;
+        var questState = _host.QuestState;
+
+        // Collect all matches — exact name hits first, then partial
+        var exactMatches = new List<(uint PublicId, string Name, int Level)>();
+        var partialMatches = new List<(uint PublicId, string Name, int Level)>();
+
+        foreach (var quest in questSheet)
+        {
+            var name = quest.Name.ToString();
+            if (string.IsNullOrEmpty(name)) continue;
+
+            if (name.Equals(searchTerm, StringComparison.OrdinalIgnoreCase))
+                exactMatches.Add(((uint)(quest.RowId | 0x10000u), name, quest.ClassJobLevel[0]));
+            else if (name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+                partialMatches.Add(((uint)(quest.RowId | 0x10000u), name, quest.ClassJobLevel[0]));
+        }
+
+        var allMatches = exactMatches.Concat(partialMatches).ToList();
+
+        if (allMatches.Count == 0)
+        {
+            _chat.Print($"QuestForge: no quests found matching '{searchTerm}'");
+            return;
+        }
+
+        var limit = Math.Min(allMatches.Count, 10);
+        for (var i = 0; i < limit; i++)
+        {
+            var (publicId, name, level) = allMatches[i];
+            var questId = new QuestId(publicId);
+
+            // Determine availability status
+            string status;
+            var completeResult = questState.IsQuestComplete(questId, ct).GetAwaiter().GetResult();
+            if (completeResult is Result<bool>.Success { Value: true })
+            {
+                status = "complete";
+            }
+            else
+            {
+                var availResult = questState.IsQuestAvailable(questId, ct).GetAwaiter().GetResult();
+                status = availResult is Result<bool>.Success { Value: true } ? "available" : "locked";
+            }
+
+            _chat.Print($"[{publicId}] {name} — Lv{level} — {status}");
+        }
+
+        if (allMatches.Count > 10)
+            _chat.Print($"QuestForge: showing first 10 of {allMatches.Count} results — refine your search");
+    }
+
     private void HandleAuthor(string questIdStr)
     {
         if (!uint.TryParse(questIdStr, out var questId))
@@ -222,7 +290,7 @@ internal sealed class QfCommand : IDisposable
     }
 
     private void PrintUsage()
-        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf debug quest <id> | /qf config trace on|off");
+        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug quest <id> | /qf config trace on|off");
 
     public void Dispose() => _commands.RemoveHandler(Cmd);
 }
