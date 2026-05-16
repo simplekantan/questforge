@@ -158,10 +158,9 @@ Source: `docs/TRACE_FORMAT.md` Known Divergences table
 
 ## 6. `qf-trace` tooling gaps
 
-### 6.1 CLI output wiring (immediate follow-up)
+### 6.1 CLI output wiring ✅ COMPLETE (Phase 11A)
 
-`qf-trace/Program.cs` is a stub that shows `--help` but all four subcommands throw `NotImplementedException`. Wire argument parsing and file I/O following the `qf-validate/Program.cs` pattern. This is the most immediate follow-up to Phase 10.
-- Source: `docs/PHASE_10_PLAN.md §11`, `questforge-tools/qf-trace/Program.cs`
+`qf-trace` is now fully wired. All four subcommands work from the command line with full argument parsing, exit-code routing, auto quest-data root resolution, and formatted output. 58 tests passing. See `docs/PHASE_11A_PLAN.md`.
 
 ### 6.2 `qf-trace replay` — trace replay CLI
 
@@ -189,7 +188,7 @@ Quest level requirements and ClassJobCategory restrictions are available in Lumi
 
 ### 6.7 questforge-data CI: fixture validation
 
-`questforge-data/.github/workflows/validate.yml` runs `qf-validate` on quest-file PRs. Once the `qf-trace` CLI is wired, add a second workflow step that runs `qf-trace validate-fixture` on every `fixtures/engine/*.json` file on PRs that touch fixtures. This was listed as a Phase 10 CI integration target.
+The `qf-trace` CLI is now wired (Phase 11A). Add a second workflow step to `questforge-data/.github/workflows/validate.yml` that runs `qf-trace validate-fixture` on every `fixtures/engine/*.json` file on PRs that touch fixtures. The blocker (CLI wiring) is resolved; this is now a straightforward CI config addition.
 - Source: `docs/PHASE_10_PLAN.md §7`, `docs/FIXTURES.md §CI integration`
 
 ---

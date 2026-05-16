@@ -387,7 +387,28 @@ Then build the recorder (Author mode, per `AUTHORING.md` §2.2). Inference rules
 - `qf-trace extract-fixture` produces a valid fixture draft in under 5 seconds
 - `qf-trace extract-quest` produces an editable quest draft in under 5 seconds
 
-**Done when:** ✅ COMPLETE. `QuestForge.Tools.Trace` library fully implemented with 44 tests. CLI dispatch stub wired; full argument parsing and formatted file output remain as follow-up polish before first public use.
+**Done when:** ✅ COMPLETE. `QuestForge.Tools.Trace` library fully implemented with 44 tests. CLI fully wired in Phase 11A — see below.
+
+## Phase 11A: Wire `qf-trace` CLI (✅ COMPLETE)
+
+**Goal:** make `qf-trace` usable from the command line so the authoring pipeline is closed end-to-end.
+
+**What was built:**
+- `CliArgsParser` — argument parsing for all four subcommands with flag/positional routing, parse-error detection
+- `QuestDataRootResolver` — auto-probes `./quests/` and `../questforge-data/quests/` when `--quest-data` is not supplied
+- `OutputFormatters` — `FormatIssues`, `FormatTodos`, `FormatFixtureList`, `FormatFixtureListJson`
+- `FixtureModelSerializer` — cached `JsonSerializerOptions` matching `FIXTURES.md` byte format
+- `ListFixturesCommand.Enumerate` / `.ComputeGaps` — implemented (were `NotImplementedException` stubs)
+- `qf-trace/Program.cs` — full dispatch with exit-code routing and `--help` text
+- 14 new tests (58 total in `QuestForge.Tools.Trace.Tests`)
+
+**Full pipeline now works:**
+```bash
+qf-trace extract-fixture <runId>.jsonl --quest-data ../questforge-data
+qf-trace validate-fixture fixtures/engine/simple-linear-acceptance.json --quest-data ../questforge-data
+qf-trace list-fixtures --quest-data ../questforge-data
+qf-trace extract-quest <runId>.jsonl --quest-data ../questforge-data --out 66130-draft.json
+```
 
 ---
 
