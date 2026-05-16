@@ -189,6 +189,45 @@ public class RoundTripTests
         Assert.Equal("ifAllowed", result.Skip);
     }
 
+    /// <summary>
+    /// B7 — Schema round-trip: discriminator assertion.
+    /// Verifies that the JSON discriminator "type":"cutscene" is present in the serialized output.
+    /// This locks the [JsonDerivedType(typeof(CutsceneStep), "cutscene")] registration.
+    /// </summary>
+    [Fact]
+    public void CutsceneStep_SerializedJson_ContainsCutsceneDiscriminator()
+    {
+        /*
+         * CONTRACT: Given a CutsceneStep with Id, Skip, and Expect populated,
+         *           When serialized via QuestForgeJsonContext.QuestFileOptions,
+         *           Then the JSON contains the literal string "type":"cutscene"
+         *                (discriminator present and correct).
+         *
+         * This test is expected to PASS immediately (schema registration already exists).
+         * It is authored here to lock the behavior against future regressions.
+         */
+
+        // Arrange
+        var step = new CutsceneStep
+        {
+            Id = "watch-intro",
+            Skip = "never",
+            Expect = new PredicateExpect { Predicate = "questSequence(12345) >= 1" }
+        };
+
+        // Act
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(
+            step, QuestForgeJsonContext.QuestFileOptions);
+
+        // Assert — discriminator must be present with the exact registered value.
+        // QuestFileOptions uses WriteIndented=true, so the JSON contains spaces around
+        // the colon: `"type": "cutscene"`. Strip whitespace before checking to be
+        // robust against indentation changes while still asserting the correct token.
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"type\":\"cutscene\"", compactJson,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void SayChatMessageStep_RoundTrips()
     {
