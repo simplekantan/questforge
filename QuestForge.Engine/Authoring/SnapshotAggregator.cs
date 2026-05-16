@@ -18,7 +18,7 @@ public sealed class SnapshotAggregator
     private string? _lastDialoguePrompt;
     private string? _lastDialogueAnswer;
     private uint _inventoryHash;
-    private AetheryteId? _lastAttuned = null;
+    private AetheryteId? _lastAttuned;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
     // tests inject FakeClock for deterministic CapturedAt values.
@@ -99,7 +99,6 @@ public sealed class SnapshotAggregator
     /// <summary>
     /// Called when an aetheryte or aethernet shard attunement state change is observed.
     /// Tracks the most recently observed attunement event (matches LastNpcInteracted semantics).
-    /// Phase 11B stub — Builder implements the body.
     /// </summary>
     public void OnAttunementChanged(AetheryteId aetheryte)
     {

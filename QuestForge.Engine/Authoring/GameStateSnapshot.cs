@@ -16,4 +16,6 @@ public sealed record GameStateSnapshot(
     string? LastDialoguePrompt,
     string? LastDialogueAnswer,
     uint InventoryHash,
-    AetheryteId? LastAttuned);   // Phase 11B — appended last to minimise call-site churn
+    // WHY: appended last — positional record; inserting mid-record would force churn-only edits
+    // across all existing constructor call sites with no semantic benefit.
+    AetheryteId? LastAttuned);

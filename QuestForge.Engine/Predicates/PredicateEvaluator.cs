@@ -2,6 +2,7 @@ using QuestForge.Adapters.State;
 using QuestForge.Adapters.Types;
 using QuestForge.Predicates;
 using QuestForge.Schema;
+using AdaptersAetheryteId = QuestForge.Adapters.Types.AetheryteId; // disambiguates from Schema.AetheryteId
 
 namespace QuestForge.Engine.Predicates;
 
@@ -106,7 +107,7 @@ public sealed class PredicateEvaluator
             "playerNear" => await EvaluatePlayerNear((WorldPosition)args[0], (long)args[1], ct),
             "playerInCombat" => (await _gameState.IsPlayerInCombat(ct)).ValueOrThrow,
             "isAttuned" => (await _gameState.IsAetheryteAttuned(
-                new QuestForge.Adapters.Types.AetheryteId((uint)(long)args[0]), ct)).ValueOrThrow,
+                new AdaptersAetheryteId((uint)(long)args[0]), ct)).ValueOrThrow,
             _ => throw new UnknownStateFunctionException(name)
         };
     }
