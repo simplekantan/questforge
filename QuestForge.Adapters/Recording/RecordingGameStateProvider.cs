@@ -4,7 +4,7 @@ using QuestForge.Adapters.State;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 
-namespace QuestForge.Adapters.Fakes.Recording;
+namespace QuestForge.Adapters.Recording;
 
 public sealed class RecordingGameStateProvider : IGameStateProvider
 {
@@ -20,6 +20,10 @@ public sealed class RecordingGameStateProvider : IGameStateProvider
     };
 
     private readonly bool _skipIfNoRunId;
+
+    // Deduplication: key = "method:serializedArgJson", value = last emitted value JSON.
+    // Only emit an observation when the value changes — repeated identical reads are suppressed.
+    private readonly Dictionary<string, string?> _lastEmitted = new();
 
     public RecordingGameStateProvider(
         IGameStateProvider inner,
@@ -44,6 +48,13 @@ public sealed class RecordingGameStateProvider : IGameStateProvider
             var argEl = argument is null ? (JsonElement?)null
                 : JsonSerializer.SerializeToElement(argument, _jsonOpts);
             var valEl = Unwrap(result);
+
+            // Dedup: skip if value is byte-identical to last emission for this (method, arg) pair.
+            var dedupKey = $"{method}:{argEl?.GetRawText() ?? ""}";
+            var valJson = valEl?.GetRawText();
+            if (_lastEmitted.TryGetValue(dedupKey, out var prev) && prev == valJson) return;
+            _lastEmitted[dedupKey] = valJson;
+
             _trace.Write(new ObservationEvent(
                 runId,
                 method,

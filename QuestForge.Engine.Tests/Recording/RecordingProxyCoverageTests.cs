@@ -1,5 +1,5 @@
 using System.Reflection;
-using QuestForge.Adapters.Fakes.Recording;
+using QuestForge.Adapters.Recording;
 using QuestForge.Adapters.State;
 using Xunit;
 

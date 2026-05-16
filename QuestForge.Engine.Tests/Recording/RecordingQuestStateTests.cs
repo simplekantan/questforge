@@ -1,6 +1,6 @@
 using System.Text.Json;
 using QuestForge.Adapters.Fakes;
-using QuestForge.Adapters.Fakes.Recording;
+using QuestForge.Adapters.Recording;
 using QuestForge.Adapters.Fakes.State;
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Tracing;
@@ -10,9 +10,7 @@ using Xunit;
 namespace QuestForge.Engine.Tests.Recording;
 
 /// <summary>
-/// RED PHASE: Tests for RecordingQuestState — the recording proxy over IQuestState.
-/// All tests fail until Builder implements RecordingQuestState in QuestForge.Adapters.Fakes.
-///
+/// Tests for RecordingQuestState (QuestForge.Adapters.Recording).
 /// Covers §6.3 (QuestState proxy portion, 7 tests) of PHASE_5_PLAN.md.
 /// </summary>
 public sealed class RecordingQuestStateTests
