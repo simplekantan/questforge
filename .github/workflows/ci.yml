@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Engine tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout questforge
+        uses: actions/checkout@v4
+        with:
+          path: questforge
+
+      - name: Checkout questforge-data (fixture tests)
+        uses: actions/checkout@v4
+        with:
+          repository: simplekantan/questforge-data
+          path: questforge-data
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: Run engine tests
+        working-directory: questforge
+        run: dotnet test QuestForge.Engine.Tests/QuestForge.Engine.Tests.csproj --configuration Release
