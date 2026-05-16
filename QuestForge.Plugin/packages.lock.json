@@ -42,7 +42,8 @@
         "dependencies": {
           "DalamudPackager": "[15.0.0, )",
           "ECommons": "[3.*, )",
-          "QuestForge.Adapters": "[1.0.0, )"
+          "QuestForge.Adapters": "[1.0.0, )",
+          "QuestForge.Engine": "[1.0.0, )"
         }
       },
       "questforge.adapters.fakes": {

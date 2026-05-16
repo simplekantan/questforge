@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\QuestForge.Adapters\QuestForge.Adapters.csproj" />
+    <ProjectReference Include="..\QuestForge.Engine\QuestForge.Engine.csproj" />
     <PackageReference Include="ECommons" Version="3.*" />
   </ItemGroup>
 

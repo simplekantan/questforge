@@ -1,3 +1,4 @@
+using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using ECommons;
@@ -13,6 +14,10 @@ public sealed class Plugin : IDalamudPlugin
     private readonly QfCommand _command;
     private readonly IFramework _framework;
     private readonly CancellationTokenSource _cts = new();
+    private readonly IDalamudPluginInterface _pi;
+    private readonly WindowSystem _windowSystem = new("QuestForge");
+    private readonly UI.MainWindow _mainWindow;
+    private readonly QuestForge.Engine.Scheduling.QuestScheduler _scheduler;
 
     public Plugin(
         IDalamudPluginInterface pi,
@@ -30,6 +35,7 @@ public sealed class Plugin : IDalamudPlugin
         IGameConfig gameConfig)
     {
         _framework = framework;
+        _pi = pi;
 
         // ECommons must be initialized before AutoCutsceneSkipper
         ECommonsMain.Init(pi, this);
@@ -41,10 +47,25 @@ public sealed class Plugin : IDalamudPlugin
 
         var config = PluginConfig.Load(pi);
 
-        _host    = new EngineHost(services);
-        _command = new QfCommand(_host, commandManager, chatGui, log, pi, config);
+        _host = new EngineHost(services);
 
-        Directory.CreateDirectory(Path.Combine(pi.GetPluginConfigDirectory(), "quests"));
+        var questsDir = Path.Combine(pi.GetPluginConfigDirectory(), "quests");
+        var questData = new QuestForge.Adapters.Dalamud.Scheduling.LuminaQuestDataProvider(dataManager, questsDir);
+        _scheduler = new QuestForge.Engine.Scheduling.QuestScheduler(
+            _host.QuestState,
+            _host.GameState,
+            questData,
+            new QuestForge.Engine.Scheduling.SchedulerOptions([], config.EnableCraftGatherQuests, config.EnableSideQuests),
+            new QuestForge.Plugin.Logging.DalamudLogger<QuestForge.Engine.Scheduling.QuestScheduler>(log));
+
+        _mainWindow = new UI.MainWindow(_host, _scheduler, config, pi);
+        _windowSystem.AddWindow(_mainWindow);
+        pi.UiBuilder.Draw += _windowSystem.Draw;
+        pi.UiBuilder.OpenMainUi += _mainWindow.Toggle;
+
+        _command = new QfCommand(_host, _scheduler, _mainWindow, commandManager, chatGui, log, pi, config);
+
+        Directory.CreateDirectory(questsDir);
 
         // Hook the game's cutscene handler to press Escape when a run is active.
         // If another plugin (e.g. TextAdvance) already holds the hook, Init throws —
@@ -70,6 +91,8 @@ public sealed class Plugin : IDalamudPlugin
     {
         _framework.Update -= OnFrameworkUpdate;
         _cts.Cancel();
+        _pi.UiBuilder.Draw -= _windowSystem.Draw;
+        _pi.UiBuilder.OpenMainUi -= _mainWindow.Toggle;
         _command.Dispose();
         _host.Dispose();
         _cts.Dispose();

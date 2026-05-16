@@ -21,6 +21,7 @@ using QuestForge.Adapters.Timing;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine;
+using QuestForge.Engine.Scheduling;
 using QuestForge.Engine.Tracing;
 using QuestForge.Plugin.Logging;
 using QuestForge.Schema;
@@ -52,6 +53,10 @@ public sealed class EngineHost : IDisposable
     private uint? _savedCutsceneSkipContents;
     private uint? _savedCutsceneSkipShip;
 
+    private IQuestScheduler? _scheduler;
+    private bool _autoMode;
+    private bool _tracingEnabled;
+
     // Debounced logging: log immediately on change, then at most once per interval for repeats
     private string? _lastDebounceKey;
     private DateTimeOffset _lastDebounceAt = DateTimeOffset.MinValue;
@@ -75,9 +80,37 @@ public sealed class EngineHost : IDisposable
     public bool IsRunActive => _engine is not null;
     public string? ActiveRunId => _runId;
 
+    public bool IsAutoMode => _autoMode;
+    public QuestId? CurrentQuestId => _engine is not null ? _currentQuestId : null;
+    public SchedulerStatus? SchedulerStatus => _scheduler?.CurrentStatus;
+
+    // Exposed for QuestScheduler construction in Plugin.cs
+    internal IQuestState QuestState => _questStateInner;
+    internal IGameStateProvider GameState => _gameStateInner;
+
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
     public void StopRun() => EndRun();
+
+    public void StartAutoMode(IQuestScheduler scheduler, bool enableTracing)
+    {
+        StopAutoMode();
+        _scheduler = scheduler;
+        _autoMode = true;
+        _tracingEnabled = enableTracing;
+        _services.Log.Info("QuestForge: auto mode started");
+        _services.ChatGui.Print("QuestForge: auto mode started — will run all available quests");
+    }
+
+    public void StopAutoMode()
+    {
+        _autoMode = false;
+        _scheduler = null;
+        StopRun();
+    }
+
+    public void UpdateSchedulerOptions(SchedulerOptions options)
+        => _scheduler?.UpdateOptions(options);
 
     public string GetGameStateSummary()
     {
@@ -134,7 +167,12 @@ public sealed class EngineHost : IDisposable
 
     public async Task TickAsync(CancellationToken ct)
     {
-        if (_engine is null) return;
+        if (_engine is null)
+        {
+            if (_autoMode && _scheduler is { } scheduler)
+                await TryStartNextQuestAsync(scheduler, ct);
+            return;
+        }
 
         EngineAction action;
         try { action = await _engine.Tick(ct); }
@@ -196,6 +234,12 @@ public sealed class EngineHost : IDisposable
                 _services.Log.Warning($"QuestForge run {_runId} paused: {au.Reason}");
                 _services.ChatGui.PrintError($"QuestForge: run paused — {au.Reason}");
                 EndRun();
+                if (_autoMode)
+                {
+                    _autoMode = false;
+                    _scheduler = null;
+                    _services.ChatGui.PrintError("QuestForge: auto mode stopped — manual intervention required");
+                }
                 break;
 
             case EngineAction.Done:
@@ -204,6 +248,43 @@ public sealed class EngineHost : IDisposable
                 EndRun();
                 break;
         }
+    }
+
+    private async Task TryStartNextQuestAsync(IQuestScheduler scheduler, CancellationToken ct)
+    {
+        Result<QuestId?> result;
+        try { result = await scheduler.NextQuestToRun(ct); }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _services.Log.Error(ex, "QuestForge: scheduler threw");
+            StopAutoMode();
+            return;
+        }
+
+        if (result is not Result<QuestId?>.Success { Value: { } questId }) return;
+
+        var quest = TryLoadQuest(questId);
+        if (quest is null)
+        {
+            _services.Log.Warning($"QuestForge: scheduler selected quest {questId.Value} but no quest file found");
+            return;
+        }
+
+        var runId = $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"[..24];
+        BeginRun(quest, runId, _tracingEnabled);
+        _services.ChatGui.Print($"QuestForge: starting quest {questId.Value}");
+    }
+
+    private QuestDefinition? TryLoadQuest(QuestId questId)
+    {
+        var path = Path.Combine(
+            _services.PluginInterface.GetPluginConfigDirectory(),
+            "quests",
+            $"{questId.Value}.json");
+        if (!File.Exists(path)) return null;
+        try { return QuestFileLoader.Load(path); }
+        catch { return null; }
     }
 
     private void EndRun()

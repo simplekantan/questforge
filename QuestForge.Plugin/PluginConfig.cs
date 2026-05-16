@@ -13,6 +13,9 @@ public sealed class PluginConfig
     /// </summary>
     public bool UserTracingEnabled { get; set; } = false;
 
+    public bool EnableSideQuests { get; set; } = false;
+    public bool EnableCraftGatherQuests { get; set; } = false;
+
     public static PluginConfig Load(IDalamudPluginInterface pi)
     {
         try

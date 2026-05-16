@@ -1,6 +1,7 @@
 using Dalamud.Game.Command;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using QuestForge.Engine.Scheduling;
 using QuestForge.Schema;
 
 namespace QuestForge.Plugin.Commands;
@@ -10,6 +11,8 @@ internal sealed class QfCommand : IDisposable
     private const string Cmd = "/qf";
 
     private readonly EngineHost _host;
+    private readonly IQuestScheduler _scheduler;
+    private readonly UI.MainWindow _mainWindow;
     private readonly ICommandManager _commands;
     private readonly IChatGui _chat;
     private readonly IPluginLog _log;
@@ -18,16 +21,25 @@ internal sealed class QfCommand : IDisposable
 
     public QfCommand(
         EngineHost host,
+        IQuestScheduler scheduler,
+        UI.MainWindow mainWindow,
         ICommandManager commands,
         IChatGui chat,
         IPluginLog log,
         IDalamudPluginInterface pi,
         PluginConfig config)
     {
-        _host = host; _commands = commands; _chat = chat; _log = log; _pi = pi; _config = config;
+        _host = host;
+        _scheduler = scheduler;
+        _mainWindow = mainWindow;
+        _commands = commands;
+        _chat = chat;
+        _log = log;
+        _pi = pi;
+        _config = config;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
-            HelpMessage = "QuestForge: /qf run <questId> | /qf stop | /qf config trace on|off | /qf test <gamestate|queststate>"
+            HelpMessage = "QuestForge: /qf run <questId> | /qf start | /qf stop | /qf ui | /qf config trace on|off | /qf test <gamestate|queststate>"
         });
     }
 
@@ -41,8 +53,14 @@ internal sealed class QfCommand : IDisposable
             case "run" when parts.Length >= 2:
                 HandleRun(parts[1]);
                 break;
+            case "start":
+                _host.StartAutoMode(_scheduler, _config.UserTracingEnabled);
+                break;
             case "stop":
                 HandleStop();
+                break;
+            case "ui":
+                _mainWindow.Toggle();
                 break;
             case "config" when parts.Length >= 3:
                 HandleConfig(parts[1], parts[2]);
@@ -95,6 +113,13 @@ internal sealed class QfCommand : IDisposable
 
     private void HandleStop()
     {
+        if (_host.IsAutoMode)
+        {
+            _host.StopAutoMode();
+            _chat.Print("QuestForge: auto mode stopped");
+            return;
+        }
+
         if (!_host.IsRunActive) { _chat.Print("QuestForge: no active run"); return; }
         var runId = _host.ActiveRunId;
         _host.StopRun();
@@ -137,7 +162,7 @@ internal sealed class QfCommand : IDisposable
         {
             if (value == "on")  { _config.UserTracingEnabled = true;  _config.Save(_pi); _chat.Print("QuestForge: tracing enabled — runs will write to pluginConfigs\\QuestForge\\traces\\"); }
             else if (value == "off") { _config.UserTracingEnabled = false; _config.Save(_pi); _chat.Print("QuestForge: tracing disabled"); }
-            else _chat.PrintError($"QuestForge: /qf config trace on|off");
+            else _chat.PrintError("QuestForge: /qf config trace on|off");
         }
         else
         {
@@ -146,7 +171,7 @@ internal sealed class QfCommand : IDisposable
     }
 
     private void PrintUsage()
-        => _chat.Print("QuestForge: /qf run <questId> | /qf stop | /qf config trace on|off | /qf test <gamestate|queststate>");
+        => _chat.Print("QuestForge: /qf run <questId> | /qf start | /qf stop | /qf ui | /qf config trace on|off | /qf test <gamestate|queststate>");
 
     public void Dispose() => _commands.RemoveHandler(Cmd);
 }
