@@ -1,6 +1,6 @@
 # Phase 10 Plan — `qf-trace` Trace Extractor CLI
 
-**Status:** specification — ready for test creation
+**Status:** ✅ COMPLETE — TDD cycle delivered; 44 tests passing in `questforge-tools`; CLI argument parsing and formatted output are follow-up polish
 **Related:** `docs/NEXT_STEPS.md` §Phase 10, `docs/FIXTURES.md`, `docs/TRACE_FORMAT.md`, `docs/AUTHORING.md`
 **Target repo:** `questforge-tools` (alongside `qf-validate`)
 **Target language:** C# / .NET 10

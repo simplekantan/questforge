@@ -1,6 +1,6 @@
 # Trace Format Specification
 
-**Status:** v1 — implemented through Phase 8; event types in §5 are stable; file layout (§3) revised in Phase 7
+**Status:** v1 — implemented through Phase 10; event types in §5 are stable; file layout (§3) revised in Phase 7; Phase 10 tooling reads the flat Phase 7+ shape
 **Format version:** `v: 1`
 **Owners:** QuestForge maintainers
 **Related:** [DESIGN.md](./DESIGN.md), [ADAPTERS.md](./ADAPTERS.md)
@@ -784,22 +784,24 @@ A minimal complete trace for a hypothetical two-step quest:
 
 ---
 
-## Known divergences from this spec (Phase 5–6 implementation)
+## Known divergences from this spec (Phase 5–6 implementation, current as of Phase 10)
 
-The trace recorder produces a structurally simpler output than the full spec above. These divergences persist through Phase 6 and will be reconciled in Phase 7 before the replay harness is built.
+The trace recorder produces a structurally simpler output than the full spec above. These divergences originate in Phase 5–6 and most remain intentionally in place through Phase 10. Phase 10 (`qf-trace`) explicitly accepts and reads the flat Phase 7+ shape.
 
-| Spec field / feature | Phase 5–6 behaviour | Reconciliation target |
+| Spec field / feature | Current behaviour | Status |
 |---|---|---|
-| `seq` (monotonic sequence number per event) | **Not emitted.** Line order in the file is the implicit sequence. | Phase 7: add `seq` counter to `TraceWriter.Write`, increment atomically per run. |
-| `ts` (monotonic offset in ms from `run.start`) | **Not emitted.** Each event carries `at` (absolute UTC `DateTimeOffset`). | Phase 7: compute `ts = (at - runStartAt).TotalMilliseconds`, emit alongside `at`. |
-| `data` sub-object wrapper | **Not used.** Payload fields are flattened at the top level of the JSON object. E.g. spec shows `{"type":"decision","data":{"stepId":"..."}}` but Phase 6 emits `{"type":"decision","stepId":"..."}`. | Phase 7: wrap payload in `"data"` key or update spec to accept flat shape — decision deferred to when replay needs it. |
-| `v` (format version) | **Not emitted.** Each event has no `v` field. | Phase 7: add `v: 1` to each event in `TraceEventJsonContext`. |
-| `runId` in every event | **Emitted** as a top-level field. This matches the intent of the spec even though `runId` is listed under `data` in some spec examples. | No change needed. |
-| `run.start` metadata fields (`pluginVer`, `dataVer`, `dataHash`, `patchVer`, `engineConfig`, `precedingRunId`) | **Not emitted.** `run.start` only carries `runId`, `questId`, `questSchemaId`, `at`. | Phase 7: add as the plugin layer and config object are built out. |
-| Cutscene skip confirmation | **Not recorded.** Cutscene skip is deterministic from `IsRunActive` — the same condition that drives the hook also drives replay — so the action doesn't need to appear in the trace for deterministic replay. | No change needed. |
-| `action.submitted` / `action.completed` pairs | **Not emitted** for Navigate/Interact/Wait dispatch. Only `decision` events appear. | Phase 7: emit action pairs from `EngineHost.DispatchAction` to complete the trace spec. |
+| `seq` (monotonic sequence number per event) | **Not emitted.** Line order in the file is the implicit sequence. | Deferred — `qf-trace` uses event order. |
+| `ts` (monotonic offset in ms from `run.start`) | **Not emitted.** Each event carries `at` (absolute UTC `DateTimeOffset`). | Deferred. |
+| `data` sub-object wrapper | **Not used.** Payload fields are flattened at the top level. E.g. spec shows `{"type":"decision","data":{"stepId":"..."}}` but the recorder emits `{"type":"decision","stepId":"..."}`. Phase 10 reads the flat shape. | Intentionally flat; spec example is aspirational. |
+| `v` (format version) | **Not emitted.** Each event has no `v` field. | Deferred. |
+| `runId` in every event | **Emitted** as a top-level field. | Matches spec intent — no change needed. |
+| `run.start` metadata fields (`pluginVer`, `dataVer`, `dataHash`, `patchVer`, `engineConfig`, `precedingRunId`) | **Not emitted.** `run.start` carries `runId`, `questId`, `questSchemaId`, `at` only. | Deferred — add as plugin config layer matures. |
+| Cutscene skip confirmation | **Not recorded.** Deterministic from `IsRunActive` so does not affect replay. | No change needed. |
+| `action.submitted` / `action.completed` pairs | **Now emitted** (added Phase 7) from `EngineHost.DispatchAction`. Phase 10 `extract-quest` reads these to recover navigate destinations and NPC IDs. | ✅ Reconciled in Phase 7. |
 
-**Observation deduplication (added Phase 7):** `RecordingGameStateProvider` and `RecordingQuestState` now emit an `observation` event only when the value changes from the previous emission for that `(method, argument)` pair. Repeated identical reads (e.g., `GetQuestSequence` returning `0` for 2,400 consecutive ticks) produce a single observation. `ObservationScanner` uses a last-known-value fallback so replay remains correct: when the cursor finds no further observation for a given pair, it returns the last successfully returned observation for that pair rather than throwing starvation.
+**Observation deduplication (added Phase 7):** `RecordingGameStateProvider` and `RecordingQuestState` emit an `observation` event only when the value changes from the previous emission for that `(method, argument)` pair. This is also the reason Phase 10 `SnapshotState` uses last-value-wins semantics.
 
-**Impact on replay (Phase 7):** The replay harness must tolerate Phase 5–6 traces (no `seq`, no `ts`, flat payload, no action pairs). Either the harness reads both formats or the recorder is upgraded to spec shape first. This is Phase 7's first task.
+**Ambient quest flag polling (added Phase 8):** `EngineHost.TickAsync` proactively calls `GetQuestFlags` on the active quest after each dispatch when tracing is enabled, so flag-bit transitions appear in traces without requiring `questFlag()` predicates in quest files.
+
+**Phase 10 reading contract:** `qf-trace` reads traces produced by the Phase 7+ recorder — top-level `type` discriminator, `runId` at top level, flat payload fields, `action.submitted`/`action.completed` pairs present. Traces from Phase 5–6 (no action pairs, no type discriminator on some events) are not supported by Phase 10 tooling.
 

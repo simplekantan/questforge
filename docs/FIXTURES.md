@@ -237,7 +237,7 @@ A fixture with a typo in a step ID fails immediately with a clear message, not w
 5. Iterate until the transitions match
 6. Commit to `questforge-data/fixtures/engine/`
 
-### Creating a fixture (Phase 10 — tool-assisted)
+### Creating a fixture (Phase 10 — tool-assisted) ✅ library complete; CLI output polish pending
 
 1. Enable tracing: `/qf config trace on`
 2. Run the quest: `/qf run <questId>`
