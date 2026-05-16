@@ -272,28 +272,58 @@ Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 
 ---
 
-## Phase 8: UI and user surfaces (2-3 weeks)
+## Phase 8: Quest scheduler + UI (3-5 weeks)
 
-**Goal:** the plugin becomes usable by someone who isn't you.
+**Goal:** QuestForge becomes a fully automated questing system. The user presses Start; the plugin handles everything — class quests, blocking prerequisites, MSQ continuation — without further input.
+
+**The `QuestScheduler` (pure C#, the core of this phase):**
+
+The scheduler is a new engine-layer component that sits above `QuestEngine`. It continuously answers "given the player's current state, what quest should run next?" and loops until the user stops or the supported corpus is exhausted.
+
+```
+User presses Start
+    ↓
+QuestScheduler selects next quest from corpus
+    ↓
+QuestEngine runs that quest to Done
+    ↓
+QuestScheduler loops
+```
+
+**Scheduler design (see DESIGN.md §Scheduler when written):**
+
+1. **Availability-based selection** — the scheduler filters the corpus to quests where `IsQuestAvailable() == true` and `IsQuestComplete() == false`. It never tries to run a quest the game says can't be accepted yet. This makes prerequisite handling automatic: if MSQ quest A requires trial unlock quest B, A won't appear as available until B is done; the scheduler naturally runs B first.
+
+2. **Priority tiers** (applied after availability filtering):
+   - **Tier 1:** Class/job quests for the player's current job, at or below current level — run immediately when available, regardless of what else is in progress. These unlock abilities.
+   - **Tier 2:** Quests marked as blocking another available quest (derived from `WhyUnavailable` calls — if quest X lists quest Y as a missing prereq and Y is available, Y is elevated).
+   - **Tier 3:** Active chain continuation — the next quest in the currently active chain (MSQ chapter, etc.)
+   - **Tier 4:** Other supported quests (configurable — side quests off by default)
+   - Within a tier: lower `chainPosition` first (chain order is respected)
+
+3. **Level-up detection** — after each quest completes, the scheduler re-evaluates availability. Class quests unlock at specific levels; a level-up mid-run surfaces them immediately for the next scheduling cycle.
+
+4. **Chain definitions in questforge-data** — chains group quests into ordered sequences with type metadata (`main-scenario`, `class-job`, `sidequest`). The scheduler uses chain type for priority tier assignment. See Phase 11 for corpus details.
 
 **What to build:**
 
-1. **Settings UI** — toggles for the major `EngineDecisionConfig` options, dropdowns for combat plugin and gear selection method
-2. **Quest selection UI** — show available quests, filter by status (supported, partial, broken)
-3. **Run control** — start, stop, pause, resume
-4. **Status display** — what the engine is doing right now, what step it's on, recent observations
-5. **Support status display** — per `DESIGN.md` §9 — surface CI replay status, telemetry, known issues
-6. **Stop button** — should always work, should be obvious
+1. **`QuestScheduler`** — in `QuestForge.Engine`; takes corpus, `IQuestState`, `IGameStateProvider`, `SchedulerConfig`; returns the next `QuestDefinition` to run
+2. **`QuestCorpus`** — in `QuestForge.Plugin`; loads all quest + chain definitions from `questforge-data`, answers "what quests are available right now?"
+3. **`SchedulerConfig`** — priority tweaks, which quest types to include (class quests always on; side quests configurable)
+4. **`EngineHost` loop mode** — `RunAllAsync(CancellationToken)` calls `BeginRun` in a loop driven by the scheduler
+5. **Start/Stop UI** — the primary interaction: one "Start All Questing" button and one "Stop" button
+6. **Status display** — current quest name, type (MSQ/Class/Side), step, what the scheduler has queued next
+7. **Settings UI** — enable/disable side quests; priority overrides; display tracing toggle (now in PluginConfig)
+8. **Pre-flight check** — before starting any quest, call `IsQuestAvailable`; surface `WhyUnavailable` as a clear chat message rather than silently hanging
 
 **Don't build:**
 
-- Authoring mode (next phase)
-- Bug report flow (later)
-- Configuration profiles, complex automation chains (later)
+- Full quest selection browser (Phase 11 — corpus not complete enough to be useful)
+- Authoring mode (Phase 9)
 
-**Deliverable:** someone unfamiliar with the project can install the plugin, configure it, pick a quest, run it, see what's happening, and stop it cleanly.
+**Deliverable:** pressing Start in Ul'dah on a fresh Gladiator automatically runs quest 66130, detects the player levelled to 10, runs the level-10 Gladiator class quest, then continues the next available MSQ without user input.
 
-**Done when:** a friend who isn't you can use the plugin without your help to run a supported quest.
+**Done when:** the scheduler correctly interleaves class quests and MSQ across a 10-quest test sequence, without the user specifying individual quest IDs.
 
 ---
 
