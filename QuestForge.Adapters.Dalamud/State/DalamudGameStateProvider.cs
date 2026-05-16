@@ -245,17 +245,37 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         return Task.FromResult<Result<bool>>(Result.Ok(false));
     }
 
-    // TODO(Phase 11B §3.9): replace with real ClientStructs read.
-    // While stubbed, isAttuned(...) always returns false in-game → AttunementStep always fires
-    // Interact, even on already-attuned aetherytes. Quest authoring with attune steps is
-    // unusable until this lands. Candidate: PlayerState.Instance()->IsAetheryteUnlocked(ushort).
-    public Task<Result<bool>> IsAetheryteAttuned(AetheryteId aetheryte, CancellationToken ct)
-        => Task.FromResult<Result<bool>>(Result.Ok(false));
+    public unsafe Task<Result<bool>> IsAetheryteAttuned(AetheryteId aetheryte, CancellationToken ct)
+    {
+        // WHY: UIState tracks aetheryte attunement (not PlayerState as the spec initially guessed).
+        // Confirmed against Questionable's AetheryteFunctions.cs: UIState.Instance()->IsAetheryteUnlocked(uint).
+        var uiState = UIState.Instance();
+        if (uiState == null)
+            return Task.FromResult<Result<bool>>(Result.Fail<bool>("noUiState", "UIState.Instance() returned null"));
 
-    public Task<Result<IReadOnlyList<AetheryteId>>> GetAttunedAetherytes(CancellationToken ct)
-        // Phase 6 placeholder
-        => Task.FromResult<Result<IReadOnlyList<AetheryteId>>>(
-            Result.Ok<IReadOnlyList<AetheryteId>>(Array.Empty<AetheryteId>()));
+        return Task.FromResult<Result<bool>>(Result.Ok(uiState->IsAetheryteUnlocked(aetheryte.Value)));
+    }
+
+    public unsafe Task<Result<IReadOnlyList<AetheryteId>>> GetAttunedAetherytes(CancellationToken ct)
+    {
+        var uiState = UIState.Instance();
+        if (uiState == null)
+            return Task.FromResult<Result<IReadOnlyList<AetheryteId>>>(
+                Result.Fail<IReadOnlyList<AetheryteId>>("noUiState", "UIState.Instance() returned null"));
+
+        var sheet = _svc.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Aetheryte>();
+        var attuned = new List<AetheryteId>();
+        if (sheet != null)
+        {
+            foreach (var row in sheet)
+            {
+                if (row.RowId == 0) continue;
+                if (uiState->IsAetheryteUnlocked(row.RowId))
+                    attuned.Add(new AetheryteId(row.RowId));
+            }
+        }
+        return Task.FromResult<Result<IReadOnlyList<AetheryteId>>>(Result.Ok<IReadOnlyList<AetheryteId>>(attuned));
+    }
 
     public Task<Result<UiState>> GetUiState(CancellationToken ct)
     {
