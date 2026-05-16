@@ -246,24 +246,29 @@ Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 
 ---
 
-## Phase 7: Canonical trace + replay harness (2-3 weeks) 🔄 NEXT
+## Phase 7: Engine fixture harness + opt-in tracing (2-3 weeks) ✅ COMPLETE
 
-**Goal:** prove the trace replay model works.
+**Goal:** engine regression tests that run in CI without a game, plus production tracing that doesn't burden normal users.
 
-**What to build:**
+**What was built:**
 
-1. **Commit the Phase 6 canonical trace** — the trace from the successful quest 66130 run lives in `pluginConfigs\QuestForge\traces\`. Copy it into `questforge-data` as `quests/arr/msq/66130-canonical-trace-phase6.jsonl`.
-2. **Hoist recording proxies** — move `RecordingGameStateProvider` and `RecordingQuestState` from `QuestForge.Adapters.Fakes` to `QuestForge.Adapters` proper, updating all `using` statements (low-churn but cleaner).
-3. **Build the replay harness:**
-   - `ReplayGameStateProvider` reads observations from a trace and serves them in order
-   - `ReplayQuestState` does the same for quest data
-   - Fake adapters for everything else, scripted from the trace
-   - Test runner: load engine + replay providers + trace, verify the engine produces the same actions in the same order
-5. **Wire replay into CI** — every PR to `questforge` triggers replay of all canonical fixtures.
+- **Recording proxy hoist** — `RecordingGameStateProvider` and `RecordingQuestState` moved from `QuestForge.Adapters.Fakes` to `QuestForge.Adapters.Recording` (production-grade, used by `EngineHost`)
+- **Observation deduplication** — recording proxies only emit an `observation` event when the value changes from the last emission for that `(method, argument)` pair; reduces trace files from ~12,500 lines to ~50–100 lines for quest 66130
+- **Replay infrastructure** (in `QuestForge.Adapters.Fakes.Replay`) — `TraceReader`, `ObservationScanner` with last-known-value fallback, `ReplayGameStateProvider`, `ReplayQuestState`; retained for local debugging and future authoring tools
+- **Engine fixture format** — transition-based JSON fixtures in `questforge-data/fixtures/engine/` (see `docs/FIXTURES.md`); one fixture per distinct engine capability shape, not one per quest; ~4–5 transition entries rather than tick-by-tick logs
+- **Parametric fixture test** — `QuestForge.Engine.Tests` discovers and runs all `fixtures/engine/*.json` files automatically; new fixtures require zero test code changes
+- **Opt-in tracing** — `NullTraceWriter` in production; traces disabled by default for normal users; toggled via `/qf config trace on|off`; authoring mode re-enables automatically
 
-**Deliverable:** a PR that breaks engine behavior is caught by replay tests.
+**Notable design decisions:**
 
-**Done when:** you can deliberately break the engine (e.g., remove a step type's handling) and see CI fail with the specific quest and step that broke.
+- Transition-based fixtures (unique consecutive `(stepId, actionType)` pairs) instead of full-trace replay — decouples tick count from correctness, dramatically smaller fixtures, regeneration-friendly
+- Fixtures test engine *capability shapes*, not specific quests — one fixture per `(step:travel + step:talk + predicate:questSequence + ...)` combination
+- `ReplayGameStateProvider` kept (not deleted) for `qf-trace replay` CLI tooling in Phase 10
+- Two copies of quest 66130 definition: `Engine.Tests/Fixtures/66130.json` for offline engine unit tests; `questforge-data/quests/...` for fixture integration tests (see `FIXTURES.md §CI integration`)
+
+**Deliverable:** CI catches engine regressions for any committed fixture. `dotnet test` passes without a running game or `questforge-data` checkout (fixture tests skip gracefully).
+
+**Done when:** ✅ Parametric fixture test passes for `simple-linear-acceptance.json`. Opt-in trace toggle works. Deliberately breaking engine logic fails CI with the fixture name and diverging transition.
 
 ---
 
@@ -306,19 +311,47 @@ Then build the recorder (Author mode, per `AUTHORING.md` §2.2). Inference rules
 
 ---
 
-## Phase 10: Incremental corpus expansion (ongoing)
+## Phase 10: Fixture extractor CLI (`questforge-tools`) (1-2 weeks)
+
+**Goal:** complete the authoring pipeline — play through a quest with Authoring mode, get a quest definition AND a regression fixture draft with one command.
+
+**Why here:** Phase 9 (Authoring) produces traces automatically. Phase 10 processes those traces into fixtures. Phase 11 (corpus expansion) benefits from both tools working together. Without Phase 10, every fixture must be hand-authored after Phase 9 — expensive at scale.
+
+**What to build** (in `questforge-tools`, alongside `qf-validate`):
+
+1. **`qf-trace extract-fixture <runId>.jsonl`** — reads a local trace, produces a fixture JSON draft:
+   - `expectedTransitions` derived from the trace's `DecisionEvent` entries (unique consecutive pairs)
+   - `terminalOutcome` from `RunEndEvent.outcome`
+   - `questFile` resolved from `RunStartEvent.questId` by looking up the quest in `questforge-data`
+   - `capabilities` inferred from the quest file's step types and predicate functions
+   - `description: "TODO"` and a suggested filename
+2. **`qf-trace validate-fixture <fixture.json>`** — cross-validates a fixture against its referenced quest file:
+   - All `stepId` values exist in the quest definition
+   - `capabilities` list matches the quest file's actual step types and predicates
+   - `questFile` path exists
+3. **`qf-trace list-fixtures`** — lists all committed fixtures with their capability coverage, highlighting gaps
+
+**Integration into questforge-data CI:** run `qf-trace validate-fixture` on every fixture file in every PR, failing if a step ID or quest file reference is invalid.
+
+**Deliverable:** `qf-trace extract-fixture` produces a valid fixture draft from a local trace in under 5 seconds. Developer reviews, writes description, commits.
+
+**Done when:** authoring a new quest (Phase 9) + extracting its fixture (Phase 10) + committing both takes under 10 minutes of developer effort.
+
+---
+
+## Phase 11: Incremental corpus expansion (ongoing)
 
 **Goal:** quest count grows. Step types are added as needed.
 
 **This is the steady-state phase.** It looks like:
 
 - Pick a new quest to add
-- Try to author it
-- Hit a step type you haven't implemented yet (`use-item`, `use-action`, `branch`, etc.)
-- Implement that step type
-- Author the quest
-- Capture the canonical trace
-- Add to CI
+- Author it via Authoring mode (Phase 9)
+- Hit a step type not yet implemented (`use-item`, `use-action`, `branch`, etc.)
+- Implement that step type in the engine
+- Re-author the quest
+- Extract the fixture with `qf-trace extract-fixture` (Phase 10)
+- Commit quest definition + fixture together
 
 Step types come in roughly this difficulty order:
 
@@ -338,7 +371,7 @@ Step types come in roughly this difficulty order:
 14. `duty` with `kind: "spd"` (SPD retry logic, difficulty selection)
 15. `minigame` (one minigame type at a time)
 
-**At each step:** trace fixture, replay test, doc update.
+**At each step:** author quest, extract fixture, add CI coverage entry.
 
 ---
 
