@@ -17,6 +17,7 @@ internal sealed class QfCommand : IDisposable
     private readonly EngineHost _host;
     private readonly AuthoringHost _authoringHost;
     private readonly AuthoringSessionPanel _authoringSessionPanel;
+    private readonly InteractionPanel _interactionPanel;
     private readonly IQuestScheduler _scheduler;
     private readonly UI.MainWindow _mainWindow;
     private readonly LuminaQuestDataProvider _questData;
@@ -31,6 +32,7 @@ internal sealed class QfCommand : IDisposable
         EngineHost host,
         AuthoringHost authoringHost,
         AuthoringSessionPanel authoringSessionPanel,
+        InteractionPanel interactionPanel,
         IQuestScheduler scheduler,
         UI.MainWindow mainWindow,
         LuminaQuestDataProvider questData,
@@ -44,6 +46,7 @@ internal sealed class QfCommand : IDisposable
         _host = host;
         _authoringHost = authoringHost;
         _authoringSessionPanel = authoringSessionPanel;
+        _interactionPanel = interactionPanel;
         _scheduler = scheduler;
         _mainWindow = mainWindow;
         _questData = questData;
@@ -80,8 +83,9 @@ internal sealed class QfCommand : IDisposable
                 break;
             case "inspect":
                 _authoringHost.EnterInspectMode();
-                _authoringSessionPanel.Toggle();
-                _chat.Print("QuestForge: inspect mode active — authoring panels now visible");
+                _authoringSessionPanel.IsOpen = true;
+                _interactionPanel.IsOpen = true;
+                _chat.Print("QuestForge: inspect mode active — target an NPC to see available quests");
                 break;
             case "author" when parts.Length >= 2 && parts[1] == "stop":
                 _authoringHost.ExitAuthoring();
@@ -95,6 +99,9 @@ internal sealed class QfCommand : IDisposable
                 break;
             case "config" when parts.Length >= 3:
                 HandleConfig(parts[1], parts[2]);
+                break;
+            case "debug" when parts.Length >= 2 && parts[1] == "target":
+                HandleDebugTarget();
                 break;
             case "debug" when parts.Length >= 3 && parts[1] == "quest":
                 HandleDebugQuest(parts[2]);
@@ -158,6 +165,15 @@ internal sealed class QfCommand : IDisposable
         var runId = _host.ActiveRunId;
         _host.StopRun();
         _chat.Print($"QuestForge: run {runId} stopped");
+    }
+
+    private void HandleDebugTarget()
+    {
+        var diag = _authoringHost.GetTargetDiagnostics();
+        foreach (var line in diag.Split('\n'))
+            if (!string.IsNullOrWhiteSpace(line))
+                _chat.Print($"[QF] {line.TrimEnd()}");
+        _log.Info($"[debug target]\n{diag}");
     }
 
     private void HandleDebugQuest(string questIdStr)
@@ -285,7 +301,8 @@ internal sealed class QfCommand : IDisposable
             return;
         }
         _authoringHost.EnterAuthorMode(new QuestId(questId));
-        _authoringSessionPanel.Toggle();
+        _authoringSessionPanel.IsOpen = true;
+        _interactionPanel.IsOpen = true;
         _chat.Print($"QuestForge: author mode active for quest {questId}");
     }
 

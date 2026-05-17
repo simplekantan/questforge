@@ -49,6 +49,31 @@ public sealed class AuthoringHost : IDisposable
     /// <summary>Force a cache refresh on the next heartbeat tick. Call when settings change.</summary>
     public void InvalidateNpcCache() => _lastQuestQueryNpcBaseId = 0;
 
+    /// <summary>Diagnostic: dump the current target's ObjectKind, BaseId, and index state to a string.</summary>
+    public string GetTargetDiagnostics()
+    {
+        var target = _services.TargetManager.Target;
+        if (target is null) return "No target.";
+
+        var lines = new System.Text.StringBuilder();
+        lines.AppendLine($"Target: {target.Name} | ObjectKind: {target.ObjectKind} | BaseId: {target.BaseId}");
+
+        var passesFilter = target.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
+                        || target.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc;
+        lines.AppendLine($"Passes ObjectKind filter (EventNpc|BattleNpc): {passesFilter}");
+
+        var index = GetOrBuildNpcQuestIndex();
+        lines.AppendLine($"Quest index size: {index.Count} NPCs");
+        lines.AppendLine($"Index has entry for BaseId {target.BaseId}: {index.ContainsKey(target.BaseId)}");
+
+        if (index.TryGetValue(target.BaseId, out var questRowIds))
+            lines.AppendLine($"Quest RowIds in index for this NPC: [{string.Join(", ", questRowIds)}]");
+
+        lines.AppendLine($"Cached NPC quests: {_cachedNpcQuests.Count}");
+        lines.AppendLine($"Last queried BaseId: {_lastQuestQueryNpcBaseId}");
+        return lines.ToString().TrimEnd();
+    }
+
     public AuthoringHost(PluginServices services, FileDraftStorage storage, IPluginLog log, PluginConfig config, IQuestState questState)
     {
         _services = services;
