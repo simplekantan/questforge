@@ -153,11 +153,17 @@ public sealed class ExportDialog : Window
 
         try
         {
-            // Rebuild each step's Raw from its snapshot data so that the exported file
-            // reflects current authoring logic rather than stale rawJson from old sessions.
+            // Only rebuild step.Raw from snapshot when the stored type is stale (wrong type).
+            // If step.Raw already has the correct type it was built with a live snapshot that
+            // included all fields (LastAttuned, KeyItemsRemoved, LastAethernetShardInteracted);
+            // rebuilding from the deserialized draft snapshot would lose those fields because
+            // the draft format does not serialize them.
             var now = DateTimeOffset.UtcNow;
             foreach (var step in draft.Steps.ToList())
             {
+                var rawTypeDiscriminator = GetTypeDiscriminator(step.Raw);
+                if (rawTypeDiscriminator == step.StepType) continue; // Raw is correct — use as-is
+                // Raw type is stale (e.g. "talk" stored when stepType is "attune") — rebuild
                 var rebuilt = StepFactory.Build(step.StepType, step.StepId, step.SuggestedExpect, step.ObservedAfter, step.ObservedBefore);
                 draft.ReplaceStep(step.StepId, step with { Raw = rebuilt }, now);
             }
@@ -183,6 +189,27 @@ public sealed class ExportDialog : Window
             _statusIsError = true;
         }
     }
+
+    private static string GetTypeDiscriminator(QuestForge.Schema.Step? step) => step switch
+    {
+        QuestForge.Schema.TravelStep        => "travel",
+        QuestForge.Schema.TalkStep          => "talk",
+        QuestForge.Schema.AcceptStep        => "accept",
+        QuestForge.Schema.TurnInStep        => "turn-in",
+        QuestForge.Schema.AttunementStep    => "attune",
+        QuestForge.Schema.HandOverItemStep  => "hand-over-item",
+        QuestForge.Schema.PickupItemStep    => "pickup-item",
+        QuestForge.Schema.InteractObjectStep=> "interact-object",
+        QuestForge.Schema.CutsceneStep      => "cutscene",
+        QuestForge.Schema.DutyStep          => "duty",
+        QuestForge.Schema.CombatStep        => "combat",
+        QuestForge.Schema.UseItemStep       => "use-item",
+        QuestForge.Schema.UseEmoteStep      => "use-emote",
+        QuestForge.Schema.UseActionStep     => "use-action",
+        QuestForge.Schema.AwaitUserStep     => "await-user",
+        null                                => "",
+        _                                   => ""
+    };
 
     private QuestDefinition PatchFromLumina(QuestDefinition def)
     {
