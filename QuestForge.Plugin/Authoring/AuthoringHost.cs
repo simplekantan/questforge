@@ -398,8 +398,19 @@ public sealed class AuthoringHost : IDisposable
         var npcId = new NpcId(target.BaseId);
         var p = target.Position;
         var npcPos = new WorldPosition(p.X, p.Y, p.Z);
+        // WHY: OnInteraction fires for aetherytes too, keeping LastNpcInteracted == shard.BaseId.
+        // This is the staleness-guard invariant for StepInferenceEngine Rule 4: aethernet is
+        // detected only when LastNpcInteracted.Value == LastAethernetShardInteracted.Value —
+        // meaning the most recent interaction was the shard, not a stale value from earlier.
         _aggregator.OnInteraction(npcId, npcPos);
         WriteObservationDeduped("GetTarget", 0, target.BaseId);
+
+        // For aetheryte/aethernet shard targets: record the shard for aethernet hop inference
+        if (kind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Aetheryte)
+        {
+            _aggregator.OnAethernetShardTargeted(new QuestForge.Adapters.Types.AetheryteId(target.BaseId));
+            WriteObservationDeduped("AethernetShardTargeted", target.BaseId, 0);
+        }
 
         // Only update NPC quest cache for EventNpc/BattleNpc — aetherytes don't have quests
         if (kind is Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc

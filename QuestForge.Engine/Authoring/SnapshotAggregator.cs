@@ -21,6 +21,7 @@ public sealed class SnapshotAggregator
     private AetheryteId? _lastAttuned;
     private IReadOnlyList<uint>? _keyItemsAdded;
     private IReadOnlyList<uint>? _keyItemsRemoved;
+    private AetheryteId? _lastAethernetShardInteracted;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
     // tests inject FakeClock for deterministic CapturedAt values.
@@ -45,7 +46,11 @@ public sealed class SnapshotAggregator
         LastDialogueAnswer: _lastDialogueAnswer,
         InventoryHash: _inventoryHash,
         LastAttuned: _lastAttuned)
-    { KeyItemsAdded = _keyItemsAdded, KeyItemsRemoved = _keyItemsRemoved };
+    {
+        KeyItemsAdded = _keyItemsAdded,
+        KeyItemsRemoved = _keyItemsRemoved,
+        LastAethernetShardInteracted = _lastAethernetShardInteracted
+    };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
     {
@@ -106,6 +111,16 @@ public sealed class SnapshotAggregator
     public void OnAttunementChanged(AetheryteId aetheryte)
     {
         _lastAttuned = aetheryte;
+    }
+
+    /// <summary>
+    /// Called when the player targets an aethernet shard (sub-aetheryte object).
+    /// Used to correlate with a subsequent zone change to infer an aethernet travel step.
+    /// NOT cleared by ResetDeltas — persists across the before/after inference window.
+    /// </summary>
+    public void OnAethernetShardTargeted(AetheryteId shardId)
+    {
+        _lastAethernetShardInteracted = shardId;
     }
 
     /// <summary>

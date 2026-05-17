@@ -154,7 +154,7 @@ public sealed class RecordStepModal : Window
 
             // Build a minimal raw Step for confirmation — use the inferred type
             // For Phase 9 we build a TalkStep for "talk", TravelStep for "travel", etc.
-            var rawStep = BuildRawStep(stepId, _inference!.StepType, expectStr, _after);
+            var rawStep = BuildRawStep(stepId, _inference!.StepType, expectStr, _after, _before);
 
             _saveError = "";
             _saveTask = SaveAsync(_before!, _inference!, stepId, expectStr, notesStr, rawStep);
@@ -192,8 +192,8 @@ public sealed class RecordStepModal : Window
         await _host.RecordStep(before, inference, stepId, expect, notes, rawStep, CancellationToken.None);
     }
 
-    private static Step BuildRawStep(string stepId, string stepType, string? expect, GameStateSnapshot? after)
-        => QuestForge.Engine.Authoring.StepFactory.Build(stepType, stepId, expect, after);
+    private static Step BuildRawStep(string stepId, string stepType, string? expect, GameStateSnapshot? after, GameStateSnapshot? before = null)
+        => QuestForge.Engine.Authoring.StepFactory.Build(stepType, stepId, expect, after, before);
 
     private List<string> BuildPredicateOptions()
     {

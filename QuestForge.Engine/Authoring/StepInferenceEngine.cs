@@ -107,6 +107,30 @@ public sealed class StepInferenceEngine
         // Rule 4: Zone changed (no quest change from rules above)
         if (after.Zone != before.Zone)
         {
+            // Sub-case: aethernet teleport detected
+            var sourceShard = before.LastAethernetShardInteracted;
+            var isAethernet = sourceShard.HasValue
+                && before.LastNpcInteracted.HasValue
+                && before.LastNpcInteracted.Value.Value == sourceShard.Value.Value;
+
+            if (isAethernet)
+            {
+                var sourceShardId = sourceShard!.Value.Value;
+                var destShard = after.LastAethernetShardInteracted;
+                var destDiffers = destShard.HasValue && destShard.Value.Value != sourceShardId;
+
+                return new InferenceResult(
+                    StepType: "travel",
+                    SuggestedStepId: $"aethernet-to-zone-{after.Zone.Value}",
+                    SuggestedExpect: $"playerZone() == {after.Zone.Value}",
+                    Confidence: destDiffers ? Confidence.High : Confidence.Medium,
+                    InferredFrom: InferredFrom.ZoneChange,
+                    Notes: destDiffers
+                        ? $"Aethernet: shard {sourceShardId} → shard {destShard!.Value.Value}"
+                        : $"Aethernet from shard {sourceShardId} detected. Target the destination shard in zone {after.Zone.Value} after arrival to capture its ID.");
+            }
+
+            // Catch-all: regular zone change
             return new InferenceResult(
                 StepType: "travel",
                 SuggestedStepId: $"travel-to-zone-{after.Zone.Value}",
@@ -157,8 +181,10 @@ public sealed class StepInferenceEngine
                 Notes: null);
         }
 
-        // Rule 7: LastNpcInteracted changed
-        if (after.LastNpcInteracted != before.LastNpcInteracted)
+        // Rule 7: LastNpcInteracted changed (only fires when after has a non-null NPC —
+        // the aggregator never clears LastNpcInteracted, so null in after means no NPC was
+        // targeted in that window, not that the NPC "went away").
+        if (after.LastNpcInteracted.HasValue && after.LastNpcInteracted != before.LastNpcInteracted)
         {
             return new InferenceResult(
                 StepType: "talk",

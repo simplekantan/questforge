@@ -5,7 +5,8 @@ namespace QuestForge.Engine.Authoring;
 
 public static class StepFactory
 {
-    public static Step Build(string stepType, string stepId, string? expect, GameStateSnapshot? after, uint[]? itemsOverride = null)
+    public static Step Build(string stepType, string stepId, string? expect, GameStateSnapshot? after,
+        GameStateSnapshot? before = null, uint[]? itemsOverride = null)
     {
         ExpectValue? expectValue = expect is { Length: > 0 }
             ? new PredicateExpect { Predicate = expect }
@@ -21,8 +22,16 @@ public static class StepFactory
 
         var zoneStr = zone > 0 ? zone.ToString() : null;
 
+        // Detect aethernet travel: source shard must match the last NPC interacted, and
+        // LastNpcPosition must be present (gives us the shard's world coordinates to navigate to).
+        var sourceShard = before?.LastAethernetShardInteracted;
+        var isAethernet = sourceShard.HasValue
+            && before?.LastNpcInteracted?.Value == sourceShard.Value.Value
+            && before?.LastNpcPosition.HasValue == true;
+
         return stepType switch
         {
+            "travel" when isAethernet => BuildAethernetTravelStep(stepId, expectValue, zoneStr, zone, before!, after, sourceShard!.Value),
             "travel" => new TravelStep
             {
                 Id = stepId,
@@ -66,6 +75,36 @@ public static class StepFactory
                 Target = new InteractableTarget(InteractableId: npcId, Zone: zone, Position: npcPos)
             },
             _ => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc }
+        };
+    }
+
+    private static TravelStep BuildAethernetTravelStep(
+        string stepId,
+        ExpectValue? expectValue,
+        string? zoneStr,
+        int zone,
+        GameStateSnapshot before,
+        GameStateSnapshot? after,
+        QuestForge.Adapters.Types.AetheryteId sourceShard)
+    {
+        // Use the source shard's world position so the engine can navigate to it first
+        var shardPos = before.LastNpcPosition!.Value;
+        var destPos = new Position3(shardPos.X, shardPos.Y, shardPos.Z);
+
+        // Populate RouteHint.Aethernet only when we have a distinct destination shard
+        var destShard = after?.LastAethernetShardInteracted;
+        var destDiffers = destShard.HasValue && destShard.Value.Value != sourceShard.Value;
+        var routeHint = destDiffers
+            ? new RouteHint(Aethernet: new[] { destShard!.Value.Value })
+            : null;
+
+        return new TravelStep
+        {
+            Id = stepId,
+            Expect = expectValue,
+            Zone = zoneStr,
+            Destination = new TravelDestination(Zone: zone, Position: destPos),
+            RouteHint = routeHint
         };
     }
 }

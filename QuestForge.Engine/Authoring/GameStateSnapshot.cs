@@ -27,4 +27,9 @@ public sealed record GameStateSnapshot(
     // Non-positional: does not affect existing constructor call sites.
     // Holds item IDs removed from the key items container since the last snapshot.
     public IReadOnlyList<uint>? KeyItemsRemoved { get; init; }
+
+    // Non-positional: does not affect existing constructor call sites.
+    // The last aethernet shard (sub-aetheryte) the player targeted/interacted with.
+    // Used by StepInferenceEngine to detect aethernet travel hops.
+    public AetheryteId? LastAethernetShardInteracted { get; init; }
 }

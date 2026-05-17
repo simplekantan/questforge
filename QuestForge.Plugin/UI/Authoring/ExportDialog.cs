@@ -158,7 +158,7 @@ public sealed class ExportDialog : Window
             var now = DateTimeOffset.UtcNow;
             foreach (var step in draft.Steps.ToList())
             {
-                var rebuilt = StepFactory.Build(step.StepType, step.StepId, step.SuggestedExpect, step.ObservedAfter);
+                var rebuilt = StepFactory.Build(step.StepType, step.StepId, step.SuggestedExpect, step.ObservedAfter, step.ObservedBefore);
                 draft.ReplaceStep(step.StepId, step with { Raw = rebuilt }, now);
             }
 
