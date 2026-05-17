@@ -42,10 +42,13 @@ public sealed class StepInferenceEngine
         if (after.KeyItemsAdded is { Count: > 0 } newItems)
         {
             var itemId = newItems[0];
+            var expect = newItems.Count == 1
+                ? $"playerHasItem({itemId})"
+                : string.Join(" and ", newItems.Select(id => $"playerHasItem({id})"));
             return new InferenceResult(
                 StepType: "pickup-item",
                 SuggestedStepId: $"pickup-item-{itemId}",
-                SuggestedExpect: null,
+                SuggestedExpect: expect,
                 Confidence: Confidence.Medium,
                 InferredFrom: InferredFrom.DialogueInteraction,
                 Notes: newItems.Count > 1
@@ -57,10 +60,13 @@ public sealed class StepInferenceEngine
         if (after.KeyItemsRemoved is { Count: > 0 } removedItems)
         {
             var itemId = removedItems[0];
+            var expect = removedItems.Count == 1
+                ? $"not(playerHasItem({itemId}))"
+                : string.Join(" and ", removedItems.Select(id => $"not(playerHasItem({id}))"));
             return new InferenceResult(
                 StepType: "hand-over-item",
                 SuggestedStepId: $"hand-over-item-{itemId}",
-                SuggestedExpect: null,
+                SuggestedExpect: expect,
                 Confidence: Confidence.Medium,
                 InferredFrom: InferredFrom.DialogueInteraction,
                 Notes: removedItems.Count > 1
@@ -68,10 +74,20 @@ public sealed class StepInferenceEngine
                     : null);
         }
 
-        // Rule 2.5: Attunement changed (no higher-priority signal)
-        if (after.LastAttuned != before.LastAttuned && after.LastAttuned.HasValue)
+        // Rule 2.5: Aetheryte targeted in same zone → attune step
+        // WHY: tracking LastAttuned only fires for newly-attuned crystals. Re-authoring a quest
+        // where aetherytes are already attuned would never trigger. Using LastAethernetShardInteracted
+        // fires whenever the author targets the crystal during recording, regardless of prior
+        // attunement state. The LastNpcInteracted guard ensures the author is physically AT the
+        // crystal (not just viewing it in an aethernet menu from another shard). Zone-change
+        // cases are handled by Rule 4.
+        if (after.LastAethernetShardInteracted.HasValue
+            && after.LastAethernetShardInteracted != before.LastAethernetShardInteracted
+            && after.Zone == before.Zone
+            && after.LastNpcInteracted.HasValue
+            && after.LastNpcInteracted.Value.Value == after.LastAethernetShardInteracted.Value.Value)
         {
-            var aetheryteId = after.LastAttuned.Value.Value;
+            var aetheryteId = after.LastAethernetShardInteracted.Value.Value;
             return new InferenceResult(
                 StepType: "attune",
                 SuggestedStepId: $"attune-aetheryte-{aetheryteId}",

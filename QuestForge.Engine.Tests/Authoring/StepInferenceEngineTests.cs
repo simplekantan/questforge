@@ -29,7 +29,8 @@ public sealed class StepInferenceEngineTests
         string? lastDialogueAnswer = null,
         uint inventoryHash = 0,
         DateTimeOffset? capturedAt = null,
-        AetheryteId? lastAttuned = null) =>
+        AetheryteId? lastAttuned = null,
+        AetheryteId? lastAethernetShardInteracted = null) =>
         new(
             CapturedAt: capturedAt ?? T0,
             Zone: zone ?? new ZoneId(100),
@@ -44,7 +45,10 @@ public sealed class StepInferenceEngineTests
             LastDialoguePrompt: lastDialoguePrompt,
             LastDialogueAnswer: lastDialogueAnswer,
             InventoryHash: inventoryHash,
-            LastAttuned: lastAttuned);
+            LastAttuned: lastAttuned)
+        {
+            LastAethernetShardInteracted = lastAethernetShardInteracted,
+        };
 
     // =========================================================================
     // Scenario 1 — InferTravel_WhenZoneChanges
@@ -480,8 +484,11 @@ public sealed class StepInferenceEngineTests
 
         // Arrange
         var engine = new StepInferenceEngine();
-        var before = BaseSnapshot(lastAttuned: null);
-        var after = BaseSnapshot(lastAttuned: new AetheryteId(1000), capturedAt: T1);
+        var before = BaseSnapshot();
+        var after = BaseSnapshot(
+            lastAethernetShardInteracted: new AetheryteId(1000),
+            lastNpcInteracted: new NpcId(1000),
+            capturedAt: T1);
 
         // Act
         var result = engine.Infer(before, after);
@@ -542,8 +549,11 @@ public sealed class StepInferenceEngineTests
 
         // Arrange
         var engine = new StepInferenceEngine();
-        var before = BaseSnapshot(lastAttuned: new AetheryteId(500));
-        var after = BaseSnapshot(lastAttuned: new AetheryteId(1000), capturedAt: T1);
+        var before = BaseSnapshot(lastAethernetShardInteracted: new AetheryteId(500));
+        var after = BaseSnapshot(
+            lastAethernetShardInteracted: new AetheryteId(1000),
+            lastNpcInteracted: new NpcId(1000),
+            capturedAt: T1);
 
         // Act
         var result = engine.Infer(before, after);
@@ -599,8 +609,12 @@ public sealed class StepInferenceEngineTests
 
         // Arrange
         var engine = new StepInferenceEngine();
-        var before = BaseSnapshot(questSequence: 0, lastAttuned: null);
-        var after = BaseSnapshot(questSequence: 1, lastAttuned: new AetheryteId(1000), capturedAt: T1);
+        var before = BaseSnapshot(questSequence: 0);
+        var after = BaseSnapshot(
+            questSequence: 1,
+            lastAethernetShardInteracted: new AetheryteId(1000),
+            lastNpcInteracted: new NpcId(1000),
+            capturedAt: T1);
 
         // Act
         var result = engine.Infer(before, after);
@@ -611,29 +625,26 @@ public sealed class StepInferenceEngineTests
     }
 
     [Fact]
-    public void InferAttunement_PriorityOverZoneChange()
+    public void InferAttunement_ZoneChangeBeatsAttunement()
     {
         /*
-         * RED: Will fail until Builder implements Rule 2.5.
-         *
-         * CONTRACT: Given attunement change AND zone change (no quest delta),
+         * CONTRACT: Given aetheryte targeted AND zone change (100 → 200),
          *           When Infer,
-         *           Then result.StepType == "attune" (Rule 2.5 fires before Rule 4).
-         *
-         * BUILDER GUIDANCE: Rule 2.5 (between Rule 2 and Rule 3) fires before Rule 4 (zone change).
+         *           Then Rule 4 (travel/zone change) fires — Rule 2.5 requires same zone.
+         *           Attuning does not cause zone changes; zone change means travel.
          */
 
         // Arrange
         var engine = new StepInferenceEngine();
-        var before = BaseSnapshot(zone: new ZoneId(100), lastAttuned: null);
-        var after = BaseSnapshot(zone: new ZoneId(200), lastAttuned: new AetheryteId(1000), capturedAt: T1);
+        var before = BaseSnapshot(zone: new ZoneId(100));
+        var after = BaseSnapshot(zone: new ZoneId(200), capturedAt: T1);
 
         // Act
         var result = engine.Infer(before, after);
 
-        // Assert
-        Assert.Equal("attune", result.StepType);
-        Assert.Equal(InferredFrom.AttunementChange, result.InferredFrom);
+        // Assert — Rule 4 fires (travel), not Rule 2.5 (attune)
+        Assert.Equal("travel", result.StepType);
+        Assert.Equal(InferredFrom.ZoneChange, result.InferredFrom);
     }
 
     [Fact]

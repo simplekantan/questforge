@@ -249,7 +249,7 @@ public sealed class KeyItemInferenceTests
 
         Assert.Equal("pickup-item", result.StepType);
         Assert.Equal("pickup-item-5001", result.SuggestedStepId);
-        Assert.Null(result.SuggestedExpect);
+        Assert.Equal("playerHasItem(5001)", result.SuggestedExpect);
         Assert.Equal(Confidence.Medium, result.Confidence);
         Assert.Equal(InferredFrom.DialogueInteraction, result.InferredFrom);
         Assert.Null(result.Notes);

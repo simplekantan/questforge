@@ -603,17 +603,19 @@ public sealed class InventoryHashInferenceTests
          *   Insert Rule 2.6 AFTER the Rule 2.5 block, not before it.
          */
 
-        // Arrange
+        // Arrange — use LastAethernetShardInteracted + matching LastNpcInteracted (new Rule 2.5 trigger)
         var engine = new StepInferenceEngine();
         var before = MakeSnapshot(
-            lastAttuned: null,
             inventoryHash: 1u,
             keyItems: new Dictionary<uint, int>());
         var after = MakeSnapshot(
-            lastAttuned: new AetheryteId(1000),
             inventoryHash: 2u,
             keyItems: new Dictionary<uint, int> { [2000100u] = 1 },
-            capturedAt: T1);
+            capturedAt: T1) with
+        {
+            LastAethernetShardInteracted = new AetheryteId(1000),
+            LastNpcInteracted = new NpcId(1000),
+        };
 
         // Act
         var result = engine.Infer(before, after);
