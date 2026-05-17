@@ -48,8 +48,8 @@ public sealed class AuthoringHost : IDisposable
     // Attunement polling: track aetherytes we've already seen as attuned
     private readonly HashSet<uint> _attunedAetheryteIds = new();
 
-    // Key item polling: track key item IDs we've already seen
-    private readonly HashSet<uint> _keyItemIds = new();
+    // Key item polling: track previous key item map (itemId → qty) for diff
+    private Dictionary<uint, int> _previousKeyItemsMap = new();
 
     // Passive trace dedup: suppress duplicate JSONL writes for unchanged values
     private readonly Dictionary<string, string?> _traceDedup = new();
@@ -348,32 +348,44 @@ public sealed class AuthoringHost : IDisposable
         var container = mgr->GetInventoryContainer(InventoryType.KeyItems);
         if (container == null) return;
 
-        // Build current snapshot of key items held this tick
-        var current = new HashSet<uint>();
+        var currentSlots = new List<(uint id, int qty)>(container->Size);
         for (var i = 0; i < container->Size; i++)
         {
             var slot = container->GetInventorySlot(i);
             if (slot == null || slot->ItemId == 0) continue;
-            current.Add(slot->ItemId);
+            currentSlots.Add((slot->ItemId, (int)slot->Quantity));
         }
 
-        // Diff against previous tick: detect acquisitions and hand-overs
-        var added   = current.Except(_keyItemIds).ToList();
-        var removed = _keyItemIds.Except(current).ToList();
+        var result = KeyItemPollDiff.Diff(_previousKeyItemsMap, currentSlots);
+        _previousKeyItemsMap = result.NewMap;
 
-        if (added.Count > 0)
-            _aggregator.OnKeyItemsChanged(added);
-
-        if (removed.Count > 0)
+        if (result.Changed)
         {
-            _aggregator.OnKeyItemsRemoved(removed);
-            foreach (var id in removed)
-                WriteObservationDeduped("KeyItemsRemoved", id, 0);
-        }
+            _aggregator.OnKeyItemsSnapshot(result.NewMap, result.NewHash);
 
-        // Replace previous snapshot with current
-        _keyItemIds.Clear();
-        foreach (var id in current) _keyItemIds.Add(id);
+            if (result.AddedIds.Count > 0)
+                _aggregator.OnKeyItemsChanged(result.AddedIds);
+            if (result.RemovedIds.Count > 0)
+                _aggregator.OnKeyItemsRemoved(result.RemovedIds);
+
+            if (_authoringRunId is not null)
+            {
+                try
+                {
+                    _authoringTrace.Write(new InventoryChangedEvent(
+                        RunId:   _authoringRunId,
+                        Gained:  result.Gained,
+                        Lost:    result.Lost,
+                        NewHash: result.NewHash,
+                        At:      DateTimeOffset.UtcNow));
+                }
+                catch { /* trace write failure must not affect authoring */ }
+            }
+        }
+        else
+        {
+            _aggregator.OnInventoryHashChanged(result.NewHash);
+        }
     }
 
     private void PollTargetNpc()
