@@ -451,12 +451,42 @@ qf-trace extract-quest <runId>.jsonl --quest-data ../questforge-data --out 66130
 - Extract the fixture with `qf-trace extract-fixture` (Phase 10)
 - Commit quest definition + fixture together
 
-Step types come in roughly this difficulty order:
+**Phase 11 progress — step types implemented so far:**
 
-1. `cutscene` (easy — engine just waits or skips)
-2. `pickup-item`, `interact-object` (mechanically same as `talk`)
-3. `accept`, `turn-in` (composed of dialog interactions)
-4. `combat` (depends on combat plugin)
+| Step type | Status | Phase | Notes |
+|---|---|---|---|
+| `travel` | ✅ Phase 4 | Core | Navigation via vnavmesh |
+| `talk` | ✅ Phase 4 | Core | NPC interaction + dialogue |
+| `attune` | ✅ Phase 11B | New | Aetheryte/aethernet attunement; `IsAetheryteAttuned` now reads UIState |
+| `cutscene` | ✅ Phase 11 | New | Waits on both skippable + non-skippable flags; skip handled by plugin |
+| `accept` | ✅ Phase 11 | New | Quest accept via plugin's existing AcceptQuest wiring |
+| `turn-in` | ✅ Phase 11 | New | Quest turn-in via plugin's existing CompleteQuest wiring |
+
+**Step types remaining (in difficulty order):**
+
+1. `pickup-item`, `interact-object` (mechanically same as `talk` — good first issues)
+2. `combat` (depends on WrathCombo/RSR IPC wiring)
+3. `duty` (depends on AutoDuty IPC wiring)
+4. `await-user` (UI work, conceptually simple)
+5. `use-emote`, `say-chat-message` (straightforward once interactor stubs are wired)
+6. `equip-gear-for-quest` / `equip-best-gear` / `change-job` (depends on Stylist IPC)
+7. `use-item` (multiple target variants)
+8. `use-action` (combat infrastructure + cooldown awareness)
+9. `branch` (engine HSM changes)
+10. `fragment` (composition + parameter substitution)
+11. `duty` with `kind: "spd"` (SPD retry logic, difficulty selection)
+12. `minigame` (one minigame type at a time)
+
+**Other Phase 11 work completed:**
+- `IsAetheryteAttuned` ClientStructs implementation (UIState, not PlayerState)
+- NPC quest discovery in `InteractionPanel` (targets an NPC → shows available quests by class)
+- `/qf quest <name>` search command and `/qf author stop` command
+- Lazy NPC→quest index for O(1) Lumina lookup on NPC retarget
+- 28 GitHub Issues created across three repos for backlog tracking
+- `qf-trace` CLI fully wired (all four subcommands: extract-fixture, validate-fixture, list-fixtures, extract-quest)
+- NuGet Package Source Mapping (eliminates dalamud.dev 404 errors locally and in CI)
+
+**At each step:** author quest, extract fixture, add CI coverage entry.
 5. `duty` (regular only first; SPD logic is more complex)
 6. `await-user` (UI work, but conceptually simple)
 7. `use-emote`, `say-chat-message` (straightforward)
