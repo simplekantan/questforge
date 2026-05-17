@@ -1,10 +1,14 @@
+using System.Text.Json;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using QuestForge.Adapters.Dalamud;
 using QuestForge.Adapters.Dalamud.Authoring;
 using QuestForge.Adapters.State;
+using QuestForge.Adapters;
+using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Authoring;
+using QuestForge.Engine.Tracing;
 using QuestForge.Schema;
 
 namespace QuestForge.Plugin.Authoring;
@@ -23,7 +27,12 @@ public sealed class AuthoringHost : IDisposable
     private readonly DraftManager _draftManager;
     private readonly StepInferenceEngine _inferenceEngine = new();
     private readonly IQuestState _questState;
+    private readonly string _tracesDir;
     private SnapshotAggregator _aggregator;
+
+    // Authoring trace — written alongside the draft for qf-trace compatibility
+    private ITraceWriter _authoringTrace = NullTraceWriter.Instance;
+    private string? _authoringRunId;
 
     // NPC quest cache — refreshed only when target.BaseId changes
     private uint _lastQuestQueryNpcBaseId;
@@ -74,12 +83,13 @@ public sealed class AuthoringHost : IDisposable
         return lines.ToString().TrimEnd();
     }
 
-    public AuthoringHost(PluginServices services, FileDraftStorage storage, IPluginLog log, PluginConfig config, IQuestState questState)
+    public AuthoringHost(PluginServices services, FileDraftStorage storage, IPluginLog log, PluginConfig config, IQuestState questState, string tracesDir)
     {
         _services = services;
         _log = log;
         _config = config;
         _questState = questState;
+        _tracesDir = tracesDir;
         _draftManager = new DraftManager(storage, SystemClock.Instance, TimeSpan.FromSeconds(60));
         _aggregator = new SnapshotAggregator(null, SystemClock.Instance);
 
@@ -112,7 +122,14 @@ public sealed class AuthoringHost : IDisposable
         _lastKnownQuestState.Clear();
         // Preload the draft into cache so RecordStep calls are synchronous (cache hit)
         _ = _draftManager.GetOrCreate(target, CancellationToken.None);
-        _log.Info($"QuestForge Authoring: entered Author mode for quest {target.Value}");
+
+        // Start an authoring trace alongside the draft so qf-trace can process this session
+        Directory.CreateDirectory(_tracesDir);
+        _authoringRunId = $"author-{target.Value}-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
+        _authoringTrace = TraceWriter.OpenFile(Path.Combine(_tracesDir, $"{_authoringRunId}.jsonl"));
+        _authoringTrace.Write(new RunStartEvent(_authoringRunId, target.Value, target.Value, DateTimeOffset.UtcNow));
+
+        _log.Info($"QuestForge Authoring: entered Author mode for quest {target.Value}, trace: {_authoringRunId}");
     }
 
     public void ExitAuthoring() =>
@@ -120,6 +137,13 @@ public sealed class AuthoringHost : IDisposable
 
     private void ExitAuthoringCore()
     {
+        if (_authoringRunId is not null)
+        {
+            _authoringTrace.Write(new RunEndEvent(_authoringRunId, "authored", DateTimeOffset.UtcNow));
+            (_authoringTrace as IDisposable)?.Dispose();
+            _authoringTrace = NullTraceWriter.Instance;
+            _authoringRunId = null;
+        }
         Mode = AuthoringMode.Off;
         AuthoringTarget = null;
         _log.Info("QuestForge Authoring: exited authoring mode");
@@ -173,6 +197,14 @@ public sealed class AuthoringHost : IDisposable
         draft.AddStep(draftStep, DateTimeOffset.UtcNow);
         _draftManager.MarkDirty(AuthoringTarget.Value);
         _ = _draftManager.SaveNow(AuthoringTarget.Value, CancellationToken.None); // fire-and-forget file write
+
+        if (_authoringRunId is not null)
+        {
+            var stepParams = JsonSerializer.SerializeToElement(new { stepId = finalStepId, stepType = inference.StepType }, _jsonOpts);
+            _authoringTrace.Write(new ActionSubmittedEvent(_authoringRunId, inference.StepType, stepParams, DateTimeOffset.UtcNow));
+            _authoringTrace.Write(new ActionCompletedEvent(_authoringRunId, inference.StepType, "recorded", DateTimeOffset.UtcNow));
+        }
+
         return Task.CompletedTask;
     }
 
@@ -228,6 +260,7 @@ public sealed class AuthoringHost : IDisposable
                     _aggregator.OnQuestSequenceChanged(publicId, seq);
                     RecentChange = (publicId, $"Sequence changed to {seq}", DateTimeOffset.UtcNow);
                     _lastKnownQuestState[id] = (seq, flags);
+                    WriteObservation("GetQuestSequence", publicId.Value, (int)seq);
                 }
                 else if (flags != last.Flags)
                 {
@@ -235,6 +268,7 @@ public sealed class AuthoringHost : IDisposable
                     _aggregator.OnQuestFlagsChanged(publicId, flags);
                     RecentChange = (publicId, $"Flags changed to 0x{flags:X2}", DateTimeOffset.UtcNow);
                     _lastKnownQuestState[id] = (seq, flags);
+                    WriteObservation("GetQuestFlags", publicId.Value, (int)flags);
                 }
             }
             else
@@ -342,9 +376,28 @@ public sealed class AuthoringHost : IDisposable
 
     private static QuestId ToPublicQuestId(ushort id) => new((uint)id | 0x10000u);
 
+    private static readonly JsonSerializerOptions _jsonOpts = new() { IncludeFields = true };
+
+    private void WriteObservation(string method, uint questId, int value)
+    {
+        if (_authoringRunId is null) return;
+        try
+        {
+            var arg = JsonSerializer.SerializeToElement(questId, _jsonOpts);
+            var val = JsonSerializer.SerializeToElement(value, _jsonOpts);
+            _authoringTrace.Write(new ObservationEvent(_authoringRunId, method, arg, val, DateTimeOffset.UtcNow));
+        }
+        catch { /* trace write failure must not affect authoring */ }
+    }
+
     public void Dispose()
     {
         _services.ClientState.TerritoryChanged -= OnTerritoryChanged;
         _services.Framework.Update -= OnFrameworkUpdate;
+        if (_authoringRunId is not null)
+        {
+            _authoringTrace.Write(new RunEndEvent(_authoringRunId, "disposed", DateTimeOffset.UtcNow));
+            (_authoringTrace as IDisposable)?.Dispose();
+        }
     }
 }

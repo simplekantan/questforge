@@ -74,7 +74,8 @@ public sealed class Plugin : IDalamudPlugin
         var draftsDir = Path.Combine(pi.GetPluginConfigDirectory(), "drafts");
         Directory.CreateDirectory(draftsDir);
         var draftStorage = new FileDraftStorage(draftsDir, log);
-        _authoringHost = new AuthoringHost(services, draftStorage, log, config, _host.QuestState);
+        var tracesDir = Path.Combine(pi.GetPluginConfigDirectory(), "traces");
+        _authoringHost = new AuthoringHost(services, draftStorage, log, config, _host.QuestState, tracesDir);
 
         var recordModal = new RecordStepModal(_authoringHost);
         var editModal = new StepEditModal(_authoringHost);

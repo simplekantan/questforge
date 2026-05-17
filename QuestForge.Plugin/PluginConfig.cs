@@ -8,8 +8,9 @@ public sealed class PluginConfig
     private static readonly JsonSerializerOptions _jsonOpts = new() { WriteIndented = true };
 
     /// <summary>
-    /// Whether to write trace files during runs. Off by default — traces consume disk space.
-    /// Enable with /qf config trace on, or automatically when Authoring mode is active.
+    /// Whether to write trace files during engine runs. Off by default — traces consume disk space.
+    /// Enable with /qf config trace on. Authoring mode always writes its own trace automatically
+    /// (separate from this setting) to pluginConfigs/QuestForge/traces/author-{questId}-{timestamp}.jsonl.
     /// </summary>
     public bool UserTracingEnabled { get; set; } = false;
 
