@@ -23,6 +23,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly UI.MainWindow _mainWindow;
     private readonly AuthoringSessionPanel _authoringSessionPanel;
     private readonly InteractionPanel _interactionPanel;
+    private readonly PlayerStatePanel _playerStatePanel;
+    private readonly QuestStatePanel _questStatePanel;
     private readonly QuestForge.Engine.Scheduling.QuestScheduler _scheduler;
     private readonly QuestForge.Adapters.Dalamud.Scheduling.LuminaQuestDataProvider _questData;
 
@@ -86,15 +88,17 @@ public sealed class Plugin : IDalamudPlugin
         _windowSystem.AddWindow(recordModal);
         _windowSystem.AddWindow(editModal);
         _windowSystem.AddWindow(exportDialog);
-        _windowSystem.AddWindow(new PlayerStatePanel(_authoringHost));
-        _windowSystem.AddWindow(new QuestStatePanel(_authoringHost));
+        _playerStatePanel = new PlayerStatePanel(_authoringHost);
+        _questStatePanel  = new QuestStatePanel(_authoringHost);
+        _windowSystem.AddWindow(_playerStatePanel);
+        _windowSystem.AddWindow(_questStatePanel);
         _interactionPanel = new InteractionPanel(_authoringHost, config, pi);
         _windowSystem.AddWindow(_interactionPanel);
 
         pi.UiBuilder.Draw += _windowSystem.Draw;
         pi.UiBuilder.OpenMainUi += _mainWindow.Toggle;
 
-        _command = new QfCommand(_host, _authoringHost, _authoringSessionPanel, _interactionPanel, _scheduler, _mainWindow, _questData, dataManager, gameGui, commandManager, chatGui, log, pi, config);
+        _command = new QfCommand(_host, _authoringHost, _authoringSessionPanel, _interactionPanel, _playerStatePanel, _questStatePanel, _scheduler, _mainWindow, _questData, dataManager, gameGui, commandManager, chatGui, log, pi, config);
 
         Directory.CreateDirectory(questsDir);
 

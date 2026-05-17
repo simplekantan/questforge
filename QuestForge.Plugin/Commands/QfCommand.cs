@@ -18,6 +18,8 @@ internal sealed class QfCommand : IDisposable
     private readonly AuthoringHost _authoringHost;
     private readonly AuthoringSessionPanel _authoringSessionPanel;
     private readonly InteractionPanel _interactionPanel;
+    private readonly PlayerStatePanel _playerStatePanel;
+    private readonly QuestStatePanel _questStatePanel;
     private readonly IQuestScheduler _scheduler;
     private readonly UI.MainWindow _mainWindow;
     private readonly LuminaQuestDataProvider _questData;
@@ -34,6 +36,8 @@ internal sealed class QfCommand : IDisposable
         AuthoringHost authoringHost,
         AuthoringSessionPanel authoringSessionPanel,
         InteractionPanel interactionPanel,
+        PlayerStatePanel playerStatePanel,
+        QuestStatePanel questStatePanel,
         IQuestScheduler scheduler,
         UI.MainWindow mainWindow,
         LuminaQuestDataProvider questData,
@@ -49,6 +53,8 @@ internal sealed class QfCommand : IDisposable
         _authoringHost = authoringHost;
         _authoringSessionPanel = authoringSessionPanel;
         _interactionPanel = interactionPanel;
+        _playerStatePanel = playerStatePanel;
+        _questStatePanel = questStatePanel;
         _scheduler = scheduler;
         _mainWindow = mainWindow;
         _questData = questData;
@@ -61,7 +67,7 @@ internal sealed class QfCommand : IDisposable
         _config = config;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
-            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf config trace on|off"
+            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf config trace on|off"
         });
     }
 
@@ -86,8 +92,7 @@ internal sealed class QfCommand : IDisposable
                 break;
             case "inspect":
                 _authoringHost.EnterInspectMode();
-                _authoringSessionPanel.IsOpen = true;
-                _interactionPanel.IsOpen = true;
+                OpenAllAuthoringPanels();
                 _chat.Print("QuestForge: inspect mode active — target an NPC to see available quests");
                 break;
             case "author" when parts.Length >= 2 && parts[1] == "stop":
@@ -96,6 +101,10 @@ internal sealed class QfCommand : IDisposable
                 break;
             case "author" when parts.Length >= 2:
                 HandleAuthor(parts[1]);
+                break;
+            case "author":
+                OpenAllAuthoringPanels();
+                _chat.Print("QuestForge: authoring panels opened — use /qf author <questId> to start recording");
                 break;
             case "quest" when parts.Length >= 2:
                 HandleQuestSearch(string.Join(" ", parts[1..]));
@@ -440,9 +449,16 @@ internal sealed class QfCommand : IDisposable
             return;
         }
         _authoringHost.EnterAuthorMode(new QuestId(questId));
+        OpenAllAuthoringPanels();
+        _chat.Print($"QuestForge: author mode active for quest {questId}");
+    }
+
+    private void OpenAllAuthoringPanels()
+    {
         _authoringSessionPanel.IsOpen = true;
         _interactionPanel.IsOpen = true;
-        _chat.Print($"QuestForge: author mode active for quest {questId}");
+        _playerStatePanel.IsOpen = true;
+        _questStatePanel.IsOpen = true;
     }
 
     private void PrintUsage()
