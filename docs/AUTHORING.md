@@ -175,6 +175,8 @@ A single "Record current action" button. Pressing it captures the player's most 
 | Dialogue answer changed only | `talk` | ✅ Auto-inferred |
 | NPC target changed only | `talk` (low confidence) | ✅ Auto-inferred |
 | Interacted with an EventObject | `interact-object` or `pickup-item` | Override required |
+| Key item appeared in inventory | `pickup-item` | ✅ Auto-inferred (Rule 2.3) |
+| Key item disappeared from inventory (handed over via Request addon) | `hand-over-item` | ✅ Auto-inferred (Rule 2.4) |
 | Duty entry | `duty` | Override required |
 | Used emote | `use-emote` | Override required |
 | Sent chat message | `say-chat-message` | Override required |

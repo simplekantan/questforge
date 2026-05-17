@@ -19,6 +19,8 @@ public sealed class SnapshotAggregator
     private string? _lastDialogueAnswer;
     private uint _inventoryHash;
     private AetheryteId? _lastAttuned;
+    private IReadOnlyList<uint>? _keyItemsAdded;
+    private IReadOnlyList<uint>? _keyItemsRemoved;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
     // tests inject FakeClock for deterministic CapturedAt values.
@@ -42,7 +44,8 @@ public sealed class SnapshotAggregator
         LastDialoguePrompt: _lastDialoguePrompt,
         LastDialogueAnswer: _lastDialogueAnswer,
         InventoryHash: _inventoryHash,
-        LastAttuned: _lastAttuned);
+        LastAttuned: _lastAttuned)
+    { KeyItemsAdded = _keyItemsAdded, KeyItemsRemoved = _keyItemsRemoved };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
     {
@@ -103,5 +106,24 @@ public sealed class SnapshotAggregator
     public void OnAttunementChanged(AetheryteId aetheryte)
     {
         _lastAttuned = aetheryte;
+    }
+
+    /// <summary>
+    /// Called when the key items container changes. <paramref name="added"/> contains item IDs
+    /// newly detected since the last observation. An empty list clears the field.
+    /// </summary>
+    public void OnKeyItemsChanged(IReadOnlyList<uint> added)
+    {
+        _keyItemsAdded = added.Count > 0 ? added : null;
+    }
+
+    /// <summary>
+    /// Called when key items are removed from the key items container.
+    /// <paramref name="removed"/> contains item IDs removed since the last observation.
+    /// An empty list clears the field.
+    /// </summary>
+    public void OnKeyItemsRemoved(IReadOnlyList<uint> removed)
+    {
+        _keyItemsRemoved = removed.Count > 0 ? removed : null;
     }
 }

@@ -18,4 +18,13 @@ public sealed record GameStateSnapshot(
     uint InventoryHash,
     // WHY: appended last — positional record; inserting mid-record would force churn-only edits
     // across all existing constructor call sites with no semantic benefit.
-    AetheryteId? LastAttuned);
+    AetheryteId? LastAttuned)
+{
+    // Non-positional: does not affect existing constructor call sites.
+    // Holds item IDs newly detected in the key items container since the last snapshot.
+    public IReadOnlyList<uint>? KeyItemsAdded { get; init; }
+
+    // Non-positional: does not affect existing constructor call sites.
+    // Holds item IDs removed from the key items container since the last snapshot.
+    public IReadOnlyList<uint>? KeyItemsRemoved { get; init; }
+}

@@ -141,6 +141,13 @@ public sealed class EngineTestHarness
                     EmitActionCompleted("Interact", interactResult.IsSuccess ? "Done" : "Failed");
                     break;
 
+                case EngineAction.HandOver handOver:
+                    actions.Add(action);
+                    EmitActionSubmitted("HandOver", JsonSerializer.SerializeToElement(handOver.Target, _jsonOpts));
+                    var handOverResult = await Interactor.HandOverItem(handOver.Item, handOver.Target, ct);
+                    EmitActionCompleted("HandOver", handOverResult.IsSuccess ? handOverResult.ValueOrThrow.ToString() : "Failed");
+                    break;
+
                 case EngineAction.Wait:
                     break;
 

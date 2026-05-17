@@ -38,6 +38,36 @@ public sealed class StepInferenceEngine
                 Notes: null);
         }
 
+        // Rule 2.3: Key item acquired
+        if (after.KeyItemsAdded is { Count: > 0 } newItems)
+        {
+            var itemId = newItems[0];
+            return new InferenceResult(
+                StepType: "pickup-item",
+                SuggestedStepId: $"pickup-item-{itemId}",
+                SuggestedExpect: null,
+                Confidence: Confidence.Medium,
+                InferredFrom: InferredFrom.DialogueInteraction,
+                Notes: newItems.Count > 1
+                    ? $"Multiple key items acquired: {string.Join(", ", newItems)}. Step ID uses first item ({itemId})."
+                    : null);
+        }
+
+        // Rule 2.4: Key item handed over (removed from KeyItems inventory)
+        if (after.KeyItemsRemoved is { Count: > 0 } removedItems)
+        {
+            var itemId = removedItems[0];
+            return new InferenceResult(
+                StepType: "hand-over-item",
+                SuggestedStepId: $"hand-over-item-{itemId}",
+                SuggestedExpect: null,
+                Confidence: Confidence.Medium,
+                InferredFrom: InferredFrom.DialogueInteraction,
+                Notes: removedItems.Count > 1
+                    ? $"Multiple key items removed: {string.Join(", ", removedItems)}. Step ID uses first item ({itemId})."
+                    : null);
+        }
+
         // Rule 2.5: Attunement changed (no higher-priority signal)
         if (after.LastAttuned != before.LastAttuned && after.LastAttuned.HasValue)
         {

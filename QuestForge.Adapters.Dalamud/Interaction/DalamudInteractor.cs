@@ -1,4 +1,5 @@
 using Dalamud.Game.ClientState.Objects.Enums;
+using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using QuestForge.Adapters.Interaction;
@@ -173,6 +174,55 @@ public sealed class DalamudInteractor : IInteractor
 
     public Task<Result<Unit>> UseEmote(uint emoteId, NpcId? target, CancellationToken ct)
         => Task.FromResult<Result<Unit>>(Result.Fail("notImplemented", "Phase 6 placeholder"));
+
+    public unsafe Task<Result<HandOverOutcome>> HandOverItem(ItemId item, NpcId target, CancellationToken ct)
+    {
+        var addonPtr = _svc.GameGui.GetAddonByName("Request");
+        if (addonPtr.IsNull || !addonPtr.IsReady)
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
+
+        var addon = (AtkUnitBase*)addonPtr.Address;
+        if (!addon->IsVisible || addon->AtkValuesCount < 4)
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
+
+        // AtkValue[0]=Int: items currently placed in hand-over slots (confirmed /xldata)
+        // AtkValue[3]=UInt: required item count (1 for single-item hand-overs)
+        var placedCount   = addon->AtkValues[0].Int;
+        var requiredCount = (int)addon->AtkValues[3].UInt;
+
+        if (placedCount >= requiredCount)
+        {
+            // NodeId 15 = "Hand Over" button (confirmed via /xldata on Request addon)
+            var btn = addon->GetComponentButtonById(15);
+            if (btn == null)
+                return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
+            var resNode = (AtkResNode*)btn->AtkComponentBase.OwnerNode;
+            var evt = resNode->AtkEventManager.Event;
+            if (evt == null)
+                return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
+            addon->ReceiveEvent(AtkEventType.ButtonClick, (int)evt->Param, evt);
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.HandedOver));
+        }
+
+        var mgr = InventoryManager.Instance();
+        if (mgr == null)
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
+
+        // InventoryType.HandIn (2005) = the hand-over slot container (confirmed FFXIVClientStructs)
+        var container = mgr->GetInventoryContainer(InventoryType.KeyItems);
+        if (container == null)
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
+
+        for (var i = 0; i < container->Size; i++)
+        {
+            var slot = container->GetInventorySlot(i);
+            if (slot == null || slot->ItemId != item.Value) continue;
+            mgr->MoveItemSlot(InventoryType.KeyItems, (ushort)i, InventoryType.HandIn, 0);
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemPlaced));
+        }
+
+        return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
+    }
 
     private Task<Result<Unit>> ClickAddonButton(
         string addonName, uint buttonId,

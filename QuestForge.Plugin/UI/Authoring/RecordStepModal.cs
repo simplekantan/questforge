@@ -110,7 +110,18 @@ public sealed class RecordStepModal : Window
         ImGui.InputText("##stepid", ref _editStepId, 128);
 
         ImGui.TextUnformatted("Expect (predicate):");
-        ImGui.SetNextItemWidth(300f);
+        ImGui.SetNextItemWidth(200f);
+        if (ImGui.BeginCombo("##predicatepick", "Pick predicate..."))
+        {
+            foreach (var option in BuildPredicateOptions())
+            {
+                if (ImGui.Selectable(option))
+                    _editExpect = option == "(none)" ? "" : option;
+            }
+            ImGui.EndCombo();
+        }
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(280f);
         ImGui.InputText("##expect", ref _editExpect, 256);
 
         ImGui.TextUnformatted("Notes:");
@@ -212,6 +223,32 @@ public sealed class RecordStepModal : Window
                 Target = null
             }
         };
+    }
+
+    private List<string> BuildPredicateOptions()
+    {
+        var snap = _host.CurrentSnapshot;
+        var questId = snap.ActiveQuest?.Value ?? 0;
+        var seq = snap.QuestSequence;
+        var zone = snap.Zone.Value;
+
+        var options = new List<string>
+        {
+            "(none)",
+            $"isQuestAccepted({questId})",
+            $"isQuestComplete({questId})",
+            $"questSequence({questId}) >= {seq}",
+            $"questFlag({questId}, 0)",
+            $"questFlag({questId}, 1)",
+            $"questFlag({questId}, 2)",
+            $"questFlag({questId}, 3)",
+            $"playerZone() == {zone}",
+        };
+
+        if (snap.LastAttuned.HasValue)
+            options.Add($"isAttuned({snap.LastAttuned.Value.Value})");
+
+        return options;
     }
 
     private void ResetAndClose()

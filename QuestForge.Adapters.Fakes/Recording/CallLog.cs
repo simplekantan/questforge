@@ -8,5 +8,6 @@ public sealed class CallLog<T> where T : AdapterCall
     public void Add(T call) { lock (_lock) _calls.Add(call); }
     public IReadOnlyList<T> Snapshot() { lock (_lock) return _calls.ToArray(); }
     public int Count { get { lock (_lock) return _calls.Count; } }
+    public T this[int index] { get { lock (_lock) return _calls[index]; } }
     public void Clear() { lock (_lock) _calls.Clear(); }
 }

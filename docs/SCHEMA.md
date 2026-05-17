@@ -267,6 +267,7 @@ Twenty step types, each with a clear single responsibility.
 | `talk` | Talk to an NPC, optionally with dialogue choices |
 | `interact-object` | Interact with an `EventObject` |
 | `pickup-item` | Pick up a quest item (postcondition is usually a flag, not inventory) |
+| `hand-over-item` | Hand a key item to an NPC via FFXIV's Request popup (`Target: NpcLocation`, `Item: uint` item ID) |
 | `accept` | Accept a quest from an NPC |
 | `turn-in` | Hand in a quest, including reward selection |
 | `attune` | Attune to an aetheryte or aethernet shard (`Target: AetheryteId`); use `skipIf: isAttuned(id)` for idempotency |
@@ -479,7 +480,31 @@ The dialogue references are direct pointers into FFXIV's text data sheets — st
 }
 ```
 
-### 4.7 `accept` and `turn-in`
+### 4.7 `hand-over-item`
+
+Used when a quest requires the player to physically hand a key item to an NPC via FFXIV's Request addon popup (distinct from dialogue-based turn-in).
+
+```json
+{
+  "id": "hand-over-sword-hilt",
+  "type": "hand-over-item",
+  "target": {
+    "npcId": 1003987,
+    "zone": 130,
+    "position": { "x": 21.84, "y": 7.0, "z": -81.13 }
+  },
+  "item": 2002001,
+  "expect": "questSequence(66104) >= 2"
+}
+```
+
+The engine navigates to the NPC (implied navigation from `target.position`), interacts to open the Request addon, places the item from the KeyItems inventory into slot 0 via `InventoryManager.MoveItemSlot`, then clicks the Hand Over button. On the next tick it clicks again if the item was just placed.
+
+`item` is the Lumina item ID. Use `/qf debug quest <id>` to identify key items associated with a quest.
+
+In authoring mode, handing over a key item is auto-inferred as a `hand-over-item` step (Rule 2.4) because the key item disappears from the KeyItems inventory container.
+
+### 4.8 `accept` and `turn-in`
 
 ```json
 {

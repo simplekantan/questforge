@@ -234,6 +234,13 @@ public sealed class QuestEngine
 
         AttunementStep attune => new EngineAction.Interact(new NpcId(attune.Target.Value)),
 
+        HandOverItemStep handOver =>
+            ResolveInteractOrNavigate(
+                step, handOver.Target.Position, playerPos,
+                new EngineAction.HandOver(
+                    new NpcId(handOver.Target.NpcId),
+                    new ItemId(handOver.Item))),
+
         CutsceneStep => ui.CutscenePlaying
             ? new EngineAction.Wait("cutscene playing")
             : new EngineAction.Wait("cutscene ended; awaiting sequence advance"),

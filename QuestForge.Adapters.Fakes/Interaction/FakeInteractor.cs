@@ -14,6 +14,7 @@ public sealed class FakeInteractor : IInteractor
     // One-shot scripted results
     private InteractOutcome? _nextInteractResult;
     private readonly Queue<DialogueOutcome> _dialogueSequence = new();
+    private readonly Queue<HandOverOutcome> _handOverSequence = new();
     private SpdEntryOutcome _spdResult = SpdEntryOutcome.Entered;
 
     // Per-quest callbacks fired after the default state transition
@@ -28,11 +29,13 @@ public sealed class FakeInteractor : IInteractor
     public record DialogueAdvanceCall(DateTimeOffset At) : AdapterCall(At);
     public record QuestAcceptCall(QuestId QuestId, DateTimeOffset At) : AdapterCall(At);
     public record QuestCompleteCall(QuestId QuestId, DateTimeOffset At) : AdapterCall(At);
+    public record HandOverCall(ItemId ItemId, NpcId Target, DateTimeOffset At) : AdapterCall(At);
 
     public CallLog<InteractionCall> RecordedInteractions { get; } = new();
     public CallLog<DialogueAdvanceCall> RecordedDialogueAdvances { get; } = new();
     public CallLog<QuestAcceptCall> RecordedQuestAccepts { get; } = new();
     public CallLog<QuestCompleteCall> RecordedQuestCompletes { get; } = new();
+    public CallLog<HandOverCall> RecordedHandOvers { get; } = new();
 
     public FakeInteractor(FakeGameStateProvider gameState, FakeQuestState questState)
     {
@@ -50,6 +53,13 @@ public sealed class FakeInteractor : IInteractor
             _dialogueSequence.Enqueue(o);
     }
 
+    public void ScriptHandOverSequence(params HandOverOutcome[] outcomes)
+    {
+        _handOverSequence.Clear();
+        foreach (var o in outcomes)
+            _handOverSequence.Enqueue(o);
+    }
+
     public void SetSpdResult(SpdEntryOutcome outcome) => _spdResult = outcome;
 
     public void OnAcceptQuest(QuestId quest, Action callback) => _onAcceptCallbacks[quest] = callback;
@@ -63,8 +73,10 @@ public sealed class FakeInteractor : IInteractor
         RecordedDialogueAdvances.Clear();
         RecordedQuestAccepts.Clear();
         RecordedQuestCompletes.Clear();
+        RecordedHandOvers.Clear();
         _nextInteractResult = null;
         _dialogueSequence.Clear();
+        _handOverSequence.Clear();
         _onAcceptCallbacks.Clear();
         _onCompleteCallbacks.Clear();
         _onInteractWithCallbacks.Clear();
@@ -239,6 +251,16 @@ public sealed class FakeInteractor : IInteractor
     {
         ct.ThrowIfCancellationRequested();
         return Task.FromResult<Result<Unit>>(Result.Ok());
+    }
+
+    public Task<Result<HandOverOutcome>> HandOverItem(ItemId item, NpcId target, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        RecordedHandOvers.Add(new HandOverCall(item, target, DateTimeOffset.UtcNow));
+        var outcome = _handOverSequence.Count > 0
+            ? _handOverSequence.Dequeue()
+            : HandOverOutcome.HandedOver;
+        return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(outcome));
     }
 
     private InteractOutcome ConsumeInteractResult()

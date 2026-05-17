@@ -54,6 +54,9 @@ public interface IInteractor
     // Chat and emotes (non-standard interactions, often NPC-targeted)
     Task<Result<Unit>> SendChatMessage(ChatChannel channel, string messageSheetReference, CancellationToken ct);
     Task<Result<Unit>> UseEmote(uint emoteId, NpcId? target, CancellationToken ct);
+
+    // Item hand-over (Quest Request addon)
+    Task<Result<HandOverOutcome>> HandOverItem(ItemId item, NpcId target, CancellationToken ct);
 }
 
 public enum InteractOutcome
@@ -114,6 +117,14 @@ public sealed record AsNpc(NpcId Id) : InteractableOrNpc;
 public sealed record AsObject(InteractableId Id) : InteractableOrNpc;
 
 public enum ChatChannel { Say, Yell, Shout }
+
+public enum HandOverOutcome
+{
+    ItemPlaced,
+    HandedOver,
+    NoDialog,
+    ItemNotFound
+}
 
 // DutyFallbackPolicy is an engine-level config concern (EngineDecisionConfig),
 // not an adapter concern. It lives in QuestForge.Engine (Phase 4).

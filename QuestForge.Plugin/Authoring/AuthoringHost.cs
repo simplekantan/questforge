@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using QuestForge.Adapters.Dalamud;
 using QuestForge.Adapters.Dalamud.Authoring;
 using QuestForge.Adapters.State;
@@ -43,6 +44,15 @@ public sealed class AuthoringHost : IDisposable
     private readonly Dictionary<ushort, (byte Seq, byte Flags)> _lastKnownQuestState = new();
     private DateTimeOffset _lastHeartbeatAt = DateTimeOffset.MinValue;
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromMilliseconds(250);
+
+    // Attunement polling: track aetherytes we've already seen as attuned
+    private readonly HashSet<uint> _attunedAetheryteIds = new();
+
+    // Key item polling: track key item IDs we've already seen
+    private readonly HashSet<uint> _keyItemIds = new();
+
+    // Passive trace dedup: suppress duplicate JSONL writes for unchanged values
+    private readonly Dictionary<string, string?> _traceDedup = new();
 
     public AuthoringMode Mode { get; private set; } = AuthoringMode.Off;
     public QuestId? AuthoringTarget { get; private set; }
@@ -226,6 +236,8 @@ public sealed class AuthoringHost : IDisposable
 
         PollPlayerPosition();
         PollQuestState();
+        PollAttunement();
+        PollKeyItems();
         PollTargetNpc();
     }
 
@@ -236,6 +248,7 @@ public sealed class AuthoringHost : IDisposable
 
         var p = local.Position;
         _aggregator.OnPlayerMoved(new WorldPosition(p.X, p.Y, p.Z));
+        WriteObservationDeduped("GetPlayerPosition", 0, new { x = p.X, y = p.Y, z = p.Z });
     }
 
     private unsafe void PollQuestState()
@@ -260,7 +273,6 @@ public sealed class AuthoringHost : IDisposable
                     _aggregator.OnQuestSequenceChanged(publicId, seq);
                     RecentChange = (publicId, $"Sequence changed to {seq}", DateTimeOffset.UtcNow);
                     _lastKnownQuestState[id] = (seq, flags);
-                    WriteObservation("GetQuestSequence", publicId.Value, (int)seq);
                 }
                 else if (flags != last.Flags)
                 {
@@ -268,17 +280,78 @@ public sealed class AuthoringHost : IDisposable
                     _aggregator.OnQuestFlagsChanged(publicId, flags);
                     RecentChange = (publicId, $"Flags changed to 0x{flags:X2}", DateTimeOffset.UtcNow);
                     _lastKnownQuestState[id] = (seq, flags);
-                    WriteObservation("GetQuestFlags", publicId.Value, (int)flags);
                 }
             }
             else
             {
                 _lastKnownQuestState[id] = (seq, flags);
                 var publicId = ToPublicQuestId(id);
+                _aggregator.OnQuestAccepted(publicId);
                 _aggregator.OnQuestSequenceChanged(publicId, seq);
                 _aggregator.OnQuestFlagsChanged(publicId, flags);
             }
+
+            // Passive trace — dedup suppresses redundant JSONL writes
+            {
+                var publicId = ToPublicQuestId(id);
+                WriteObservationDeduped("GetQuestSequence", publicId.Value, (int)seq);
+                WriteObservationDeduped("GetQuestFlags", publicId.Value, (int)flags);
+            }
         }
+    }
+
+    private unsafe void PollAttunement()
+    {
+        var uiState = UIState.Instance();
+        if (uiState == null) return;
+        var aetheryteSheet = _services.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Aetheryte>();
+        if (aetheryteSheet == null) return;
+        foreach (var row in aetheryteSheet)
+        {
+            if (row.RowId == 0) continue;
+            if (_attunedAetheryteIds.Contains(row.RowId)) continue;
+            if (uiState->IsAetheryteUnlocked(row.RowId))
+            {
+                _attunedAetheryteIds.Add(row.RowId);
+                _aggregator.OnAttunementChanged(new QuestForge.Adapters.Types.AetheryteId(row.RowId));
+                WriteObservationDeduped("IsAetheryteAttuned", row.RowId, 1);
+            }
+        }
+    }
+
+    private unsafe void PollKeyItems()
+    {
+        var mgr = InventoryManager.Instance();
+        if (mgr == null) return;
+        var container = mgr->GetInventoryContainer(InventoryType.KeyItems);
+        if (container == null) return;
+
+        // Build current snapshot of key items held this tick
+        var current = new HashSet<uint>();
+        for (var i = 0; i < container->Size; i++)
+        {
+            var slot = container->GetInventorySlot(i);
+            if (slot == null || slot->ItemId == 0) continue;
+            current.Add(slot->ItemId);
+        }
+
+        // Diff against previous tick: detect acquisitions and hand-overs
+        var added   = current.Except(_keyItemIds).ToList();
+        var removed = _keyItemIds.Except(current).ToList();
+
+        if (added.Count > 0)
+            _aggregator.OnKeyItemsChanged(added);
+
+        if (removed.Count > 0)
+        {
+            _aggregator.OnKeyItemsRemoved(removed);
+            foreach (var id in removed)
+                WriteObservationDeduped("KeyItemsRemoved", id, 0);
+        }
+
+        // Replace previous snapshot with current
+        _keyItemIds.Clear();
+        foreach (var id in current) _keyItemIds.Add(id);
     }
 
     private void PollTargetNpc()
@@ -300,6 +373,7 @@ public sealed class AuthoringHost : IDisposable
         var p = target.Position;
         var npcPos = new WorldPosition(p.X, p.Y, p.Z);
         _aggregator.OnInteraction(npcId, npcPos);
+        WriteObservationDeduped("GetTarget", 0, target.BaseId);
 
         UpdateNpcQuestCache(target.BaseId);
     }
@@ -378,14 +452,18 @@ public sealed class AuthoringHost : IDisposable
 
     private static readonly JsonSerializerOptions _jsonOpts = new() { IncludeFields = true };
 
-    private void WriteObservation(string method, uint questId, int value)
+    private void WriteObservationDeduped(string method, object argument, object value)
     {
         if (_authoringRunId is null) return;
         try
         {
-            var arg = JsonSerializer.SerializeToElement(questId, _jsonOpts);
-            var val = JsonSerializer.SerializeToElement(value, _jsonOpts);
-            _authoringTrace.Write(new ObservationEvent(_authoringRunId, method, arg, val, DateTimeOffset.UtcNow));
+            var argEl = JsonSerializer.SerializeToElement(argument, _jsonOpts);
+            var valEl = JsonSerializer.SerializeToElement(value, _jsonOpts);
+            var dedupKey = $"{method}:{argEl.GetRawText()}";
+            var valJson = valEl.GetRawText();
+            if (_traceDedup.TryGetValue(dedupKey, out var prev) && prev == valJson) return;
+            _traceDedup[dedupKey] = valJson;
+            _authoringTrace.Write(new ObservationEvent(_authoringRunId, method, argEl, valEl, DateTimeOffset.UtcNow));
         }
         catch { /* trace write failure must not affect authoring */ }
     }

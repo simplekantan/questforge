@@ -683,4 +683,160 @@ public class RoundTripTests
         var any = Assert.IsType<AnyExpect>(result.Expect);
         Assert.Equal(2, any.Any.Length);
     }
+
+    // =========================================================================
+    // B8 — HandOverItemStep schema round-trip tests (RED PHASE)
+    // All tests in this group will fail to compile until Builder implements
+    // HandOverItemStep in QuestForge.Schema (Step.cs + QuestForgeJsonContext.cs).
+    // =========================================================================
+
+    /// <summary>
+    /// B8 — HandOverItemStep round-trips through JSON with correct NpcId, Item, and Expect.
+    /// </summary>
+    [Fact]
+    public void HandOverItemStep_RoundTrips()
+    {
+        /*
+         * RED: Will fail to compile until Builder implements HandOverItemStep.
+         *
+         * CONTRACT: Given a HandOverItemStep with Target.NpcId==1003987, Item==2002001,
+         *             and Expect="isQuestComplete(12345)",
+         *           When serialized as Step and deserialized back,
+         *           Then result is HandOverItemStep with:
+         *             Target.NpcId == 1003987u
+         *             Item         == 2002001u
+         *             Expect is PredicateExpect with Predicate == "isQuestComplete(12345)"
+         *
+         * BUILDER GUIDANCE:
+         *   1. Add HandOverItemStep class to Step.cs inheriting Step with:
+         *        public NpcLocation Target { get; init; } = default!;
+         *        public uint Item { get; init; }
+         *   2. Add [JsonDerivedType(typeof(HandOverItemStep), "hand-over-item")] to Step.
+         *   3. Add [JsonSerializable(typeof(HandOverItemStep))] to QuestForgeJsonContext.
+         */
+
+        // Arrange
+        var step = new HandOverItemStep   // RED: type does not exist yet
+        {
+            Id     = "hand-over-letter",
+            Target = new NpcLocation(NpcId: 1003987, Zone: 182, Position: new Position3(35.56f, 4f, -151.18f)),
+            Item   = 2002001u,
+            Expect = new PredicateExpect { Predicate = "isQuestComplete(12345)" }
+        };
+
+        // Act
+        var result = RoundTrip(step);   // RED: RoundTrip<HandOverItemStep> won't resolve yet
+
+        // Assert
+        Assert.Equal(1003987u, result.Target.NpcId);
+        Assert.Equal(2002001u, result.Item);
+        var expect = Assert.IsType<PredicateExpect>(result.Expect);
+        Assert.Equal("isQuestComplete(12345)", expect.Predicate);
+    }
+
+    /// <summary>
+    /// B8b — serialized JSON contains the "hand-over-item" type discriminator.
+    /// </summary>
+    [Fact]
+    public void HandOverItemStep_SerializedJson_ContainsDiscriminator()
+    {
+        /*
+         * RED: Will fail to compile until Builder implements HandOverItemStep.
+         *
+         * CONTRACT: Given a HandOverItemStep instance,
+         *           When serialized via QuestForgeJsonContext.QuestFileOptions,
+         *           Then the JSON contains the literal token "type":"hand-over-item"
+         *                (compact, robust against indentation).
+         */
+
+        // Arrange
+        var step = new HandOverItemStep   // RED: type does not exist yet
+        {
+            Id     = "hand-over-letter",
+            Target = new NpcLocation(NpcId: 1003987, Zone: 182, Position: new Position3(35.56f, 4f, -151.18f)),
+            Item   = 2002001u
+        };
+
+        // Act
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(
+            step, QuestForgeJsonContext.QuestFileOptions);
+
+        // Assert — discriminator token present
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"type\":\"hand-over-item\"", compactJson, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// B8c — missing "item" field in JSON deserializes to Item == 0u (no exception).
+    /// </summary>
+    [Fact]
+    public void HandOverItemStep_MissingItemField_DefaultsToZero()
+    {
+        /*
+         * RED: Will fail to compile until Builder implements HandOverItemStep.
+         *
+         * CONTRACT: Given JSON with type "hand-over-item" but no "item" field,
+         *           When deserialized,
+         *           Then Item == 0u and no exception is thrown.
+         *           Structural validation is the validator's job, not the deserializer's.
+         *
+         * BUILDER GUIDANCE: Use { get; init; } with no [JsonRequired]. Missing fields
+         *   default to the uint default value (0u).
+         */
+
+        // Arrange
+        var json = """
+            {
+              "type": "hand-over-item",
+              "id": "hand-over-missing-item",
+              "target": {
+                "npcId": 1003987,
+                "zone": 182,
+                "position": { "x": 35.56, "y": 4.0, "z": -151.18 }
+              }
+            }
+            """;
+
+        // Act
+        var step = System.Text.Json.JsonSerializer.Deserialize<Step>(
+            json, QuestForgeJsonContext.QuestFileOptions);
+
+        // Assert — no exception; Item defaults to 0u
+        var handOver = Assert.IsType<HandOverItemStep>(step);   // RED: type does not exist yet
+        Assert.Equal(0u, handOver.Item);
+    }
+
+    /// <summary>
+    /// B8d — StopDistance round-trips: 7.5f survives serialize/deserialize.
+    /// </summary>
+    [Fact]
+    public void HandOverItemStep_StopDistance_RoundTrips()
+    {
+        /*
+         * RED: Will fail to compile until Builder implements HandOverItemStep.
+         *
+         * CONTRACT: Given HandOverItemStep with StopDistance=7.5f,
+         *           When round-tripped through JSON,
+         *           Then result.StopDistance == 7.5f.
+         *
+         * BUILDER GUIDANCE: StopDistance is defined on the base Step class (already present).
+         *   No additional work needed beyond registering HandOverItemStep. This test locks
+         *   that the base-class property serializes correctly for the new subtype.
+         */
+
+        // Arrange
+        var step = new HandOverItemStep   // RED: type does not exist yet
+        {
+            Id           = "hand-over-letter",
+            Target       = new NpcLocation(NpcId: 1003987, Zone: 182, Position: new Position3(35.56f, 4f, -151.18f)),
+            Item         = 2002001u,
+            StopDistance = 7.5f
+        };
+
+        // Act
+        var result = RoundTrip(step);
+
+        // Assert
+        Assert.Equal(7.5f, result.StopDistance);
+    }
 }

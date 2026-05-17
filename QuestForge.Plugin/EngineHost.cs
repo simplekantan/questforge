@@ -228,6 +228,17 @@ public sealed class EngineHost : IDisposable
                 await _interactor.CompleteQuest(_currentQuestId, ct);
                 break;
 
+            case EngineAction.HandOver h:
+                DebounceLog($"handover:{h.Target.Value}:{h.Item.Value}",
+                    $"[HandOver] npc={h.Target.Value} item={h.Item.Value}");
+                TryCutsceneSkipConfirm();
+                await _interactor.InteractWith(h.Target, ct);
+                await _interactor.AdvanceDialogue(ct);
+                // Places item in Request addon slot then clicks Hand Over button.
+                // Returns NoDialog if the addon is not yet open — engine will retry next tick.
+                await _interactor.HandOverItem(h.Item, h.Target, ct);
+                break;
+
             case EngineAction.Wait:
                 // Engine is satisfied with step state but waiting for the game to advance
                 // sequence (e.g. Talk addon still open after interact). Keep clicking through.

@@ -30,6 +30,7 @@ namespace QuestForge.Schema;
 [JsonDerivedType(typeof(BranchStep),            "branch")]
 [JsonDerivedType(typeof(FragmentStep),          "fragment")]
 [JsonDerivedType(typeof(AttunementStep),        "attune")]
+[JsonDerivedType(typeof(HandOverItemStep),      "hand-over-item")]
 public class Step
 {
     public string Id { get; init; } = default!;
@@ -177,4 +178,10 @@ public class AttunementStep : Step
     /// to ensure the player is close enough.
     /// </summary>
     public NpcLocation? Location { get; init; }
+}
+
+public class HandOverItemStep : Step
+{
+    public NpcLocation Target { get; init; } = default!;
+    public uint Item { get; init; }
 }
