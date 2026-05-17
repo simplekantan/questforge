@@ -162,7 +162,13 @@ public sealed class AuthoringHost : IDisposable
     // --- Record workflow ---
 
     /// <summary>Captures the current snapshot as the "before" for the next Record.</summary>
-    public GameStateSnapshot OpenRecordModal() => _aggregator.Current;
+    public GameStateSnapshot OpenRecordModal()
+    {
+        // Reset per-action delta signals so stale KeyItemsAdded/Removed from a previous
+        // step don't bleed into the new inference window.
+        _aggregator.ResetDeltas();
+        return _aggregator.Current;
+    }
 
     /// <summary>
     /// Captures "after" snapshot, calls inference, returns the suggestion for the modal to display.

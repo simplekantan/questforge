@@ -126,4 +126,16 @@ public sealed class SnapshotAggregator
     {
         _keyItemsRemoved = removed.Count > 0 ? removed : null;
     }
+
+    /// <summary>
+    /// Clears per-action delta signals (KeyItemsAdded, KeyItemsRemoved) so the next
+    /// "before" snapshot starts clean. Call this when capturing the before snapshot
+    /// at the start of each Record cycle to prevent stale deltas from bleeding into
+    /// subsequent inference windows.
+    /// </summary>
+    public void ResetDeltas()
+    {
+        _keyItemsAdded = null;
+        _keyItemsRemoved = null;
+    }
 }
