@@ -18,6 +18,87 @@ public sealed class KeyItemInferenceTests
     private static readonly DateTimeOffset T1 = T0.AddSeconds(30);
 
     // =========================================================================
+    // GameStateSnapshot — KeyItems property (new in Phase 12)
+    // =========================================================================
+
+    [Fact]
+    public void GameStateSnapshot_KeyItems_IsNullByDefault()
+    {
+        /*
+         * RED: Will fail until Builder adds the KeyItems init property to GameStateSnapshot.
+         *
+         * CONTRACT: A snapshot constructed without the KeyItems init property leaves
+         *           KeyItems null (production mode — hash-only path).
+         *
+         * BUILDER GUIDANCE: Add
+         *   public IReadOnlyDictionary<uint,int>? KeyItems { get; init; }
+         *   as a non-positional init property on GameStateSnapshot, similar to
+         *   KeyItemsAdded and KeyItemsRemoved already present.
+         */
+
+        // Arrange + Act
+        var snapshot = new GameStateSnapshot(
+            CapturedAt: T0,
+            Zone: new ZoneId(100),
+            Position: new WorldPosition(0, 0, 0),
+            ActiveQuest: ActiveQuest,
+            QuestSequence: 0,
+            QuestFlags: 0,
+            QuestAccepted: false,
+            QuestCompleted: false,
+            LastNpcInteracted: null,
+            LastNpcPosition: null,
+            LastDialoguePrompt: null,
+            LastDialogueAnswer: null,
+            InventoryHash: 0,
+            LastAttuned: null);
+
+        // Assert
+        Assert.Null(snapshot.KeyItems);
+    }
+
+    [Fact]
+    public void GameStateSnapshot_KeyItems_CanBeSetViaObjectInitializer()
+    {
+        /*
+         * RED: Will fail until Builder adds the KeyItems init property to GameStateSnapshot.
+         *
+         * CONTRACT: The KeyItems init property can be set via object-initializer syntax.
+         *           The stored value is accessible and contains the expected entries.
+         *
+         * BUILDER GUIDANCE: The { KeyItems = ... } object initializer syntax works because
+         *   the property is declared as `init`. No constructor change needed.
+         */
+
+        // Arrange
+        var items = new Dictionary<uint, int> { [2000100u] = 1, [2000200u] = 3 };
+
+        // Act
+        var snapshot = new GameStateSnapshot(
+            CapturedAt: T0,
+            Zone: new ZoneId(100),
+            Position: new WorldPosition(0, 0, 0),
+            ActiveQuest: ActiveQuest,
+            QuestSequence: 0,
+            QuestFlags: 0,
+            QuestAccepted: false,
+            QuestCompleted: false,
+            LastNpcInteracted: null,
+            LastNpcPosition: null,
+            LastDialoguePrompt: null,
+            LastDialogueAnswer: null,
+            InventoryHash: 0,
+            LastAttuned: null)
+        { KeyItems = items };
+
+        // Assert
+        Assert.NotNull(snapshot.KeyItems);
+        Assert.Equal(2, snapshot.KeyItems!.Count);
+        Assert.Equal(1, snapshot.KeyItems![2000100u]);
+        Assert.Equal(3, snapshot.KeyItems![2000200u]);
+    }
+
+    // =========================================================================
     // GameStateSnapshot — KeyItemsAdded property
     // =========================================================================
 

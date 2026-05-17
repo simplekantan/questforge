@@ -9,6 +9,7 @@ namespace QuestForge.Adapters.Tracing;
 [JsonDerivedType(typeof(DecisionEvent),        "decision")]
 [JsonDerivedType(typeof(ActionSubmittedEvent), "action.submitted")]
 [JsonDerivedType(typeof(ActionCompletedEvent), "action.completed")]
+[JsonDerivedType(typeof(InventoryChangedEvent), "inventory.changed")]
 public abstract record TraceEvent(DateTimeOffset At)
 {
     // Type is not a positional parameter — the STJ discriminator handles "type" in JSON.

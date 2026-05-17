@@ -21,6 +21,10 @@ public sealed record GameStateSnapshot(
     AetheryteId? LastAttuned)
 {
     // Non-positional: does not affect existing constructor call sites.
+    // Full key item map snapshot (authoring mode only — null in production/hash-only mode).
+    public IReadOnlyDictionary<uint, int>? KeyItems { get; init; }
+
+    // Non-positional: does not affect existing constructor call sites.
     // Holds item IDs newly detected in the key items container since the last snapshot.
     public IReadOnlyList<uint>? KeyItemsAdded { get; init; }
 

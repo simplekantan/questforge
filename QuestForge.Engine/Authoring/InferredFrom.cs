@@ -11,5 +11,6 @@ public enum InferredFrom
     AttunementChange,
     MovementChange,
     Manual,
-    None
+    None,
+    InventoryChange
 }

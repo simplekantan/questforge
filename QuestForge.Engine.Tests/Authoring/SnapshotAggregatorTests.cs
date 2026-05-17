@@ -201,6 +201,149 @@ public sealed class SnapshotAggregatorTests
     }
 
     // =========================================================================
+    // Phase 12 — SnapshotAggregator key-item inventory snapshot tests
+    // =========================================================================
+
+    [Fact]
+    public void OnKeyItemsSnapshot_PopulatesKeyItemsAndHash()
+    {
+        /*
+         * RED: Will fail until Builder implements OnKeyItemsSnapshot.
+         *
+         * CONTRACT: Given aggregator with no key-item state,
+         *           When OnKeyItemsSnapshot({ 2000100 → 1 }, hash=0xABCDu) is called,
+         *           Then Current.KeyItems contains { 2000100 → 1 }
+         *                and Current.InventoryHash == 0xABCDu.
+         *
+         * BUILDER GUIDANCE: OnKeyItemsSnapshot stores both the full map and the pre-computed hash.
+         *   Current.KeyItems is a new IReadOnlyDictionary<uint,int>? init property.
+         */
+
+        // Arrange
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+        var map = new Dictionary<uint, int> { [2000100u] = 1 };
+
+        // Act
+        aggregator.OnKeyItemsSnapshot(map, 0xABCDu);
+
+        // Assert
+        Assert.NotNull(aggregator.Current.KeyItems);
+        Assert.True(aggregator.Current.KeyItems!.ContainsKey(2000100u));
+        Assert.Equal(1, aggregator.Current.KeyItems![2000100u]);
+        Assert.Equal(0xABCDu, aggregator.Current.InventoryHash);
+    }
+
+    [Fact]
+    public void OnKeyItemsSnapshot_EmptyMap_ClearsKeyItemsButSetsHash()
+    {
+        /*
+         * RED: Will fail until Builder implements OnKeyItemsSnapshot.
+         *
+         * CONTRACT: Given aggregator after a previous OnKeyItemsSnapshot call,
+         *           When OnKeyItemsSnapshot({}, OffsetBasis) is called with an empty map,
+         *           Then Current.KeyItems == null (or empty; no entries remain)
+         *                and Current.InventoryHash == OffsetBasis (0x811C9DC5).
+         *
+         * BUILDER GUIDANCE: An empty map means no key items are held. Store null (or empty dict).
+         *   The hash for an empty map equals KeyItemHasher.OffsetBasis.
+         */
+
+        // Arrange
+        const uint OffsetBasis = 0x811C9DC5u;
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+        aggregator.OnKeyItemsSnapshot(new Dictionary<uint, int> { [2000100u] = 1 }, 0xABCDu);
+
+        // Act — replace with empty
+        aggregator.OnKeyItemsSnapshot(new Dictionary<uint, int>(), OffsetBasis);
+
+        // Assert
+        // KeyItems null signals "no key items in authoring mode snapshot"
+        Assert.Null(aggregator.Current.KeyItems);
+        Assert.Equal(OffsetBasis, aggregator.Current.InventoryHash);
+    }
+
+    [Fact]
+    public void OnKeyItemsSnapshot_DoesNotAffectDeltaLists()
+    {
+        /*
+         * RED: Will fail until Builder implements OnKeyItemsSnapshot.
+         *
+         * CONTRACT: Given aggregator with KeyItemsAdded=[1001u] from a prior OnKeyItemsChanged call,
+         *           When OnKeyItemsSnapshot is called,
+         *           Then Current.KeyItemsAdded remains unchanged (still [1001u]).
+         *
+         * BUILDER GUIDANCE: OnKeyItemsSnapshot updates the snapshot map and hash only.
+         *   It must NOT touch _keyItemsAdded or _keyItemsRemoved.
+         */
+
+        // Arrange
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+        aggregator.OnKeyItemsChanged(new List<uint> { 1001u });
+
+        // Act
+        aggregator.OnKeyItemsSnapshot(new Dictionary<uint, int> { [2000100u] = 1 }, 0x1234u);
+
+        // Assert — delta list must be intact
+        Assert.NotNull(aggregator.Current.KeyItemsAdded);
+        var item = Assert.Single(aggregator.Current.KeyItemsAdded!);
+        Assert.Equal(1001u, item);
+    }
+
+    [Fact]
+    public void ResetDeltas_DoesNotClearKeyItems()
+    {
+        /*
+         * RED: Will fail until Builder implements OnKeyItemsSnapshot
+         *      and confirms ResetDeltas does NOT touch the KeyItems map.
+         *
+         * CONTRACT: Given aggregator after OnKeyItemsSnapshot({ 2000100 → 1 }, hash),
+         *           When ResetDeltas() is called,
+         *           Then Current.KeyItems is still non-null with the same entry.
+         *
+         * BUILDER GUIDANCE: ResetDeltas clears _keyItemsAdded and _keyItemsRemoved only.
+         *   The _keyItemsMap (full snapshot) persists so the next poll can diff against it.
+         */
+
+        // Arrange
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+        aggregator.OnKeyItemsSnapshot(new Dictionary<uint, int> { [2000100u] = 1 }, 0xABCDu);
+
+        // Act
+        aggregator.ResetDeltas();
+
+        // Assert
+        Assert.NotNull(aggregator.Current.KeyItems);
+        Assert.Equal(1, aggregator.Current.KeyItems![2000100u]);
+    }
+
+    [Fact]
+    public void OnInventoryHashChanged_UpdatesHashOnly_LeavesKeyItemsNull()
+    {
+        /*
+         * RED: Will fail until Builder implements OnInventoryHashChanged.
+         *
+         * CONTRACT: Given a fresh aggregator (no OnKeyItemsSnapshot called),
+         *           When OnInventoryHashChanged(0x9999u) is called,
+         *           Then Current.InventoryHash == 0x9999u
+         *                and Current.KeyItems == null (production mode — hash-only).
+         *
+         * BUILDER GUIDANCE: OnInventoryHashChanged is the production-mode path; it only updates
+         *   _inventoryHash. KeyItems remains null because the full map is never populated
+         *   outside authoring mode.
+         */
+
+        // Arrange
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+
+        // Act
+        aggregator.OnInventoryHashChanged(0x9999u);
+
+        // Assert
+        Assert.Equal(0x9999u, aggregator.Current.InventoryHash);
+        Assert.Null(aggregator.Current.KeyItems);
+    }
+
+    // =========================================================================
     // Scenario 45 — SnapshotAggregator_OnQuestAccepted_SetsAcceptedFlag
     // =========================================================================
     [Fact]

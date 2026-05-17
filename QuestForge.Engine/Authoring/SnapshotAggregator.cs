@@ -22,6 +22,7 @@ public sealed class SnapshotAggregator
     private IReadOnlyList<uint>? _keyItemsAdded;
     private IReadOnlyList<uint>? _keyItemsRemoved;
     private AetheryteId? _lastAethernetShardInteracted;
+    private IReadOnlyDictionary<uint, int>? _keyItems;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
     // tests inject FakeClock for deterministic CapturedAt values.
@@ -47,6 +48,7 @@ public sealed class SnapshotAggregator
         InventoryHash: _inventoryHash,
         LastAttuned: _lastAttuned)
     {
+        KeyItems = _keyItems,
         KeyItemsAdded = _keyItemsAdded,
         KeyItemsRemoved = _keyItemsRemoved,
         LastAethernetShardInteracted = _lastAethernetShardInteracted
@@ -102,6 +104,26 @@ public sealed class SnapshotAggregator
     public void OnInventoryChanged(uint inventoryHash)
     {
         _inventoryHash = inventoryHash;
+    }
+
+    /// <summary>
+    /// Called when a full key item snapshot is available (authoring mode).
+    /// Stores the full map for diff-based inference and the pre-computed hash.
+    /// Does NOT affect delta lists (KeyItemsAdded / KeyItemsRemoved).
+    /// </summary>
+    public void OnKeyItemsSnapshot(IReadOnlyDictionary<uint, int> items, uint hash)
+    {
+        _keyItems = items.Count > 0 ? items : null;
+        _inventoryHash = hash;
+    }
+
+    /// <summary>
+    /// Called in production mode when only the hash is available (no full map).
+    /// Updates InventoryHash without touching KeyItems.
+    /// </summary>
+    public void OnInventoryHashChanged(uint hash)
+    {
+        _inventoryHash = hash;
     }
 
     /// <summary>

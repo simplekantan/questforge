@@ -81,6 +81,82 @@ public sealed class StepInferenceEngine
                 Notes: null);
         }
 
+        // Rule 2.6: Inventory hash diff (authoring mode — full map available)
+        if (after.InventoryHash != before.InventoryHash
+            && before.InventoryHash != 0u
+            && after.InventoryHash != 0u
+            && before.KeyItems is not null
+            && after.KeyItems is not null)
+        {
+            // Diff before vs after KeyItems
+            var gained = new List<(uint ItemId, int Qty)>();
+            var lost = new List<(uint ItemId, int Qty)>();
+
+            foreach (var kvp in after.KeyItems)
+            {
+                if (before.KeyItems.TryGetValue(kvp.Key, out var prevQty))
+                {
+                    if (kvp.Value > prevQty)
+                        gained.Add((kvp.Key, kvp.Value - prevQty));
+                }
+                else
+                {
+                    gained.Add((kvp.Key, kvp.Value));
+                }
+            }
+
+            foreach (var kvp in before.KeyItems)
+            {
+                if (after.KeyItems.TryGetValue(kvp.Key, out var newQty))
+                {
+                    if (newQty < kvp.Value)
+                        lost.Add((kvp.Key, kvp.Value - newQty));
+                }
+                else
+                {
+                    lost.Add((kvp.Key, kvp.Value));
+                }
+            }
+
+            if (gained.Count == 0 && lost.Count == 0)
+            {
+                // hash collision or caller error: hashes differed but maps are equal — fall through
+            }
+            else
+            {
+                string stepType;
+                string stepId;
+                string expect;
+                string? notes = null;
+
+                if (gained.Count > 0 && lost.Count == 0)
+                {
+                    stepType = "pickup-item";
+                    stepId   = $"pickup-item-{gained[0].ItemId}";
+                    expect   = $"playerHasItem({gained[0].ItemId})";
+                }
+                else if (lost.Count > 0 && gained.Count == 0)
+                {
+                    stepType = "hand-over-item";
+                    stepId   = $"hand-over-item-{lost[0].ItemId}";
+                    expect   = $"not(playerHasItem({lost[0].ItemId}))";
+                }
+                else
+                {
+                    stepType = "talk";
+                    stepId   = $"exchange-{lost[0].ItemId}-for-{gained[0].ItemId}";
+                    expect   = string.Join(" and ",
+                        gained.Select(g => $"playerHasItem({g.ItemId})")
+                        .Concat(lost.Select(l => $"not(playerHasItem({l.ItemId}))")));
+                }
+
+                if (gained.Count + lost.Count > 1)
+                    notes = $"Inventory changed: gained {gained.Count} item(s) [{string.Join(",", gained.Select(g => g.ItemId))}], lost {lost.Count} item(s) [{string.Join(",", lost.Select(l => l.ItemId))}].";
+
+                return new InferenceResult(stepType, stepId, expect, Confidence.Medium, InferredFrom.InventoryChange, notes);
+            }
+        }
+
         // Rule 3: QuestSequence advanced
         if (after.QuestSequence > before.QuestSequence)
         {
