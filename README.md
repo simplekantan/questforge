@@ -41,7 +41,10 @@ QuestForge works on FFXIV for Windows with the [Dalamud](https://goatcorp.github
 | `/qf author stop` | Exit authoring mode |
 | `/qf quest <name>` | Search for a quest by name — shows ID, level, and availability |
 | `/qf config trace on\|off` | Enable or disable trace recording |
-| `/qf debug quest <id>` | Print Lumina data for a quest (authoring aid) |
+| `/qf debug quest <id>` | Print Lumina data for a quest — name, level, class/job coverage, prereqs |
+| `/qf debug offered-quest` | Read the open JournalAccept window to identify the offered quest ID without accepting |
+| `/qf debug target` | Dump the current target's ObjectKind, BaseId, and NPC quest index state |
+| `/qf debug addon <name>` | Dump the first 30 AtkValues of any open UI addon (e.g. `JournalAccept`) |
 
 ---
 

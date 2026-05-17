@@ -485,6 +485,8 @@ qf-trace extract-quest <runId>.jsonl --quest-data ../questforge-data --out 66130
 - 28 GitHub Issues created across three repos for backlog tracking
 - `qf-trace` CLI fully wired (all four subcommands: extract-fixture, validate-fixture, list-fixtures, extract-quest)
 - NuGet Package Source Mapping (eliminates dalamud.dev 404 errors locally and in CI)
+- Debug commands for authoring: `/qf debug addon <name>` (AtkValue dump), `/qf debug offered-quest` (reads JournalAccept AtkValue[261] to identify offered quest ID without accepting), `/qf debug target` (NPC/quest-index diagnostics), enhanced `/qf debug quest <id>` (full job coverage from ClassJobCategory)
+- `InteractionPanel` now auto-opens when entering inspect or author mode via `/qf inspect` or `/qf author`
 
 **At each step:** author quest, extract fixture, add CI coverage entry.
 5. `duty` (regular only first; SPD logic is more complex)

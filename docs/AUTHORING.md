@@ -140,7 +140,9 @@ Shows the current target (NPC or interactable), available quests from the target
 
 **Available quests from this NPC** — when the player targets an NPC, the panel displays up to five quests filtered by `IsQuestAvailable`. This naturally handles class-specific quests (e.g. "Close to Home" for Gladiator vs Marauder — only the one valid for your current job appears). Each quest shows its name, ID, and a "Start Authoring" button. A "Show completed quests" toggle (default off) reveals already-finished quests for re-recording purposes.
 
-> **Finding a quest ID without targeting the NPC:** use `/qf quest <name>` — searches Lumina by name and returns up to 10 results with quest ID, level, and availability status. Then use `/qf author <id>` with the specific ID.
+> **Finding a quest ID without targeting the NPC:** two approaches:
+> - `/qf quest <name>` — searches Lumina by name, returns up to 10 results with quest ID, level, and availability status. Best for general lookup.
+> - `/qf debug offered-quest` — when the JournalAccept window is open (NPC is actively offering a quest), reads AtkValue[261] to identify the exact quest ID being offered *without* accepting it. Useful for class-specific quests where accepting determines which variant you get (e.g. "Close to Home" for GLA vs MRD vs CNJ). The JournalAccept AtkValue[261] stores the raw Lumina RowId without the `0x10000` flag; the command adds this automatically to return the full public quest ID.
 
 Dialogue prompt and answer strings are shown with click-to-copy. Full sheet-reference browsing is deferred — see `BACKLOG.md §4.2`.
 
@@ -148,7 +150,10 @@ Dialogue prompt and answer strings are shown with click-to-copy. Full sheet-refe
 
 The interaction panel only shows addons in a curated allowlist matching what the engine cares about: `Talk`, `SelectYesno`, `SelectString`, `JournalResult`, `ShopExchangeItem`, `ContentsFinderConfirm`, `CutSceneSelectString`, and similar quest-relevant addons.
 
-Other addons (chat, inventory, character UI, etc.) are filtered out. Authors needing to inspect arbitrary addons can use Dalamud's `/xldata` developer tools.
+Other addons (chat, inventory, character UI, etc.) are filtered out. Authors needing to inspect arbitrary addons have two options:
+
+- `/qf debug addon <name>` — dumps the first 30 AtkValues of any open addon to chat and the Dalamud log. Useful for quick value lookups (e.g. `/qf debug addon JournalAccept` to inspect the quest accept window).
+- Dalamud's `/xldata` — full structural inspector with all AtkValues, node tree, and collision data. Use this when you need more than 30 values or want to inspect the node hierarchy.
 
 ---
 
@@ -363,6 +368,15 @@ Use `/qf quest <name>` — searches Lumina for quests matching the name (partial
 ```
 
 Use the ID from the results with `/qf author <id>`. For class-specific quests the `InteractionPanel`'s NPC quest list (§4.3) handles this automatically when you're standing next to the quest-giver — only the valid class variant appears.
+
+### Finding the quest ID from an open accept window
+
+When an NPC is offering you a quest and the JournalAccept window is open, use `/qf debug offered-quest` — this reads AtkValue[261] on the `JournalAccept` addon to identify the exact quest being offered without you having to accept it. Useful when:
+
+- Multiple variants of a same-named quest exist (class/job-specific quests) and you want to confirm which ID the game will assign before committing
+- A quest cannot be easily abandoned and re-accepted once accepted
+
+The command prints the public quest ID and name to both chat and the Dalamud log.
 
 ### Finding dialogue sheet references
 
