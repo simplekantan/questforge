@@ -175,7 +175,7 @@ public sealed class DalamudInteractor : IInteractor
     public Task<Result<Unit>> UseEmote(uint emoteId, NpcId? target, CancellationToken ct)
         => Task.FromResult<Result<Unit>>(Result.Fail("notImplemented", "Phase 6 placeholder"));
 
-    public unsafe Task<Result<HandOverOutcome>> HandOverItem(ItemId item, NpcId target, CancellationToken ct)
+    public unsafe Task<Result<HandOverOutcome>> HandOverItem(ItemId[] items, NpcId target, CancellationToken ct)
     {
         var addonPtr = _svc.GameGui.GetAddonByName("Request");
         if (addonPtr.IsNull || !addonPtr.IsReady)
@@ -186,7 +186,7 @@ public sealed class DalamudInteractor : IInteractor
             return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
 
         // AtkValue[0]=Int: items currently placed in hand-over slots (confirmed /xldata)
-        // AtkValue[3]=UInt: required item count (1 for single-item hand-overs)
+        // AtkValue[3]=UInt: required item count (up to 5 for multi-item hand-overs)
         var placedCount   = addon->AtkValues[0].Int;
         var requiredCount = (int)addon->AtkValues[3].UInt;
 
@@ -204,6 +204,7 @@ public sealed class DalamudInteractor : IInteractor
             return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.HandedOver));
         }
 
+        // Place items not yet in slots — one item per call, engine retries each tick
         var mgr = InventoryManager.Instance();
         if (mgr == null)
             return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
@@ -213,12 +214,15 @@ public sealed class DalamudInteractor : IInteractor
         if (container == null)
             return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
 
-        for (var i = 0; i < container->Size; i++)
+        foreach (var itemId in items)
         {
-            var slot = container->GetInventorySlot(i);
-            if (slot == null || slot->ItemId != item.Value) continue;
-            mgr->MoveItemSlot(InventoryType.KeyItems, (ushort)i, InventoryType.HandIn, 0);
-            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemPlaced));
+            for (var i = 0; i < container->Size; i++)
+            {
+                var slot = container->GetInventorySlot(i);
+                if (slot == null || slot->ItemId != itemId.Value) continue;
+                mgr->MoveItemSlot(InventoryType.KeyItems, (ushort)i, InventoryType.HandIn, (ushort)placedCount);
+                return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemPlaced));
+            }
         }
 
         return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));

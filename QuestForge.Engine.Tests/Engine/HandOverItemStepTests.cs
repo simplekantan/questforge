@@ -72,7 +72,7 @@ public sealed class HandOverItemStepTests
             {
                 Id     = "hand-over-letter",
                 Target = TargetLoc,
-                Item   = TestItemId
+                Items  = [TestItemId]
             });
 
         harness.Engine.StartQuest(quest);
@@ -83,7 +83,7 @@ public sealed class HandOverItemStepTests
         // Assert
         var handOver = Assert.IsType<EngineAction.HandOver>(action);
         Assert.Equal(new NpcId(TestNpcId), handOver.Target);
-        Assert.Equal(new ItemId(TestItemId), handOver.Item);
+        Assert.Equal([new ItemId(TestItemId)], handOver.Items);
     }
 
     // =========================================================================
@@ -117,7 +117,7 @@ public sealed class HandOverItemStepTests
             {
                 Id     = "hand-over-letter",
                 Target = TargetLoc,
-                Item   = TestItemId
+                Items  = [TestItemId]
             });
 
         harness.Engine.StartQuest(quest);
@@ -163,7 +163,7 @@ public sealed class HandOverItemStepTests
             {
                 Id           = "hand-over-letter",
                 Target       = TargetLoc,
-                Item         = TestItemId,
+                Items        = [TestItemId],
                 StopDistance = 5.0f
             });
 
@@ -209,7 +209,7 @@ public sealed class HandOverItemStepTests
             {
                 Id     = "hand-over-letter",
                 Target = TargetLoc,
-                Item   = TestItemId,
+                Items  = [TestItemId],
                 SkipIf = new PredicateExpect { Predicate = $"isQuestComplete({ConditionQuestId})" }
             });
 
@@ -255,7 +255,7 @@ public sealed class HandOverItemStepTests
             {
                 Id     = "hand-over-letter",
                 Target = TargetLoc,
-                Item   = TestItemId,
+                Items  = [TestItemId],
                 Expect = new PredicateExpect { Predicate = $"isQuestComplete({ConditionQuestId})" }
             });
 
@@ -303,7 +303,7 @@ public sealed class HandOverItemStepTests
             {
                 Id     = "hand-over-letter",
                 Target = TargetLoc,
-                Item   = TestItemId
+                Items  = [TestItemId]
             });
 
         harness.Engine.StartQuest(quest);

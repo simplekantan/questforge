@@ -305,8 +305,8 @@ public sealed class AuthoringHost : IDisposable
             // Passive trace — dedup suppresses redundant JSONL writes
             {
                 var publicId = ToPublicQuestId(id);
-                WriteObservationDeduped("GetQuestSequence", publicId.Value, (int)seq);
-                WriteObservationDeduped("GetQuestFlags", publicId.Value, (int)flags);
+                WriteObservationDeduped("GetQuestSequence", publicId, (int)seq);
+                WriteObservationDeduped("GetQuestFlags", publicId, (int)flags);
             }
         }
 
@@ -379,10 +379,14 @@ public sealed class AuthoringHost : IDisposable
     private void PollTargetNpc()
     {
         var target = _services.TargetManager.Target;
-        if (target is null || (target.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc &&
-                               target.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc))
+        var kind = target?.ObjectKind;
+        var isInteractable = kind is Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
+                                  or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc
+                                  or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Aetheryte;
+
+        if (target is null || !isInteractable)
         {
-            // No valid NPC target — clear the quest cache
+            // No valid target — clear the quest cache
             if (_lastQuestQueryNpcBaseId != 0)
             {
                 _cachedNpcQuests = [];
@@ -397,7 +401,10 @@ public sealed class AuthoringHost : IDisposable
         _aggregator.OnInteraction(npcId, npcPos);
         WriteObservationDeduped("GetTarget", 0, target.BaseId);
 
-        UpdateNpcQuestCache(target.BaseId);
+        // Only update NPC quest cache for EventNpc/BattleNpc — aetherytes don't have quests
+        if (kind is Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
+                 or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc)
+            UpdateNpcQuestCache(target.BaseId);
     }
 
     // WHY: Lumina Quest sheet has 5000+ rows. A linear scan per NPC retarget would
@@ -472,7 +479,7 @@ public sealed class AuthoringHost : IDisposable
 
     private static QuestId ToPublicQuestId(ushort id) => new((uint)id | 0x10000u);
 
-    private static readonly JsonSerializerOptions _jsonOpts = new() { IncludeFields = true };
+    private static readonly JsonSerializerOptions _jsonOpts = new() { IncludeFields = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private void WriteObservationDeduped(string method, object argument, object value)
     {

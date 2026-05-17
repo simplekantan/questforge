@@ -463,7 +463,7 @@ qf-trace extract-quest <runId>.jsonl --quest-data ../questforge-data --out 66130
 | `cutscene` | ✅ Phase 11 | New | Waits on both skippable + non-skippable flags; skip handled by plugin |
 | `accept` | ✅ Phase 11 | New | Quest accept via plugin's existing AcceptQuest wiring |
 | `turn-in` | ✅ Phase 11 | New | Quest turn-in via plugin's existing CompleteQuest wiring |
-| `hand-over-item` | ✅ Phase 11 | New | FFXIV Request addon hand-over; places item via `InventoryManager.MoveItemSlot(KeyItems, slot, HandIn, 0)` then clicks NodeId 15; implies navigation via NpcLocation.Target |
+| `hand-over-item` | ✅ Phase 11 | New | FFXIV Request addon hand-over; `Items: uint[]` supports up to 5 slots; places each item via `MoveItemSlot(KeyItems, slot, HandIn, i)` then clicks NodeId 15; implies navigation via NpcLocation.Target |
 
 **Step types remaining (in difficulty order):**
 
@@ -483,7 +483,9 @@ qf-trace extract-quest <runId>.jsonl --quest-data ../questforge-data --out 66130
 **Other Phase 11 work completed:**
 - `IsAetheryteAttuned` ClientStructs implementation (UIState, not PlayerState)
 - Implied navigation (issue #20): engine emits `Navigate` before `Interact` when player is beyond `StopDistance` (true 3D distance via `WorldPosition.DistanceTo`); applies to `talk`, `accept`, `turn-in`, `interact-object`, `attune` (when `Location` present), and `hand-over-item`; `TravelStep` now reserved for cross-zone movement only
-- `hand-over-item` step type: FFXIV Request addon driver; key item removal polling (diff-based) feeds StepInferenceEngine Rule 2.4 so authoring traces capture hand-over events automatically
+- `hand-over-item` step type: FFXIV Request addon driver; `Items: uint[]` (up to 5 slots); key item removal polling (diff-based) feeds StepInferenceEngine Rule 2.4 so authoring traces capture hand-over events automatically
+- `StepFactory.Build`: shared step-building helper used by both `RecordStepModal` and `ExportDialog`; extracts NPC IDs, zones, and positions from the `GameStateSnapshot` captured at recording time
+- Export pipeline: `ExportDialog` now rebuilds each step's `Raw` from `ObservedAfter` snapshot via `StepFactory` before calling `ToQuestDefinition()`, fixing stale step types and zero positions from old authoring sessions
 - NPC quest discovery in `InteractionPanel` (targets an NPC → shows available quests by class)
 - `/qf quest <name>` search command and `/qf author stop` command
 - Lazy NPC→quest index for O(1) Lumina lookup on NPC retarget

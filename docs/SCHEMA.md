@@ -267,7 +267,7 @@ Twenty step types, each with a clear single responsibility.
 | `talk` | Talk to an NPC, optionally with dialogue choices |
 | `interact-object` | Interact with an `EventObject` |
 | `pickup-item` | Pick up a quest item (postcondition is usually a flag, not inventory) |
-| `hand-over-item` | Hand a key item to an NPC via FFXIV's Request popup (`Target: NpcLocation`, `Item: uint` item ID) |
+| `hand-over-item` | Hand one or more key items to an NPC via FFXIV's Request popup (`Target: NpcLocation`, `Items: uint[]` item IDs) |
 | `accept` | Accept a quest from an NPC |
 | `turn-in` | Hand in a quest, including reward selection |
 | `attune` | Attune to an aetheryte or aethernet shard (`Target: AetheryteId`); use `skipIf: isAttuned(id)` for idempotency |
@@ -493,14 +493,19 @@ Used when a quest requires the player to physically hand a key item to an NPC vi
     "zone": 130,
     "position": { "x": 21.84, "y": 7.0, "z": -81.13 }
   },
-  "item": 2002001,
+  "items": [2002001],
   "expect": "questSequence(66104) >= 2"
 }
 ```
 
-The engine navigates to the NPC (implied navigation from `target.position`), interacts to open the Request addon, places the item from the KeyItems inventory into slot 0 via `InventoryManager.MoveItemSlot`, then clicks the Hand Over button. On the next tick it clicks again if the item was just placed.
+For quests that require multiple items (the Request addon supports up to 5 slots):
+```json
+{ "items": [2002001, 2002002], ... }
+```
 
-`item` is the Lumina item ID. Use `/qf debug quest <id>` to identify key items associated with a quest.
+The engine navigates to the NPC (implied navigation from `target.position`), interacts to open the Request addon, places each item from the KeyItems inventory into successive HandIn slots via `InventoryManager.MoveItemSlot`, then clicks the Hand Over button once all slots are filled.
+
+`items` is an array of Lumina item IDs. Use `/qf debug quest <id>` to identify key items associated with a quest.
 
 In authoring mode, handing over a key item is auto-inferred as a `hand-over-item` step (Rule 2.4) because the key item disappears from the KeyItems inventory container.
 

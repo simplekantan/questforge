@@ -10,7 +10,7 @@ public sealed class DraftValidator
     private static readonly HashSet<string> KnownFunctions = new(StringComparer.Ordinal)
     {
         "questSequence", "questFlag", "isQuestAccepted", "isQuestComplete",
-        "playerZone", "playerNear", "inCombat"
+        "playerZone", "playerNear", "inCombat", "isAttuned", "playerHasItem"
     };
 
     public (IReadOnlyList<DraftValidationError> Errors, IReadOnlyList<DraftValidationWarning> Warnings) Validate(QuestDraft draft)

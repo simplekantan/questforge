@@ -699,18 +699,18 @@ public class RoundTripTests
         /*
          * RED: Will fail to compile until Builder implements HandOverItemStep.
          *
-         * CONTRACT: Given a HandOverItemStep with Target.NpcId==1003987, Item==2002001,
+         * CONTRACT: Given a HandOverItemStep with Target.NpcId==1003987, Items==[2002001],
          *             and Expect="isQuestComplete(12345)",
          *           When serialized as Step and deserialized back,
          *           Then result is HandOverItemStep with:
          *             Target.NpcId == 1003987u
-         *             Item         == 2002001u
+         *             Items[0]     == 2002001u
          *             Expect is PredicateExpect with Predicate == "isQuestComplete(12345)"
          *
          * BUILDER GUIDANCE:
          *   1. Add HandOverItemStep class to Step.cs inheriting Step with:
          *        public NpcLocation Target { get; init; } = default!;
-         *        public uint Item { get; init; }
+         *        public uint[] Items { get; init; } = []
          *   2. Add [JsonDerivedType(typeof(HandOverItemStep), "hand-over-item")] to Step.
          *   3. Add [JsonSerializable(typeof(HandOverItemStep))] to QuestForgeJsonContext.
          */
@@ -720,7 +720,7 @@ public class RoundTripTests
         {
             Id     = "hand-over-letter",
             Target = new NpcLocation(NpcId: 1003987, Zone: 182, Position: new Position3(35.56f, 4f, -151.18f)),
-            Item   = 2002001u,
+            Items  = [2002001u],
             Expect = new PredicateExpect { Predicate = "isQuestComplete(12345)" }
         };
 
@@ -729,7 +729,7 @@ public class RoundTripTests
 
         // Assert
         Assert.Equal(1003987u, result.Target.NpcId);
-        Assert.Equal(2002001u, result.Item);
+        Assert.Equal(2002001u, result.Items[0]);
         var expect = Assert.IsType<PredicateExpect>(result.Expect);
         Assert.Equal("isQuestComplete(12345)", expect.Predicate);
     }
@@ -754,7 +754,7 @@ public class RoundTripTests
         {
             Id     = "hand-over-letter",
             Target = new NpcLocation(NpcId: 1003987, Zone: 182, Position: new Position3(35.56f, 4f, -151.18f)),
-            Item   = 2002001u
+            Items  = [2002001u]
         };
 
         // Act
@@ -767,21 +767,21 @@ public class RoundTripTests
     }
 
     /// <summary>
-    /// B8c — missing "item" field in JSON deserializes to Item == 0u (no exception).
+    /// B8c — missing "items" field in JSON deserializes to Items == [] (no exception).
     /// </summary>
     [Fact]
-    public void HandOverItemStep_MissingItemField_DefaultsToZero()
+    public void HandOverItemStep_MissingItemsField_DefaultsToEmpty()
     {
         /*
          * RED: Will fail to compile until Builder implements HandOverItemStep.
          *
-         * CONTRACT: Given JSON with type "hand-over-item" but no "item" field,
+         * CONTRACT: Given JSON with type "hand-over-item" but no "items" field,
          *           When deserialized,
-         *           Then Item == 0u and no exception is thrown.
+         *           Then Items == [] and no exception is thrown.
          *           Structural validation is the validator's job, not the deserializer's.
          *
-         * BUILDER GUIDANCE: Use { get; init; } with no [JsonRequired]. Missing fields
-         *   default to the uint default value (0u).
+         * BUILDER GUIDANCE: Use { get; init; } = [] with no [JsonRequired]. Missing fields
+         *   default to an empty array.
          */
 
         // Arrange
@@ -801,9 +801,9 @@ public class RoundTripTests
         var step = System.Text.Json.JsonSerializer.Deserialize<Step>(
             json, QuestForgeJsonContext.QuestFileOptions);
 
-        // Assert — no exception; Item defaults to 0u
+        // Assert — no exception; Items defaults to empty array
         var handOver = Assert.IsType<HandOverItemStep>(step);   // RED: type does not exist yet
-        Assert.Equal(0u, handOver.Item);
+        Assert.Empty(handOver.Items);
     }
 
     /// <summary>
@@ -829,7 +829,7 @@ public class RoundTripTests
         {
             Id           = "hand-over-letter",
             Target       = new NpcLocation(NpcId: 1003987, Zone: 182, Position: new Position3(35.56f, 4f, -151.18f)),
-            Item         = 2002001u,
+            Items        = [2002001u],
             StopDistance = 7.5f
         };
 

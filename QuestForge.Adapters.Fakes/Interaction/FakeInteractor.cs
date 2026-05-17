@@ -29,7 +29,7 @@ public sealed class FakeInteractor : IInteractor
     public record DialogueAdvanceCall(DateTimeOffset At) : AdapterCall(At);
     public record QuestAcceptCall(QuestId QuestId, DateTimeOffset At) : AdapterCall(At);
     public record QuestCompleteCall(QuestId QuestId, DateTimeOffset At) : AdapterCall(At);
-    public record HandOverCall(ItemId ItemId, NpcId Target, DateTimeOffset At) : AdapterCall(At);
+    public record HandOverCall(ItemId[] Items, NpcId Target, DateTimeOffset At) : AdapterCall(At);
 
     public CallLog<InteractionCall> RecordedInteractions { get; } = new();
     public CallLog<DialogueAdvanceCall> RecordedDialogueAdvances { get; } = new();
@@ -253,10 +253,10 @@ public sealed class FakeInteractor : IInteractor
         return Task.FromResult<Result<Unit>>(Result.Ok());
     }
 
-    public Task<Result<HandOverOutcome>> HandOverItem(ItemId item, NpcId target, CancellationToken ct)
+    public Task<Result<HandOverOutcome>> HandOverItem(ItemId[] items, NpcId target, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        RecordedHandOvers.Add(new HandOverCall(item, target, DateTimeOffset.UtcNow));
+        RecordedHandOvers.Add(new HandOverCall(items, target, DateTimeOffset.UtcNow));
         var outcome = _handOverSequence.Count > 0
             ? _handOverSequence.Dequeue()
             : HandOverOutcome.HandedOver;

@@ -1,3 +1,4 @@
+using System.Linq;
 using Microsoft.Extensions.Logging;
 using QuestForge.Adapters;
 using QuestForge.Adapters.Combat;
@@ -239,7 +240,7 @@ public sealed class QuestEngine
                 step, handOver.Target.Position, playerPos,
                 new EngineAction.HandOver(
                     new NpcId(handOver.Target.NpcId),
-                    new ItemId(handOver.Item))),
+                    handOver.Items.Select(id => new ItemId(id)).ToArray())),
 
         CutsceneStep => ui.CutscenePlaying
             ? new EngineAction.Wait("cutscene playing")

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
+using Dalamud.Plugin.Services;
 using QuestForge.Engine.Authoring;
 using QuestForge.Plugin.Authoring;
 using QuestForge.Schema;
@@ -12,6 +13,7 @@ public sealed class ExportDialog : Window
 {
     private readonly AuthoringHost _host;
     private readonly IDalamudPluginInterface _pi;
+    private readonly IDataManager _dataManager;
 
     private string _exportPath = "";
     private bool _validateBeforeExport = true;
@@ -23,11 +25,12 @@ public sealed class ExportDialog : Window
 
     private readonly DraftValidator _validator = new();
 
-    public ExportDialog(AuthoringHost host, IDalamudPluginInterface pi)
+    public ExportDialog(AuthoringHost host, IDalamudPluginInterface pi, IDataManager dataManager)
         : base("QuestForge — Export Draft", ImGuiWindowFlags.None)
     {
         _host = host;
         _pi = pi;
+        _dataManager = dataManager;
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new System.Numerics.Vector2(400, 280),
@@ -150,7 +153,17 @@ public sealed class ExportDialog : Window
 
         try
         {
+            // Rebuild each step's Raw from its snapshot data so that the exported file
+            // reflects current authoring logic rather than stale rawJson from old sessions.
+            var now = DateTimeOffset.UtcNow;
+            foreach (var step in draft.Steps.ToList())
+            {
+                var rebuilt = StepFactory.Build(step.StepType, step.StepId, step.SuggestedExpect, step.ObservedAfter);
+                draft.ReplaceStep(step.StepId, step with { Raw = rebuilt }, now);
+            }
+
             var definition = draft.ToQuestDefinition();
+            definition = PatchFromLumina(definition);
             var json = JsonSerializer.Serialize(definition, QuestForgeJsonContext.QuestFileOptions);
             var dir = Path.GetDirectoryName(_exportPath);
             if (dir is not null)
@@ -169,5 +182,25 @@ public sealed class ExportDialog : Window
             _statusMessage = $"Export failed: {ex.Message}";
             _statusIsError = true;
         }
+    }
+
+    private QuestDefinition PatchFromLumina(QuestDefinition def)
+    {
+        var questSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Quest>();
+        if (questSheet is null) return def;
+
+        var row = questSheet.GetRow(def.Id);
+        var name = row.Name.ToString();
+        if (string.IsNullOrEmpty(name)) return def;
+
+        var minLevel = (int)row.ClassJobLevel[0];
+        var classJobCatId = row.ClassJobCategory0.RowId;
+
+        var reqs = def.Requirements ?? new Requirements { Prereqs = [] };
+        return def with
+        {
+            Name = name,
+            Requirements = reqs with { MinLevel = minLevel > 0 ? minLevel : reqs.MinLevel }
+        };
     }
 }

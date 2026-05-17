@@ -56,7 +56,7 @@ public interface IInteractor
     Task<Result<Unit>> UseEmote(uint emoteId, NpcId? target, CancellationToken ct);
 
     // Item hand-over (Quest Request addon)
-    Task<Result<HandOverOutcome>> HandOverItem(ItemId item, NpcId target, CancellationToken ct);
+    Task<Result<HandOverOutcome>> HandOverItem(ItemId[] items, NpcId target, CancellationToken ct);
 }
 
 public enum InteractOutcome

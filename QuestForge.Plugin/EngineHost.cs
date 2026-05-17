@@ -229,14 +229,14 @@ public sealed class EngineHost : IDisposable
                 break;
 
             case EngineAction.HandOver h:
-                DebounceLog($"handover:{h.Target.Value}:{h.Item.Value}",
-                    $"[HandOver] npc={h.Target.Value} item={h.Item.Value}");
+                DebounceLog($"handover:{h.Target.Value}:{string.Join(",", h.Items.Select(i => i.Value))}",
+                    $"[HandOver] npc={h.Target.Value} items=[{string.Join(",", h.Items.Select(i => i.Value))}]");
                 TryCutsceneSkipConfirm();
                 await _interactor.InteractWith(h.Target, ct);
                 await _interactor.AdvanceDialogue(ct);
-                // Places item in Request addon slot then clicks Hand Over button.
+                // Places items in Request addon slots then clicks Hand Over button.
                 // Returns NoDialog if the addon is not yet open — engine will retry next tick.
-                await _interactor.HandOverItem(h.Item, h.Target, ct);
+                await _interactor.HandOverItem(h.Items, h.Target, ct);
                 break;
 
             case EngineAction.Wait:

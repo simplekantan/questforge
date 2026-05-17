@@ -183,5 +183,5 @@ public class AttunementStep : Step
 public class HandOverItemStep : Step
 {
     public NpcLocation Target { get; init; } = default!;
-    public uint Item { get; init; }
+    public uint[] Items { get; init; } = [];
 }

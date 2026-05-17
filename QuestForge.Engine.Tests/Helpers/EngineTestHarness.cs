@@ -144,7 +144,7 @@ public sealed class EngineTestHarness
                 case EngineAction.HandOver handOver:
                     actions.Add(action);
                     EmitActionSubmitted("HandOver", JsonSerializer.SerializeToElement(handOver.Target, _jsonOpts));
-                    var handOverResult = await Interactor.HandOverItem(handOver.Item, handOver.Target, ct);
+                    var handOverResult = await Interactor.HandOverItem(handOver.Items, handOver.Target, ct);
                     EmitActionCompleted("HandOver", handOverResult.IsSuccess ? handOverResult.ValueOrThrow.ToString() : "Failed");
                     break;
 

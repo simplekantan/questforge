@@ -62,12 +62,12 @@ public sealed class FakeInteractorHandOverTests
         var target = new NpcId(1003987u);
 
         // Act
-        var result = await interactor.HandOverItem(item, target, CancellationToken.None); // RED: method does not exist
+        var result = await interactor.HandOverItem([item], target, CancellationToken.None); // RED: method does not exist
 
         // Assert
         Assert.Equal(HandOverOutcome.HandedOver, result.ValueOrThrow); // RED: enum does not exist
         Assert.Equal(1, interactor.RecordedHandOvers.Count);           // RED: property does not exist
-        Assert.Equal(item, interactor.RecordedHandOvers[0].ItemId);    // RED: call record does not exist
+        Assert.Equal(item, interactor.RecordedHandOvers[0].Items[0]);  // RED: call record does not exist
     }
 
     // =========================================================================
@@ -102,9 +102,9 @@ public sealed class FakeInteractorHandOverTests
         var ct     = CancellationToken.None;
 
         // Act
-        var first  = await interactor.HandOverItem(item, target, ct);
-        var second = await interactor.HandOverItem(item, target, ct);
-        var third  = await interactor.HandOverItem(item, target, ct);
+        var first  = await interactor.HandOverItem([item], target, ct);
+        var second = await interactor.HandOverItem([item], target, ct);
+        var third  = await interactor.HandOverItem([item], target, ct);
 
         // Assert
         Assert.Equal(HandOverOutcome.ItemPlaced,  first.ValueOrThrow);   // RED: enum does not exist
@@ -138,7 +138,7 @@ public sealed class FakeInteractorHandOverTests
 
         // Act & Assert
         await Assert.ThrowsAsync<OperationCanceledException>(
-            () => interactor.HandOverItem(item, target, ct)); // RED: method does not exist
+            () => interactor.HandOverItem([item], target, ct)); // RED: method does not exist
     }
 
     // =========================================================================
@@ -170,7 +170,7 @@ public sealed class FakeInteractorHandOverTests
 
         // Pre-condition: one call recorded, one outcome scripted
         interactor.ScriptHandOverSequence(HandOverOutcome.ItemPlaced); // RED: method does not exist
-        await interactor.HandOverItem(item, target, ct);               // RED: method does not exist
+        await interactor.HandOverItem([item], target, ct);               // RED: method does not exist
         Assert.Equal(1, interactor.RecordedHandOvers.Count);           // RED: property does not exist
 
         // Act
@@ -180,7 +180,7 @@ public sealed class FakeInteractorHandOverTests
         Assert.Equal(0, interactor.RecordedHandOvers.Count);
 
         // Assert — queue also cleared: next call returns default (HandedOver), not ItemPlaced
-        var afterReset = await interactor.HandOverItem(item, target, ct);
+        var afterReset = await interactor.HandOverItem([item], target, ct);
         Assert.Equal(HandOverOutcome.HandedOver, afterReset.ValueOrThrow);
     }
 }
