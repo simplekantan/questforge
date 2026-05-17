@@ -548,6 +548,105 @@ public class RoundTripTests
         Assert.Equal(0u, attune.Target.Value);
     }
 
+    // =========================================================================
+    // B9 — AcceptStep schema round-trip preserves "type" discriminator
+    // =========================================================================
+
+    /// <summary>
+    /// B9 — AcceptStep serialized JSON contains the type discriminator literal "accept".
+    /// The existing AcceptStep_RoundTrips test only verifies object field fidelity.
+    /// This test additionally locks the [JsonDerivedType(typeof(AcceptStep), "accept")]
+    /// registration by asserting the literal discriminator token is present in the JSON.
+    /// Expected to PASS immediately (registration already exists). Authored to prevent regressions.
+    /// </summary>
+    [Fact]
+    public void AcceptStep_JsonContainsTypeDiscriminator()
+    {
+        /*
+         * CONTRACT: Given an AcceptStep instance with Target.NpcId == 1003987,
+         *           When serialized via QuestForgeJsonContext.QuestFileOptions,
+         *           Then the JSON contains "type": "accept" (with space — WriteIndented=true),
+         *           AND deserializing the JSON back produces a Step whose runtime type is AcceptStep,
+         *           AND Target.NpcId is preserved.
+         *
+         * BUILDER GUIDANCE: No implementation needed — schema registration already exists.
+         *   This test is a regression lock on [JsonDerivedType(typeof(AcceptStep), "accept")].
+         */
+
+        // Arrange
+        var step = new AcceptStep
+        {
+            Id = "accept-coming-to-uldah",
+            Target = new NpcLocation(NpcId: 1003987, Zone: 182, Position: new Position3(35.56f, 4f, -151.18f)),
+            Expect = new PredicateExpect { Predicate = "isQuestAccepted(66130)" }
+        };
+
+        // Act
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+
+        // Assert — discriminator token present (compact to be robust against indentation)
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"type\":\"accept\"", compactJson, StringComparison.Ordinal);
+
+        // Assert — round-trip fidelity: runtime type and NpcId preserved
+        var deserialized = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+        var acceptStep = Assert.IsType<AcceptStep>(deserialized);
+        Assert.Equal(1003987u, acceptStep.Target.NpcId);
+    }
+
+    // =========================================================================
+    // B10 — TurnInStep schema round-trip preserves discriminator and DialogueChoices
+    // =========================================================================
+
+    /// <summary>
+    /// B10 — TurnInStep serialized JSON contains the type discriminator "turn-in" and
+    /// preserves the DialogueChoices array (count + first element fields).
+    /// The existing TurnInStep_RoundTrips test only verifies Id round-trip.
+    /// This test additionally locks [JsonDerivedType(typeof(TurnInStep), "turn-in")]
+    /// and verifies DialogueChoices survives the round-trip.
+    /// Expected to PASS immediately (registration already exists). Authored to prevent regressions.
+    /// </summary>
+    [Fact]
+    public void TurnInStep_JsonContainsTypeDiscriminatorAndDialogueChoices()
+    {
+        /*
+         * CONTRACT: Given a TurnInStep with Target.NpcId == 1000327
+         *               AND DialogueChoices containing one entry (Type="yesno", Prompt="Accept?", Answer="yes"),
+         *           When serialized via QuestForgeJsonContext.QuestFileOptions,
+         *           Then the JSON contains "type": "turn-in" (with space — WriteIndented=true),
+         *           AND deserializing the JSON back produces a Step whose runtime type is TurnInStep,
+         *           AND Target.NpcId is preserved,
+         *           AND DialogueChoices has count 1 and the first element's Type == "yesno".
+         *
+         * BUILDER GUIDANCE: No implementation needed — schema registration already exists.
+         *   This test is a regression lock on [JsonDerivedType(typeof(TurnInStep), "turn-in")]
+         *   and verifies the DialogueChoice record survives STJ serialization.
+         */
+
+        // Arrange
+        var step = new TurnInStep
+        {
+            Id = "turn-in-coming-to-uldah",
+            Target = new NpcLocation(NpcId: 1000327, Zone: 130, Position: new Position3(21.84f, 7f, -81.13f)),
+            Expect = new PredicateExpect { Predicate = "isQuestComplete(66130)" },
+            DialogueChoices = [new DialogueChoice("yesno", "Accept?", "yes")]
+        };
+
+        // Act
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+
+        // Assert — discriminator token present (compact to be robust against indentation)
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"type\":\"turn-in\"", compactJson, StringComparison.Ordinal);
+
+        // Assert — round-trip fidelity: runtime type, NpcId, and DialogueChoices preserved
+        var deserialized = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+        var turnInStep = Assert.IsType<TurnInStep>(deserialized);
+        Assert.Equal(1000327u, turnInStep.Target.NpcId);
+        Assert.Single(turnInStep.DialogueChoices);
+        Assert.Equal("yesno", turnInStep.DialogueChoices[0].Type);
+    }
+
     [Fact]
     public void Step_WithRecovery_RoundTrips()
     {
