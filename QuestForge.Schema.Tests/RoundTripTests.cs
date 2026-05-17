@@ -839,4 +839,126 @@ public class RoundTripTests
         // Assert
         Assert.Equal(7.5f, result.StopDistance);
     }
+
+    // =========================================================================
+    // C1 — RouteHint.Aethernet round-trip tests (RED PHASE — issue #24)
+    // All three tests will fail because RouteHint.Aethernet is currently string[]?
+    // and must be changed to uint[]? by the Builder.
+    // =========================================================================
+
+    /// <summary>
+    /// C1 — RouteHint with Aethernet=[33u, 125u] round-trips as uint array preserving values.
+    /// </summary>
+    [Fact]
+    public void RouteHint_Aethernet_TwoShards_RoundTrips()
+    {
+        /*
+         * RED: Will fail because RouteHint.Aethernet is currently string[]?, not uint[]?.
+         *   The serialized JSON will contain ["33","125"] (strings) not [33,125] (numbers).
+         *   Deserialization into uint[]? will throw or produce null.
+         *
+         * CONTRACT: Given a TravelStep with RouteHint(Aethernet: new uint[] { 33u, 125u }),
+         *           When serialized via QuestForgeJsonContext.QuestFileOptions and deserialized back,
+         *           Then result.RouteHint is not null,
+         *                result.RouteHint.Aethernet is not null,
+         *                result.RouteHint.Aethernet[0] == 33u,
+         *                result.RouteHint.Aethernet[1] == 125u.
+         *
+         * BUILDER GUIDANCE:
+         *   In SharedValueTypes.cs, change RouteHint to:
+         *     public record RouteHint(string? Aetheryte = null, uint[]? Aethernet = null);
+         *   Add [JsonSerializable(typeof(uint[]))] to QuestForgeJsonContext if not already present.
+         *   No discriminator change needed — TravelStep is already registered.
+         */
+
+        // Arrange
+        var step = new TravelStep
+        {
+            Id = "aethernet-two-shards",
+            Destination = new TravelDestination(Zone: 131),
+            RouteHint = new RouteHint(Aethernet: new uint[] { 33u, 125u }) // RED: Aethernet is string[]? today
+        };
+
+        // Act
+        var result = RoundTrip(step);
+
+        // Assert
+        Assert.NotNull(result.RouteHint);
+        Assert.NotNull(result.RouteHint.Aethernet);
+        Assert.Equal(2, result.RouteHint.Aethernet.Length);
+        Assert.Equal(33u, result.RouteHint.Aethernet[0]);
+        Assert.Equal(125u, result.RouteHint.Aethernet[1]);
+    }
+
+    /// <summary>
+    /// C1-empty — RouteHint with Aethernet=[] round-trips as empty array, not null.
+    /// </summary>
+    [Fact]
+    public void RouteHint_Aethernet_EmptyArray_RoundTripsAsEmptyNotNull()
+    {
+        /*
+         * RED: Will fail because RouteHint.Aethernet is currently string[]?, not uint[]?.
+         *
+         * CONTRACT: Given a TravelStep with RouteHint(Aethernet: Array.Empty<uint>()),
+         *           When round-tripped through JSON,
+         *           Then result.RouteHint.Aethernet is not null AND has length 0.
+         *           An empty array must survive as [] in JSON, not be dropped to null.
+         *
+         * BUILDER GUIDANCE: STJ serializes empty arrays as []. No special attribute needed.
+         *   The guard in engine dispatch (Length: > 0) naturally handles empty arrays.
+         */
+
+        // Arrange
+        var step = new TravelStep
+        {
+            Id = "aethernet-empty",
+            Destination = new TravelDestination(Zone: 131),
+            RouteHint = new RouteHint(Aethernet: Array.Empty<uint>()) // RED: Aethernet is string[]? today
+        };
+
+        // Act
+        var result = RoundTrip(step);
+
+        // Assert
+        Assert.NotNull(result.RouteHint);
+        Assert.NotNull(result.RouteHint.Aethernet);
+        Assert.Empty(result.RouteHint.Aethernet);
+    }
+
+    /// <summary>
+    /// C1-null — RouteHint with Aethernet=null round-trips as null (not an empty array).
+    /// </summary>
+    [Fact]
+    public void RouteHint_Aethernet_Null_RoundTripsAsNull()
+    {
+        /*
+         * RED: Will fail because RouteHint.Aethernet is currently string[]?, not uint[]?.
+         *   Once the Builder changes the type to uint[]?, this test should pass immediately
+         *   as STJ omits null optional fields by default, and the deserialized value is null.
+         *
+         * CONTRACT: Given a TravelStep with RouteHint(Aetheryte: "Limsa Lominsa", Aethernet: null),
+         *           When round-tripped through JSON,
+         *           Then result.RouteHint.Aethernet is null
+         *                AND result.RouteHint.Aetheryte == "Limsa Lominsa" (unchanged).
+         *
+         * BUILDER GUIDANCE: The null case requires no extra work beyond fixing the type.
+         *   This test locks that a null Aethernet field does not silently become an empty array.
+         */
+
+        // Arrange
+        var step = new TravelStep
+        {
+            Id = "aetheryte-no-aethernet",
+            Destination = new TravelDestination(Zone: 131),
+            RouteHint = new RouteHint(Aetheryte: "Limsa Lominsa Lower Decks", Aethernet: null)
+        };
+
+        // Act
+        var result = RoundTrip(step);
+
+        // Assert
+        Assert.NotNull(result.RouteHint);
+        Assert.Null(result.RouteHint.Aethernet);
+        Assert.Equal("Limsa Lominsa Lower Decks", result.RouteHint.Aetheryte);
+    }
 }

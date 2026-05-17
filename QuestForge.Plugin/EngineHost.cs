@@ -210,6 +210,31 @@ public sealed class EngineHost : IDisposable
     {
         switch (action)
         {
+            case EngineAction.UseAethernet ua:
+                DebounceLog(
+                    $"aethernet:{ua.Destination.Value}",
+                    $"[UseAethernet] shard={ua.Destination.Value}" +
+                    (ua.SourcePosition.HasValue
+                        ? $" from ({ua.SourcePosition.Value.X:F1},{ua.SourcePosition.Value.Y:F1},{ua.SourcePosition.Value.Z:F1})"
+                        : ""));
+                if (_runId is not null)
+                    try
+                    {
+                        _trace.Write(new QuestForge.Adapters.Tracing.ObservationEvent(
+                            _runId, "UseAethernet",
+                            System.Text.Json.JsonSerializer.SerializeToElement(new
+                            {
+                                destinationShardId = ua.Destination.Value,
+                                sourcePosX = ua.SourcePosition?.X,
+                                sourcePosY = ua.SourcePosition?.Y,
+                                sourcePosZ = ua.SourcePosition?.Z
+                            }),
+                            null, DateTimeOffset.UtcNow));
+                    }
+                    catch { /* trace failures must not block dispatch */ }
+                await _teleporter.TeleportToAethernet(ua.Destination, ct);
+                break;
+
             case EngineAction.Navigate n:
                 DebounceLog(
                     $"nav:{n.Destination.X:F0},{n.Destination.Z:F0}",

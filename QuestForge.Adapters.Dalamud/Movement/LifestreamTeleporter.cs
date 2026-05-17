@@ -26,9 +26,19 @@ public sealed class LifestreamTeleporter : ITeleporter
         return Task.FromResult<Result<TeleportOutcome>>(Result.Ok(TeleportOutcome.Arrived));
     }
 
-    // Phase 6 placeholders — not exercised by quest 66130
     public Task<Result<TeleportOutcome>> TeleportToAethernet(AethernetId destination, CancellationToken ct)
-        => Task.FromResult<Result<TeleportOutcome>>(Result.Fail<TeleportOutcome>("notImplemented", "Phase 6 placeholder"));
+    {
+        if (_ipc.IsBusy())
+            return Task.FromResult<Result<TeleportOutcome>>(Result.Ok(TeleportOutcome.OnCooldown));
+
+        var ok = _ipc.AethernetTeleportById(destination.Value);
+        if (!ok)
+            // Lifestream returns false for: not attuned, cooldown active, or busy — no distinction
+            return Task.FromResult<Result<TeleportOutcome>>(Result.Ok(TeleportOutcome.NotAttuned));
+
+        // Fire-and-forget: Lifestream accepted; engine re-reads GetPlayerZone() next tick to detect arrival.
+        return Task.FromResult<Result<TeleportOutcome>>(Result.Ok(TeleportOutcome.Arrived));
+    }
 
     public Task<Result<TeleportOutcome>> UseReturn(CancellationToken ct)
         => Task.FromResult<Result<TeleportOutcome>>(Result.Fail<TeleportOutcome>("notImplemented", "Phase 6 placeholder"));

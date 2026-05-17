@@ -127,6 +127,13 @@ public sealed class EngineTestHarness
                     throw new InvalidOperationException(
                         $"Engine returned AwaitUser unexpectedly at tick {i + 1}: {au.Reason}");
 
+                case EngineAction.UseAethernet ua:
+                    actions.Add(action);
+                    EmitActionSubmitted("UseAethernet", JsonSerializer.SerializeToElement(ua.Destination, _jsonOpts));
+                    var aethernetResult = await Teleporter.TeleportToAethernet(ua.Destination, ct);
+                    EmitActionCompleted("UseAethernet", aethernetResult.IsSuccess ? aethernetResult.ValueOrThrow.ToString() : "Failed");
+                    break;
+
                 case EngineAction.Navigate nav:
                     actions.Add(action);
                     EmitActionSubmitted("Navigate", JsonSerializer.SerializeToElement(nav.Destination, _jsonOpts));

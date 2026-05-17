@@ -194,6 +194,17 @@ public sealed class QuestEngine
 
     private EngineAction ResolveActionForStep(Step step, UiState ui, WorldPosition? playerPos) => step switch
     {
+        // Aethernet routing: navigate to the source shard (Destination.Position) first,
+        // then emit UseAethernet once in range. Lifestream chains from there automatically.
+        // If no source position is specified, emit UseAethernet directly (caller ensures proximity).
+        TravelStep travel when travel.RouteHint?.Aethernet is { Length: > 0 } shards =>
+            travel.Destination.Position is { } sourcePos
+                ? ResolveInteractOrNavigate(step, sourcePos, playerPos,
+                    new EngineAction.UseAethernet(
+                        new AethernetId(shards[0]),
+                        new WorldPosition(sourcePos.X, sourcePos.Y, sourcePos.Z)))
+                : new EngineAction.UseAethernet(new AethernetId(shards[0])),
+
         TravelStep travel when travel.Destination.Position is { } pos =>
             new EngineAction.Navigate(
                 new WorldPosition(pos.X, pos.Y, pos.Z),
