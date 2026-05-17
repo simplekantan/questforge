@@ -2,6 +2,7 @@ using System.Numerics;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.SubKinds;
+using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Types;
@@ -308,9 +309,15 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         // Phase 6 placeholder: quest 66130 doesn't need inventory checks
         => Task.FromResult<Result<int>>(Result.Ok(35));
 
-    public Task<Result<int>> GetItemCount(ItemId item, CancellationToken ct)
-        // Phase 6 placeholder
-        => Task.FromResult<Result<int>>(Result.Ok(0));
+    public unsafe Task<Result<int>> GetItemCount(ItemId item, CancellationToken ct)
+    {
+        var mgr = InventoryManager.Instance();
+        if (mgr == null)
+            return Task.FromResult<Result<int>>(Result.Fail<int>("noInventoryManager", "InventoryManager.Instance() returned null"));
+        // native function routes by id range: Bag0-3 for normal items, KeyItems for id >= 2000000
+        var count = mgr->GetInventoryItemCount(item.Value, isHq: false, checkEquipped: false, checkArmory: false);
+        return Task.FromResult<Result<int>>(Result.Ok(count));
+    }
 
     public Task<Result<long>> GetGil(CancellationToken ct)
         // Phase 6 placeholder

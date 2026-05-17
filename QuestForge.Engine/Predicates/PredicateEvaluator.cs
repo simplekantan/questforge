@@ -108,6 +108,8 @@ public sealed class PredicateEvaluator
             "playerInCombat" => (await _gameState.IsPlayerInCombat(ct)).ValueOrThrow,
             "isAttuned" => (await _gameState.IsAetheryteAttuned(
                 new AdaptersAetheryteId((uint)(long)args[0]), ct)).ValueOrThrow,
+            "playerHasItem" when args.Length == 1 =>
+                (await _gameState.GetItemCount(new ItemId((uint)(long)args[0]), ct)).ValueOrThrow >= 1,
             _ => throw new UnknownStateFunctionException(name)
         };
     }

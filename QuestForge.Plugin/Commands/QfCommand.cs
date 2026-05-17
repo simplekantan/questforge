@@ -121,6 +121,9 @@ internal sealed class QfCommand : IDisposable
             case "debug" when parts.Length >= 2 && parts[1] == "target":
                 HandleDebugTarget();
                 break;
+            case "debug" when parts.Length >= 2 && parts[1] == "todolist":
+                HandleDebugToDoList();
+                break;
             case "debug" when parts.Length >= 3 && parts[1] == "quest":
                 HandleDebugQuest(parts[2]);
                 break;
@@ -245,6 +248,50 @@ internal sealed class QfCommand : IDisposable
         var msg = $"Offered quest: [{publicId}] {name} (rawRowId={rawRowId})";
         _chat.Print(msg);
         _log.Info($"[debug offered-quest] {msg}");
+    }
+
+    private unsafe void HandleDebugToDoList()
+    {
+        var addonPtr = _gameGui.GetAddonByName("_ToDoList");
+        if (addonPtr.IsNull) { _chat.Print("_ToDoList addon not found (open the journal/todo list first)"); return; }
+
+        var addon = (FFXIVClientStructs.FFXIV.Client.UI.AddonToDoList*)addonPtr.Address;
+        var count = addon->ActionDataCount;
+        var actionData = addon->ActionData; // Span<int>, FixedSizeArray128
+
+        var header = $"_ToDoList ActionDataCount={count}, XPosition={addon->XPosition}";
+        _chat.Print(header);
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine(header);
+
+        // Print all active entries
+        for (var i = 0; i < (int)Math.Min(count, (uint)actionData.Length); i++)
+        {
+            var val = actionData[i];
+            // Decode: FFXIV typically packs quest data as two 16-bit halves
+            var hi = (ushort)((uint)val >> 16);
+            var lo = (ushort)((uint)val & 0xFFFF);
+            var line = $"  ActionData[{i}] = 0x{val:X8} ({val}) | hi=0x{hi:X4} ({hi}) lo=0x{lo:X4} ({lo})";
+            _chat.Print(line);
+            sb.AppendLine(line);
+        }
+
+        // Also scan the rest of the array for any non-zero values
+        var extras = 0;
+        for (var i = (int)count; i < actionData.Length; i++)
+        {
+            if (actionData[i] != 0)
+            {
+                var val = actionData[i];
+                var line = $"  ActionData[{i}] (beyond count) = 0x{val:X8} ({val})";
+                _chat.Print(line);
+                sb.AppendLine(line);
+                if (++extras >= 10) break; // cap overflow scan
+            }
+        }
+
+        _log.Info($"[debug todolist]\n{sb}");
     }
 
     private void HandleDebugTarget()

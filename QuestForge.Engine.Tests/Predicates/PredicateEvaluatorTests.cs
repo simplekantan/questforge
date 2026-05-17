@@ -749,6 +749,259 @@ public sealed class PredicateEvaluatorTests
         Assert.False(result, "questSequence(66130)>=0 (true) AND isAttuned(1000) (false) = false");
     }
 
+    // === playerHasItem predicate tests ===
+
+    [Fact]
+    public async Task PlayerHasItem_ItemNotPresent_ReturnsFalse()
+    {
+        /*
+         * RED: Will fail until Builder implements the playerHasItem switch arm.
+         *
+         * CONTRACT: Given no SetItemCount call for item 2000386,
+         *           When evaluating "playerHasItem(2000386)",
+         *           Then result is false (default count is 0, which is < 1).
+         *
+         * BUILDER GUIDANCE: Add "playerHasItem" arm to EvaluateFunction:
+         *   "playerHasItem" when args.Count == 1 =>
+         *       (await _gameState.GetItemCount(new ItemId((uint)(long)args[0]), ct)).ValueOrThrow >= 1
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        // No SetItemCount call — default is 0
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("playerHasItem(2000386)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.False(result, "Item 2000386 count is 0 — playerHasItem(2000386) should be false");
+    }
+
+    [Fact]
+    public async Task PlayerHasItem_ItemCountOne_ReturnsTrue()
+    {
+        /*
+         * RED: Will fail until Builder implements the playerHasItem switch arm.
+         *
+         * CONTRACT: Given gameState.SetItemCount(new ItemId(2000386), 1),
+         *           When evaluating "playerHasItem(2000386)",
+         *           Then result is true (count 1 >= 1).
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        gameState.SetItemCount(new ItemId(2000386), 1);
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("playerHasItem(2000386)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.True(result, "Item 2000386 count is 1 — playerHasItem(2000386) should be true");
+    }
+
+    [Fact]
+    public async Task PlayerHasItem_ItemCountGreaterThanOne_ReturnsTrue()
+    {
+        /*
+         * RED: Will fail until Builder implements the playerHasItem switch arm.
+         *
+         * CONTRACT: Given gameState.SetItemCount(new ItemId(2000386), 5),
+         *           When evaluating "playerHasItem(2000386)",
+         *           Then result is true (count 5 >= 1).
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        gameState.SetItemCount(new ItemId(2000386), 5);
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("playerHasItem(2000386)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.True(result, "Item 2000386 count is 5 — playerHasItem(2000386) should be true");
+    }
+
+    [Fact]
+    public async Task PlayerHasItem_NegatedWhenItemAbsent_ReturnsTrue()
+    {
+        /*
+         * RED: Will fail until Builder implements the playerHasItem switch arm.
+         *
+         * CONTRACT: Given no SetItemCount call for item 2000386 (count is 0),
+         *           When evaluating "not(playerHasItem(2000386))",
+         *           Then result is true — the handover postcondition pattern where
+         *           a step's completion is confirmed by the item no longer being held.
+         *
+         * BUILDER GUIDANCE: The Not node delegates to EvaluateInternal(inner) — no extra work
+         *   needed once the playerHasItem arm returns a bool.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        // No item — playerHasItem(2000386) == false, so not(...) == true
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("not(playerHasItem(2000386))").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.True(result, "not(playerHasItem(2000386)) where item is absent — should be true");
+    }
+
+    [Fact]
+    public async Task PlayerHasItem_ExplicitZero_ReturnsFalse()
+    {
+        /*
+         * RED: Will fail until Builder implements the playerHasItem switch arm.
+         *
+         * CONTRACT: Given gameState.SetItemCount(new ItemId(2000386), 0),
+         *           When evaluating "playerHasItem(2000386)",
+         *           Then result is false (0 < 1).
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        gameState.SetItemCount(new ItemId(2000386), 0);
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("playerHasItem(2000386)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.False(result, "Item 2000386 count explicitly set to 0 — playerHasItem(2000386) should be false");
+    }
+
+    [Fact]
+    public async Task PlayerHasItem_StateFlip_ObservableWithoutCaching()
+    {
+        /*
+         * RED: Will fail until Builder implements the playerHasItem switch arm.
+         *
+         * CONTRACT: Given initial count of 0 (first evaluation returns false),
+         *           When SetItemCount(new ItemId(2000386), 1) is called and then re-evaluated,
+         *           Then the second evaluation returns true.
+         *           (Validates no internal caching of predicate results.)
+         *
+         * BUILDER GUIDANCE: The evaluator re-reads IGameStateProvider on every call.
+         *   The ExpectEvaluator caches parse trees, not values.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("playerHasItem(2000386)").Ast!;
+
+        // Act — first evaluation: item absent
+        var firstResult = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Now flip the state
+        gameState.SetItemCount(new ItemId(2000386), 1);
+
+        // Second evaluation: item now present
+        var secondResult = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.False(firstResult, "Before SetItemCount — should be false");
+        Assert.True(secondResult, "After SetItemCount(1) — should be true (no caching)");
+    }
+
+    [Fact]
+    public async Task PlayerHasItem_ItemIdZero_DispatchedToAdapter_ReturnsFalse()
+    {
+        /*
+         * RED: Will fail until Builder implements the playerHasItem switch arm.
+         *
+         * CONTRACT: Given no SetItemCount call for item 0,
+         *           When evaluating "playerHasItem(0)",
+         *           Then result is false (engine does not special-case itemId=0;
+         *           the adapter returns 0 and 0 >= 1 is false).
+         *
+         * BUILDER GUIDANCE: Do not add any special-case for itemId == 0 in the switch arm.
+         *   Dispatch directly to GetItemCount — the adapter's default-zero behaviour handles it.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        // No SetItemCount for ItemId(0) — default is 0
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("playerHasItem(0)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.False(result, "Item 0 count is 0 — playerHasItem(0) should be false, not a special case");
+    }
+
+    [Fact]
+    public async Task PlayerHasItem_ComposedInAnd_EvaluatesCorrectly()
+    {
+        /*
+         * RED: Will fail until Builder implements the playerHasItem switch arm.
+         *
+         * CONTRACT: Given questSequence(66130) == 50 (>= 0 is true)
+         *           AND gameState.SetItemCount(new ItemId(2000386), 1),
+         *           When evaluating "questSequence(66130) >= 0 and playerHasItem(2000386)",
+         *           Then result is true (both operands are true).
+         *
+         * BUILDER GUIDANCE: Tests that playerHasItem integrates with the And node's
+         *   short-circuit logic without interference.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        gameState.SetItemCount(new ItemId(2000386), 1);
+        var questState = new FakeQuestState();
+        questState.SetQuestSequence(new QuestId(66130), 50);
+        var evaluator = CreateEvaluator(gameState, questState);
+        var ast = PredicateParser.Parse("questSequence(66130) >= 0 and playerHasItem(2000386)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.True(result, "questSequence(66130)>=0 (true) AND playerHasItem(2000386) (true) = true");
+    }
+
+    [Fact]
+    public async Task PlayerHasItem_TwoArgForm_ThrowsUnknownStateFunctionException()
+    {
+        /*
+         * RED: Will fail until Builder implements the playerHasItem switch arm.
+         *
+         * CONTRACT: Given a predicate "playerHasItem(2000386, 3)" (two arguments),
+         *           When evaluating, Then UnknownStateFunctionException is thrown.
+         *           The two-arg form is not a supported overload — the function name
+         *           is used as the exception key to indicate the bad dispatch.
+         *
+         * BUILDER GUIDANCE: The switch arm uses a `when args.Count == 1` guard.
+         *   When args.Count != 1 the arm does not match, so the default arm
+         *   throws UnknownStateFunctionException("playerHasItem").
+         */
+
+        // Arrange
+        var evaluator = CreateEvaluator(new FakeGameStateProvider(), new FakeQuestState());
+
+        // Construct AST directly — the parser may not produce a two-arg playerHasItem node.
+        var ast = new PredicateAst.FunctionCall(
+            "playerHasItem",
+            new PredicateAst[] { new PredicateAst.IntLiteral(2000386), new PredicateAst.IntLiteral(3) });
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<UnknownStateFunctionException>(
+            () => evaluator.Evaluate(ast, CancellationToken.None));
+
+        Assert.Contains("playerHasItem", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     // -------------------------------------------------------------------------
     // Factory helpers
     // -------------------------------------------------------------------------
