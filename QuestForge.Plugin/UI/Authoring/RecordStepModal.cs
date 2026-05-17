@@ -15,6 +15,7 @@ public sealed class RecordStepModal : Window
     private RecordState _state = RecordState.WaitingForAction;
 
     private GameStateSnapshot? _before;
+    private GameStateSnapshot? _after;
     private InferenceResult? _inference;
 
     // Editable fields shown after inference
@@ -75,6 +76,7 @@ public sealed class RecordStepModal : Window
 
         if (ImGui.Button("Record"))
         {
+            _after = _host.CurrentSnapshot;
             _inference = _host.PreviewInference(_before!);
             _editStepId = _inference.SuggestedStepId;
             _editExpect = _inference.SuggestedExpect ?? "";
@@ -152,7 +154,7 @@ public sealed class RecordStepModal : Window
 
             // Build a minimal raw Step for confirmation — use the inferred type
             // For Phase 9 we build a TalkStep for "talk", TravelStep for "travel", etc.
-            var rawStep = BuildRawStep(stepId, _inference!.StepType, expectStr);
+            var rawStep = BuildRawStep(stepId, _inference!.StepType, expectStr, _after);
 
             _saveError = "";
             _saveTask = SaveAsync(_before!, _inference!, stepId, expectStr, notesStr, rawStep);
@@ -190,11 +192,19 @@ public sealed class RecordStepModal : Window
         await _host.RecordStep(before, inference, stepId, expect, notes, rawStep, CancellationToken.None);
     }
 
-    private static Step BuildRawStep(string stepId, string stepType, string? expect)
+    private static Step BuildRawStep(string stepId, string stepType, string? expect, GameStateSnapshot? after)
     {
         QuestForge.Schema.ExpectValue? expectValue = expect is { Length: > 0 }
             ? new PredicateExpect { Predicate = expect }
             : null;
+
+        // Extract position data from snapshot
+        var zone = (int)(after?.Zone.Value ?? 0);
+        var npcId = after?.LastNpcInteracted?.Value ?? 0u;
+        var pos = after?.LastNpcPosition is { } p
+            ? new Position3(p.X, p.Y, p.Z)
+            : new Position3(0, 0, 0);
+        var npcLoc = new NpcLocation(NpcId: npcId, Zone: zone, Position: pos);
 
         return stepType switch
         {
@@ -202,25 +212,63 @@ public sealed class RecordStepModal : Window
             {
                 Id = stepId,
                 Expect = expectValue,
-                Destination = new TravelDestination(Zone: 0, Position: null)
+                Destination = new TravelDestination(Zone: zone, Position: pos)
             },
             "accept" => new AcceptStep
             {
                 Id = stepId,
                 Expect = expectValue,
-                Target = new NpcLocation(NpcId: 0, Zone: 0, Position: new Position3(0, 0, 0))
+                Target = npcLoc
             },
             "turn-in" => new TurnInStep
             {
                 Id = stepId,
                 Expect = expectValue,
-                Target = new NpcLocation(NpcId: 0, Zone: 0, Position: new Position3(0, 0, 0))
+                Target = npcLoc
+            },
+            "talk" => new TalkStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                Target = npcLoc
+            },
+            "hand-over-item" => new HandOverItemStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                Target = npcLoc,
+                Item = after?.KeyItemsRemoved is { Count: > 0 } removed ? removed[0] : 0u
+            },
+            "attune" => new AttunementStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                Target = new QuestForge.Schema.AetheryteId(after?.LastAttuned?.Value ?? 0u),
+                Location = npcLoc
+            },
+            "pickup-item" => new PickupItemStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                Target = new InteractableTarget(
+                    InteractableId: npcId,
+                    Zone: zone,
+                    Position: pos)
+            },
+            "interact-object" => new InteractObjectStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                Target = new InteractableTarget(
+                    InteractableId: npcId,
+                    Zone: zone,
+                    Position: pos)
             },
             _ => new TalkStep
             {
                 Id = stepId,
                 Expect = expectValue,
-                Target = null
+                Target = npcLoc
             }
         };
     }
@@ -254,6 +302,7 @@ public sealed class RecordStepModal : Window
     private void ResetAndClose()
     {
         _before = null;
+        _after = null;
         _inference = null;
         _state = RecordState.WaitingForAction;
         _saveTask = null;

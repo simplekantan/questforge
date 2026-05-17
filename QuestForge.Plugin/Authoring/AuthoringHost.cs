@@ -263,10 +263,15 @@ public sealed class AuthoringHost : IDisposable
         if (qm == null) return;
 
         var quests = qm->NormalQuests;
+
+        // Track which quest IDs are present this tick
+        var seenIds = new HashSet<ushort>();
+
         for (var i = 0; i < quests.Length; i++)
         {
             var id = quests[i].QuestId;
             if (id == 0) continue;
+            seenIds.Add(id);
 
             var seq = quests[i].Sequence;
             var flags = quests[i].Flags;
@@ -303,6 +308,17 @@ public sealed class AuthoringHost : IDisposable
                 WriteObservationDeduped("GetQuestSequence", publicId.Value, (int)seq);
                 WriteObservationDeduped("GetQuestFlags", publicId.Value, (int)flags);
             }
+        }
+
+        // Detect quests that disappeared (turned in / abandoned)
+        var removedIds = _lastKnownQuestState.Keys.Where(id => !seenIds.Contains(id)).ToList();
+        foreach (var id in removedIds)
+        {
+            var publicId = ToPublicQuestId(id);
+            _aggregator.OnQuestCompleted(publicId);
+            RecentChange = (publicId, "Quest completed (left NormalQuests)", DateTimeOffset.UtcNow);
+            _lastKnownQuestState.Remove(id);
+            _log.Info($"QuestForge Authoring: quest {publicId.Value} removed from NormalQuests (completed or abandoned)");
         }
     }
 
