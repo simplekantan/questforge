@@ -1,6 +1,8 @@
 # AcceptStep & TurnInStep — Testable Specification
 
-**Status:** READY FOR TEST CREATION
+**Status:** ✅ COMPLETE
+
+> **Design evolved post-completion:** Option A ("navigation is the responsibility of a preceding `TravelStep`") was superseded when implied navigation was added (issue #20). `AcceptStep` and `TurnInStep` now emit `Navigate` automatically when the player is beyond `StopDistance` of the target, using the position already stored in `NpcLocation`. A preceding `TravelStep` is no longer required for same-zone NPC approach. See `NEXT_STEPS.md §Phase 11` for the current contract.
 **Phase:** Engine step expansion (post AttunementStep / CutsceneStep)
 **Position in TDD workflow:** Architect (you are here) → Tester → Builder → Reviewer
 

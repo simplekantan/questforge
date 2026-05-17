@@ -50,6 +50,8 @@ public sealed class TurnInStepTests
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(12345), 0);
         // isQuestComplete checks _statuses[quest] == Complete — no SetQuestStatus call means false
+        // Player at NPC position: XZ distance = 0 → within default 3.0f → Interact
+        harness.GameState.SetPosition(new WorldPosition(21.84f, 7f, -81.13f));
 
         var quest = BuildSingleStepQuest(
             questId: 12345,
@@ -170,6 +172,8 @@ public sealed class TurnInStepTests
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(12345), 0);
         // Neither quest 12345 nor 99999 is complete initially
+        // Player at NPC position: XZ distance = 0 → within default 3.0f → Interact
+        harness.GameState.SetPosition(new WorldPosition(21.84f, 7f, -81.13f));
 
         var quest = BuildSingleStepQuest(
             questId: 12345,
@@ -227,6 +231,8 @@ public sealed class TurnInStepTests
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(12345), 0);
         // Quest NOT complete — will not change between ticks
+        // Player at NPC position: XZ distance = 0 → within default 3.0f → Interact each tick
+        harness.GameState.SetPosition(new WorldPosition(21.84f, 7f, -81.13f));
 
         var quest = BuildSingleStepQuest(
             questId: 12345,

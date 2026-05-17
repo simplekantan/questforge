@@ -46,6 +46,8 @@ public sealed class AcceptStepTests
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(12345), 0);
         // IsQuestAccepted checks the _accepted HashSet — do NOT call AddAcceptedQuest here.
+        // Player must be within default 3.0f stop distance of NPC to get Interact (not Navigate).
+        harness.GameState.SetPosition(new WorldPosition(35.56f, 4f, -151.18f));
 
         var quest = BuildSingleStepQuest(
             questId: 12345,
@@ -149,6 +151,8 @@ public sealed class AcceptStepTests
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(12345), 0);
         // Quest NOT accepted initially — isQuestAccepted(12345) == false
+        // Player at NPC position: XZ distance = 0 → within default 3.0f → Interact
+        harness.GameState.SetPosition(new WorldPosition(35.56f, 4f, -151.18f));
 
         var quest = BuildSingleStepQuest(
             questId: 12345,
@@ -206,6 +210,8 @@ public sealed class AcceptStepTests
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(12345), 0);
         // Quest NOT accepted — will not change between ticks
+        // Player at NPC position: XZ distance = 0 → within default 3.0f → Interact each tick
+        harness.GameState.SetPosition(new WorldPosition(35.56f, 4f, -151.18f));
 
         var quest = BuildSingleStepQuest(
             questId: 12345,

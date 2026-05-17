@@ -170,9 +170,11 @@ public class AttunementStep : Step
     public AetheryteId Target { get; init; }
 
     /// <summary>
-    /// Optional world-space location hint for authoring and validation.
-    /// At runtime (Option A), Location is metadata only — navigation must be authored
-    /// as a separate preceding TravelStep. The engine always emits Interact(Target).
+    /// Optional world-space position of the aetheryte or shard.
+    /// When present, the engine uses implied navigation (same as talk/accept/turn-in):
+    /// if the player is beyond StopDistance, it emits Navigate first.
+    /// When absent, the engine emits Interact directly — author a preceding TravelStep
+    /// to ensure the player is close enough.
     /// </summary>
     public NpcLocation? Location { get; init; }
 }

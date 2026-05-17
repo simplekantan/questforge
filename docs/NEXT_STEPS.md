@@ -435,6 +435,8 @@ qf-trace extract-quest <runId>.jsonl --quest-data ../questforge-data --out 66130
 
 **Done when:** ✅ COMPLETE. 224 engine tests passing. `AttunementStep` (`"attune"` discriminator) in schema; `isAttuned(id)` predicate in `FunctionRegistry` and `PredicateEvaluator`; `StepInferenceEngine` Rule 2.5; `GameStateSnapshot.LastAttuned`; engine dispatches `Interact`. `DalamudGameStateProvider.IsAetheryteAttuned` still a stub — see `BACKLOG.md §1` for the ClientStructs upgrade.
 
+**Post-11B update:** `AttunementStep.Location` is no longer metadata-only. When present, the engine applies implied navigation (same as talk/accept/turn-in): if the player is beyond `StopDistance`, it emits `Navigate` first. A preceding `TravelStep` is only needed when `Location` is absent.
+
 ---
 
 ## Phase 11: Incremental corpus expansion (ongoing)
@@ -457,7 +459,7 @@ qf-trace extract-quest <runId>.jsonl --quest-data ../questforge-data --out 66130
 |---|---|---|---|
 | `travel` | ✅ Phase 4 | Core | Navigation via vnavmesh |
 | `talk` | ✅ Phase 4 | Core | NPC interaction + dialogue |
-| `attune` | ✅ Phase 11B | New | Aetheryte/aethernet attunement; `IsAetheryteAttuned` now reads UIState |
+| `attune` | ✅ Phase 11B | New | Aetheryte/aethernet attunement; `IsAetheryteAttuned` now reads UIState; implied navigation applies when `Location` is present |
 | `cutscene` | ✅ Phase 11 | New | Waits on both skippable + non-skippable flags; skip handled by plugin |
 | `accept` | ✅ Phase 11 | New | Quest accept via plugin's existing AcceptQuest wiring |
 | `turn-in` | ✅ Phase 11 | New | Quest turn-in via plugin's existing CompleteQuest wiring |
@@ -479,6 +481,7 @@ qf-trace extract-quest <runId>.jsonl --quest-data ../questforge-data --out 66130
 
 **Other Phase 11 work completed:**
 - `IsAetheryteAttuned` ClientStructs implementation (UIState, not PlayerState)
+- Implied navigation (issue #20): engine emits `Navigate` before `Interact` when player is beyond `StopDistance` (true 3D distance via `WorldPosition.DistanceTo`); applies to `talk`, `accept`, `turn-in`, `interact-object`, and `attune` (when `Location` present); `TravelStep` now reserved for cross-zone movement only
 - NPC quest discovery in `InteractionPanel` (targets an NPC → shows available quests by class)
 - `/qf quest <name>` search command and `/qf author stop` command
 - Lazy NPC→quest index for O(1) Lumina lookup on NPC retarget

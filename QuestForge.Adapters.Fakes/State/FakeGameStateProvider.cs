@@ -14,6 +14,7 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     private JobId _job = new(1);
     private int _jobLevel = 1;
     private (string Reason, string? Detail)? _currentJobFailure;
+    private (string Reason, string? Detail)? _currentPositionFailure;
     private bool _inCombat;
     private MountState _mountState = MountState.Dismounted;
     private bool _dead;
@@ -48,6 +49,8 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     public void SetJob(JobId job, int level)          { lock (_lock) { _job = job; _jobLevel = level; _currentJobFailure = null; } }
     public void SetCurrentJobFail(string reason, string? detail = null) { lock (_lock) _currentJobFailure = (reason, detail); }
     public void ClearCurrentJobFail()                { lock (_lock) _currentJobFailure = null; }
+    public void SetPositionFailure(string reason, string? detail = null) { lock (_lock) _currentPositionFailure = (reason, detail); }
+    public void ClearPositionFailure()               { lock (_lock) _currentPositionFailure = null; }
     public void SetInCombat(bool v)                  { lock (_lock) _inCombat = v; }
     public void SetMountState(MountState v)          { lock (_lock) _mountState = v; }
     public void SetDead(bool v)                      { lock (_lock) _dead = v; }
@@ -116,7 +119,12 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     {
         ct.ThrowIfCancellationRequested();
         Record(nameof(GetPlayerPosition));
-        lock (_lock) return Task.FromResult<Result<WorldPosition>>(Result.Ok(_position));
+        lock (_lock)
+        {
+            if (_currentPositionFailure is { } pf)
+                return Task.FromResult<Result<WorldPosition>>(Result.Fail<WorldPosition>(pf.Reason, pf.Detail));
+            return Task.FromResult<Result<WorldPosition>>(Result.Ok(_position));
+        }
     }
 
     public Task<Result<ZoneId>> GetPlayerZone(CancellationToken ct)

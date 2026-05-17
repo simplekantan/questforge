@@ -1,5 +1,6 @@
 using QuestForge.Adapters.State;
 using QuestForge.Engine.Tests.Helpers;
+using WorldPosition = QuestForge.Adapters.Types.WorldPosition;
 using QuestForge.Schema;
 using Xunit;
 using AdaptersAetheryteId = QuestForge.Adapters.Types.AetheryteId;
@@ -243,9 +244,10 @@ public sealed class AttunementStepTests
          *   Location is never consulted at runtime. It is for authoring/inference only.
          */
 
-        // Arrange
+        // Arrange — place player at the aetheryte position so proximity check passes
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(12345), 0);
+        harness.GameState.SetPosition(new WorldPosition(-15.5f, 4f, -7.2f)); // XZ distance = 0 → in range
 
         var quest = BuildSingleStepQuest(
             questId: 12345,
@@ -265,7 +267,7 @@ public sealed class AttunementStepTests
         // Act
         var action = await harness.Engine.Tick(CancellationToken.None);
 
-        // Assert — uses Target.Value, not Location.NpcId
+        // Assert — Interact uses Target.Value (1000), not Location.NpcId (999999)
         var interact = Assert.IsType<EngineAction.Interact>(action);
         Assert.Equal(new NpcId(1000), interact.Target);
         Assert.NotEqual(new NpcId(999999), interact.Target);

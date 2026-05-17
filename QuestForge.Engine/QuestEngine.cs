@@ -172,37 +172,65 @@ public sealed class QuestEngine
             ? uiValue
             : new UiState(false, false, false, false, false, false, false, false, null);
 
+        // Read player position once per tick for implied navigation distance checks.
+        // On adapter failure: use null so distance checks fail-open (emit Interact, not Navigate).
+        var posResult = await _gameState.GetPlayerPosition(ct);
+        var playerPos = posResult is Result<WorldPosition>.Success { Value: var p } ? p : (WorldPosition?)null;
+
         foreach (var step in matchingBlock.Steps)
         {
             if (step.Expect is not null && await _expectEvaluator.Evaluate(step.Expect, ct))
                 continue;
             if (step.SkipIf is not null && await _expectEvaluator.Evaluate(step.SkipIf, ct))
                 continue;
-            return (ResolveActionForStep(step, ui), step.Id);
+            return (ResolveActionForStep(step, ui, playerPos), step.Id);
         }
 
         return (new EngineAction.Wait("all steps in current sequence satisfied; awaiting game sequence advance"), null);
     }
 
-    private EngineAction ResolveActionForStep(Step step, UiState ui) => step switch
+    private const float DefaultStopDistance = 3.0f;
+
+    private EngineAction ResolveActionForStep(Step step, UiState ui, WorldPosition? playerPos) => step switch
     {
         TravelStep travel when travel.Destination.Position is { } pos =>
             new EngineAction.Navigate(
                 new WorldPosition(pos.X, pos.Y, pos.Z),
-                new NavigationOptions(StoppingDistance: step.StopDistance ?? 3.0f)),
+                new NavigationOptions(StoppingDistance: step.StopDistance ?? DefaultStopDistance)),
 
         TravelStep travel when travel.Destination.Position is null =>
             throw new NotSupportedException("Phase 4 does not support aetheryte-only travel steps"),
 
         TalkStep talk when talk.Target is not null =>
-            new EngineAction.Interact(new NpcId(talk.Target.NpcId)),
+            ResolveInteractOrNavigate(
+                step, talk.Target.Position, playerPos,
+                new EngineAction.Interact(new NpcId(talk.Target.NpcId))),
 
         TalkStep talk when talk.Target is null && talk.Targets is { Length: > 0 } =>
             throw new NotSupportedException("Phase 4 does not support multi-target talk steps"),
 
-        AcceptStep accept => new EngineAction.Interact(new NpcId(accept.Target.NpcId)),
+        AcceptStep accept =>
+            ResolveInteractOrNavigate(
+                step, accept.Target.Position, playerPos,
+                new EngineAction.Interact(new NpcId(accept.Target.NpcId))),
 
-        TurnInStep turnIn => new EngineAction.Interact(new NpcId(turnIn.Target.NpcId)),
+        TurnInStep turnIn =>
+            ResolveInteractOrNavigate(
+                step, turnIn.Target.Position, playerPos,
+                new EngineAction.Interact(new NpcId(turnIn.Target.NpcId))),
+
+        // TODO: replace with EngineAction.InteractObject(InteractableId) once that action type exists.
+        // Coercing InteractableId into NpcId is a shim — the in-range Interact path is not yet
+        // reachable from tests (only the Navigate half is exercised by B5).
+        InteractObjectStep interactObj =>
+            ResolveInteractOrNavigate(
+                step, interactObj.Target.Position, playerPos,
+                new EngineAction.Interact(new NpcId(interactObj.Target.InteractableId))),
+
+        AttunementStep attune when attune.Location is not null =>
+            ResolveInteractOrNavigate(
+                step, attune.Location.Position, playerPos,
+                new EngineAction.Interact(new NpcId(attune.Target.Value))),
 
         AttunementStep attune => new EngineAction.Interact(new NpcId(attune.Target.Value)),
 
@@ -212,4 +240,14 @@ public sealed class QuestEngine
 
         _ => throw new NotSupportedException($"Phase 4 does not support step type {step.GetType().Name}")
     };
+
+    private static EngineAction ResolveInteractOrNavigate(
+        Step step, Position3 targetPos, WorldPosition? playerPos, EngineAction interactAction)
+    {
+        if (playerPos is null) return interactAction; // fail-open: position unavailable
+        var stopDist = step.StopDistance ?? DefaultStopDistance;
+        var target = new WorldPosition(targetPos.X, targetPos.Y, targetPos.Z);
+        if (playerPos.Value.DistanceTo(target) <= stopDist) return interactAction;
+        return new EngineAction.Navigate(target, new NavigationOptions(StoppingDistance: stopDist));
+    }
 }

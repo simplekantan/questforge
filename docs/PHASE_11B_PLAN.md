@@ -1,6 +1,8 @@
 # Phase 11B Implementation Plan: Aetheryte & Aethernet Attunement
 
 **Status:** ✅ COMPLETE — 224 engine tests passing; `DalamudGameStateProvider.IsAetheryteAttuned` is a documented TODO stub
+
+> **Design evolved post-11B:** Option A ("Location is metadata-only") was superseded when implied navigation was added (issue #20). `AttunementStep.Location`, when present, now drives proximity-based navigation exactly like `TalkStep`/`AcceptStep`/`TurnInStep` — the engine emits `Navigate` if the player is beyond `StopDistance`, then `Interact` on the next tick. A preceding `TravelStep` is only needed when `Location` is absent. See `NEXT_STEPS.md §Phase 11` for the updated contract.
 **Input docs:** `docs/NEXT_STEPS.md` §Phase 11B, `docs/CLAUDE.md` (architectural invariants), `docs/SCHEMA.md` (step taxonomy), `docs/ADAPTERS.md` §`IGameStateProvider`, `docs/AUTHORING.md` (snapshot/inference)
 **Output:** new step type `AttunementStep` (`"attune"` discriminator), new predicate `isAttuned(id)`, new authoring inference rule (Rule 2.5), engine handler dispatching to `Interact`, fake support, Dalamud-side stub.
 **Predates:** Phase 11A (CLI wired), Phase 10 (Tools.Trace library), Phase 9 (authoring), Phase 4 (engine skeleton).
