@@ -9,6 +9,7 @@ public enum InferredFrom
     QuestAccepted,
     QuestCompleted,
     AttunementChange,
+    MovementChange,
     Manual,
     None
 }

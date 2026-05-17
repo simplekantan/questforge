@@ -195,7 +195,23 @@ public sealed class StepInferenceEngine
                 Notes: null);
         }
 
-        // Rule 8: Nothing matched
+        // Rule 8: Player moved significantly within the same zone → intra-zone travel
+        if (before.Zone == after.Zone && before.Zone.Value > 0)
+        {
+            var distMoved = before.Position.DistanceTo(after.Position);
+            if (distMoved > 5f)
+            {
+                return new InferenceResult(
+                    StepType: "travel",
+                    SuggestedStepId: $"travel-to-{after.Position.X:F0}-{after.Position.Z:F0}",
+                    SuggestedExpect: null,
+                    Confidence: Confidence.Low,
+                    InferredFrom: InferredFrom.MovementChange,
+                    Notes: $"Player moved {distMoved:F1} units within zone {after.Zone.Value}.");
+            }
+        }
+
+        // Rule 9: Nothing matched
         return InferenceResult.Empty;
     }
 }

@@ -23,6 +23,15 @@ public sealed class RecordStepModal : Window
     private string _editExpect = "";
     private string _editNotes = "";
 
+    // Step type picker: empty = <Detect> (run inference), non-empty = author override
+    private string _overrideStepType = "";
+    private static readonly string[] StepTypeOptions =
+    [
+        "<Detect>", "travel", "talk", "accept", "turn-in", "attune",
+        "hand-over-item", "pickup-item", "interact-object", "cutscene",
+        "use-item", "use-emote", "use-action", "await-user"
+    ];
+
     // Async save tracking
     private Task? _saveTask;
     private string _saveError = "";
@@ -43,6 +52,7 @@ public sealed class RecordStepModal : Window
         _before = _host.OpenRecordModal();
         _state = RecordState.WaitingForAction;
         _inference = null;
+        _overrideStepType = "";
         _editStepId = "";
         _editExpect = "";
         _editNotes = "";
@@ -68,8 +78,24 @@ public sealed class RecordStepModal : Window
     private void DrawWaitingState()
     {
         var before = _before!;
-        ImGui.TextUnformatted("Perform your in-game action, then click Record.");
+
+        // Step type override — author can specify the type upfront instead of relying on inference
+        ImGui.TextUnformatted("Step type:");
+        ImGui.SetNextItemWidth(180f);
+        var displayType = _overrideStepType.Length > 0 ? _overrideStepType : "<Detect>";
+        if (ImGui.BeginCombo("##steptypepick", displayType))
+        {
+            foreach (var option in StepTypeOptions)
+            {
+                var selected = option == displayType;
+                if (ImGui.Selectable(option, selected))
+                    _overrideStepType = option == "<Detect>" ? "" : option;
+            }
+            ImGui.EndCombo();
+        }
+
         ImGui.Separator();
+        ImGui.TextUnformatted("Perform your in-game action, then click Record.");
         ImGui.TextUnformatted($"Before: zone={before.Zone.Value}, seq={before.QuestSequence}");
         ImGui.TextUnformatted($"Captured at: {before.CapturedAt:HH:mm:ss.fff}");
         ImGui.Spacing();
@@ -77,7 +103,23 @@ public sealed class RecordStepModal : Window
         if (ImGui.Button("Record"))
         {
             _after = _host.CurrentSnapshot;
-            _inference = _host.PreviewInference(_before!);
+
+            if (_overrideStepType.Length > 0)
+            {
+                // Author specified type: build a minimal inference result using the override
+                _inference = new InferenceResult(
+                    StepType: _overrideStepType,
+                    SuggestedStepId: DefaultStepIdForType(_overrideStepType),
+                    SuggestedExpect: null,
+                    Confidence: QuestForge.Engine.Authoring.Confidence.High,
+                    InferredFrom: InferredFrom.Manual,
+                    Notes: null);
+            }
+            else
+            {
+                _inference = _host.PreviewInference(_before!);
+            }
+
             _editStepId = _inference.SuggestedStepId;
             _editExpect = _inference.SuggestedExpect ?? "";
             _editNotes = _inference.Notes ?? "";
@@ -87,6 +129,20 @@ public sealed class RecordStepModal : Window
         if (ImGui.Button("Cancel"))
             ResetAndClose();
     }
+
+    private static string DefaultStepIdForType(string stepType) => stepType switch
+    {
+        "travel"         => "travel-step",
+        "talk"           => "talk-step",
+        "accept"         => "accept-quest",
+        "turn-in"        => "turn-in-quest",
+        "attune"         => "attune-aetheryte",
+        "hand-over-item" => "hand-over-item",
+        "pickup-item"    => "pickup-item",
+        "interact-object"=> "interact-object",
+        "cutscene"       => "cutscene",
+        _                => "step"
+    };
 
     private void DrawInferenceState()
     {
@@ -226,6 +282,7 @@ public sealed class RecordStepModal : Window
         _before = null;
         _after = null;
         _inference = null;
+        _overrideStepType = "";
         _state = RecordState.WaitingForAction;
         _saveTask = null;
         _saveError = "";

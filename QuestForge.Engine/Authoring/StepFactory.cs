@@ -31,13 +31,14 @@ public static class StepFactory
 
         return stepType switch
         {
-            "travel" when isAethernet => BuildAethernetTravelStep(stepId, expectValue, zoneStr, zone, before!, after, sourceShard!.Value),
+            "travel" when isAethernet && (after?.LastAethernetShardInteracted is { } ds && ds.Value != sourceShard!.Value.Value) =>
+                BuildAethernetTravelStep(stepId, expectValue, zoneStr, zone, before!, after, sourceShard!.Value),
             "travel" => new TravelStep
             {
                 Id = stepId,
                 Expect = expectValue,
                 Zone = zoneStr,
-                Destination = new TravelDestination(Zone: zone, Position: playerPos)
+                Destination = new TravelDestination(Zone: zone, Position: ResolveTravelPosition(before, after, playerPos, isAethernet))
             },
             "accept" => new AcceptStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc },
             "turn-in" => new TurnInStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc },
@@ -76,6 +77,28 @@ public static class StepFactory
             },
             _ => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc }
         };
+    }
+
+    private static Position3 ResolveTravelPosition(
+        GameStateSnapshot? before, GameStateSnapshot? after, Position3 afterPlayerPos, bool isAethernet)
+    {
+        // Aethernet without confirmed destination: navigate to source shard first (shard position in source zone)
+        if (isAethernet && before?.LastNpcPosition.HasValue == true)
+        {
+            var sp = before.LastNpcPosition!.Value;
+            return new Position3(sp.X, sp.Y, sp.Z);
+        }
+
+        // Cross-zone border run: use before.Position (approach coords in source zone so vnavmesh
+        // can pathfind to the gate). The game handles the zone transition when the player enters
+        // the trigger area.
+        var beforeZone = before?.Zone.Value ?? 0;
+        var afterZone = after?.Zone.Value ?? 0;
+        if (beforeZone > 0 && afterZone > 0 && beforeZone != afterZone && before?.Position is { } bp)
+            return new Position3(bp.X, bp.Y, bp.Z);
+
+        // Same-zone travel: destination is where the player ended up
+        return afterPlayerPos;
     }
 
     private static TravelStep BuildAethernetTravelStep(
