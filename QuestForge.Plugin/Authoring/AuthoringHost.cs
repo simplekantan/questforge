@@ -202,7 +202,7 @@ public sealed class AuthoringHost : IDisposable
         var draftStep = new DraftStep(
             StepId: finalStepId,
             StepType: inference.StepType,
-            SequenceNumber: inference.StepType == "accept" ? before.QuestSequence : _aggregator.Current.QuestSequence,
+            SequenceNumber: before.QuestSequence,
             InferredFrom: inference.InferredFrom,
             ObservedBefore: before,
             ObservedAfter: _aggregator.Current,
