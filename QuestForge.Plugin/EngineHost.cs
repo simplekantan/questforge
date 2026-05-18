@@ -42,7 +42,7 @@ public sealed class EngineHost : IDisposable
     private readonly LuminaDialogueResolver _dialogue;
     private readonly SeededTimingProfile _timing;
 
-    private ITraceWriter _trace = NullTraceWriter.Instance;
+    private readonly TraceSession _traceSession;
     private QuestEngine? _engine;
     private RecordingQuestState? _recordingQs;
     private string? _runId;
@@ -67,9 +67,10 @@ public sealed class EngineHost : IDisposable
     private DateTimeOffset _lastDebounceAt = DateTimeOffset.MinValue;
     private static readonly TimeSpan DebounceInterval = TimeSpan.FromSeconds(10);
 
-    public EngineHost(PluginServices services)
+    public EngineHost(PluginServices services, TraceSession traceSession)
     {
         _services = services;
+        _traceSession = traceSession;
         _gameStateInner = new DalamudGameStateProvider(services);
         _questStateInner = new DalamudQuestState(services);
         _navigator       = new VnavmeshNavigator(services);
@@ -148,25 +149,21 @@ public sealed class EngineHost : IDisposable
         EnableCutsceneSkip();
         _runId          = runId;
         _currentQuestId = new QuestId(quest.Id);
-        // Tracing is opt-in — normal users get NullTraceWriter; authoring/debug users get a real file.
-        _trace = enableTracing
-            ? TraceWriter.OpenFile(BuildTracePath(runId))
-            : (ITraceWriter)NullTraceWriter.Instance;
         _timing.Reseed(StableHash(runId));
+        _traceSession.Write(new RunStartEvent(runId, quest.Id, quest.Id, DateTimeOffset.UtcNow));
 
         IGameStateProvider gs = new RecordingGameStateProvider(
-            _gameStateInner, _trace, () => _runId, skipIfNoRunId: true);
+            _gameStateInner, _traceSession, () => _runId, skipIfNoRunId: true);
         var recordingQs = new RecordingQuestState(
-            _questStateInner, _trace, () => _runId, skipIfNoRunId: true);
+            _questStateInner, _traceSession, () => _runId, skipIfNoRunId: true);
         IQuestState qs = recordingQs;
-        // Hold reference for ambient flag polling only when tracing is active.
-        // Nullness of _recordingQs is the gate — saves the poll overhead for normal users.
-        _recordingQs = enableTracing ? recordingQs : null;
+        // Always hold the reference — TraceSession gate controls whether observations reach disk.
+        _recordingQs = recordingQs;
 
         _engine = new QuestEngine(
             gs, qs, _navigator, _teleporter, _interactor,
             _combat, _gear, _minigames, _dialogue, _timing,
-            _trace, new DalamudLogger<QuestEngine>(_services.Log));
+            _traceSession, new DalamudLogger<QuestEngine>(_services.Log));
         _engine.StartQuest(quest);
         _engine.BeginRun(runId);
     }
@@ -230,7 +227,7 @@ public sealed class EngineHost : IDisposable
                 if (_runId is not null)
                     try
                     {
-                        _trace.Write(new QuestForge.Adapters.Tracing.ObservationEvent(
+                        _traceSession.Write(new QuestForge.Adapters.Tracing.ObservationEvent(
                             _runId, "UseAethernet",
                             System.Text.Json.JsonSerializer.SerializeToElement(new
                             {
@@ -383,12 +380,13 @@ public sealed class EngineHost : IDisposable
 
     private void EndRun()
     {
+        if (_runId is not null)
+            _traceSession.Write(new RunEndEvent(_runId, "ended", DateTimeOffset.UtcNow));
         _engine      = null;
         _recordingQs = null;
-        (_trace as IDisposable)?.Dispose();
-        _trace  = NullTraceWriter.Instance;
-        _runId  = null;
+        _runId       = null;
         RestoreCutsceneSkip();
+        // TraceSession file lifecycle is managed by Plugin.cs; do not close here.
     }
 
     public void Dispose() => EndRun();
@@ -457,10 +455,4 @@ public sealed class EngineHost : IDisposable
         return hash;
     }
 
-    private string BuildTracePath(string runId)
-    {
-        var dir = Path.Combine(_services.PluginInterface.GetPluginConfigDirectory(), "traces");
-        Directory.CreateDirectory(dir);
-        return Path.Combine(dir, $"{runId}.jsonl");
-    }
 }

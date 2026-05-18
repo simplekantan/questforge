@@ -5,6 +5,7 @@ using ECommons;
 using ECommons.Automation;
 using QuestForge.Adapters.Dalamud;
 using QuestForge.Adapters.Dalamud.Authoring;
+using QuestForge.Adapters.Tracing;
 using QuestForge.Plugin.Authoring;
 using QuestForge.Plugin.Commands;
 using QuestForge.Plugin.UI.Authoring;
@@ -13,6 +14,7 @@ namespace QuestForge.Plugin;
 
 public sealed class Plugin : IDalamudPlugin
 {
+    private readonly TraceSession _traceSession;
     private readonly EngineHost _host;
     private readonly AuthoringHost _authoringHost;
     private readonly QfCommand _command;
@@ -56,7 +58,15 @@ public sealed class Plugin : IDalamudPlugin
 
         var config = PluginConfig.Load(pi);
 
-        _host = new EngineHost(services);
+        var tracesDir = Path.Combine(pi.GetPluginConfigDirectory(), "traces");
+        Directory.CreateDirectory(tracesDir);
+        _traceSession = new TraceSession(
+            config.TraceMode,
+            tracesDir,
+            onOpenError: ex => log.Error(ex, "QuestForge: failed to open trace file"));
+        _traceSession.OnPluginStart();
+
+        _host = new EngineHost(services, _traceSession);
 
         var questsDir = Path.Combine(pi.GetPluginConfigDirectory(), "quests");
         var questCategories = BuildQuestCategories(questsDir);
@@ -76,8 +86,7 @@ public sealed class Plugin : IDalamudPlugin
         var draftsDir = Path.Combine(pi.GetPluginConfigDirectory(), "drafts");
         Directory.CreateDirectory(draftsDir);
         var draftStorage = new FileDraftStorage(draftsDir, log);
-        var tracesDir = Path.Combine(pi.GetPluginConfigDirectory(), "traces");
-        _authoringHost = new AuthoringHost(services, draftStorage, log, config, _host.QuestState, tracesDir);
+        _authoringHost = new AuthoringHost(services, draftStorage, log, config, _host.QuestState, _traceSession);
 
         var recordModal = new RecordStepModal(_authoringHost);
         var editModal = new StepEditModal(_authoringHost);
@@ -149,6 +158,8 @@ public sealed class Plugin : IDalamudPlugin
         _command.Dispose();
         _host.Dispose();
         _authoringHost.Dispose();
+        _traceSession.OnPluginStop();
+        _traceSession.Dispose();
         _cts.Dispose();
         ECommonsMain.Dispose();
     }

@@ -27,11 +27,11 @@ public sealed class AuthoringHost : IDisposable
     private readonly DraftManager _draftManager;
     private readonly StepInferenceEngine _inferenceEngine = new();
     private readonly IQuestState _questState;
-    private readonly string _tracesDir;
+    private readonly TraceSession _traceSession;
     private SnapshotAggregator _aggregator;
 
-    // Authoring trace — written alongside the draft for qf-trace compatibility
-    private ITraceWriter _authoringTrace = NullTraceWriter.Instance;
+    // Logical run-id label for events emitted during this authoring session.
+    // Not a write gate — TraceSession owns that. Null when not in Author mode.
     private string? _authoringRunId;
 
     // NPC quest cache — refreshed only when target.BaseId changes
@@ -50,8 +50,7 @@ public sealed class AuthoringHost : IDisposable
     // Key item polling: track previous key item map (itemId → qty) for diff
     private Dictionary<uint, int> _previousKeyItemsMap = new();
 
-    // Passive trace dedup: suppress duplicate JSONL writes for unchanged values
-    private readonly Dictionary<string, string?> _traceDedup = new();
+    // (dedup is now owned by TraceSession)
 
     public AuthoringMode Mode { get; private set; } = AuthoringMode.Off;
     public QuestId? AuthoringTarget { get; private set; }
@@ -92,13 +91,13 @@ public sealed class AuthoringHost : IDisposable
         return lines.ToString().TrimEnd();
     }
 
-    public AuthoringHost(PluginServices services, FileDraftStorage storage, IPluginLog log, PluginConfig config, IQuestState questState, string tracesDir)
+    public AuthoringHost(PluginServices services, FileDraftStorage storage, IPluginLog log, PluginConfig config, IQuestState questState, TraceSession traceSession)
     {
         _services = services;
         _log = log;
         _config = config;
         _questState = questState;
-        _tracesDir = tracesDir;
+        _traceSession = traceSession;
         _draftManager = new DraftManager(storage, SystemClock.Instance, TimeSpan.FromSeconds(60));
         _aggregator = new SnapshotAggregator(null, SystemClock.Instance);
 
@@ -132,13 +131,11 @@ public sealed class AuthoringHost : IDisposable
         // Preload the draft into cache so RecordStep calls are synchronous (cache hit)
         _ = _draftManager.GetOrCreate(target, CancellationToken.None);
 
-        // Start an authoring trace alongside the draft so qf-trace can process this session
-        Directory.CreateDirectory(_tracesDir);
         _authoringRunId = $"author-{target.Value}-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
-        _authoringTrace = TraceWriter.OpenFile(Path.Combine(_tracesDir, $"{_authoringRunId}.jsonl"));
-        _authoringTrace.Write(new RunStartEvent(_authoringRunId, target.Value, target.Value, DateTimeOffset.UtcNow));
+        _traceSession.OnEnterAuthorMode(target.Value);
+        _traceSession.Write(new RunStartEvent(_authoringRunId, target.Value, target.Value, DateTimeOffset.UtcNow));
 
-        _log.Info($"QuestForge Authoring: entered Author mode for quest {target.Value}, trace: {_authoringRunId}");
+        _log.Info($"QuestForge Authoring: entered Author mode for quest {target.Value}, runId: {_authoringRunId}");
     }
 
     public void ExitAuthoring() =>
@@ -148,11 +145,10 @@ public sealed class AuthoringHost : IDisposable
     {
         if (_authoringRunId is not null)
         {
-            _authoringTrace.Write(new RunEndEvent(_authoringRunId, "authored", DateTimeOffset.UtcNow));
-            (_authoringTrace as IDisposable)?.Dispose();
-            _authoringTrace = NullTraceWriter.Instance;
+            _traceSession.Write(new RunEndEvent(_authoringRunId, "authored", DateTimeOffset.UtcNow));
             _authoringRunId = null;
         }
+        _traceSession.OnExitAuthoring();
         Mode = AuthoringMode.Off;
         AuthoringTarget = null;
         _log.Info("QuestForge Authoring: exited authoring mode");
@@ -163,6 +159,8 @@ public sealed class AuthoringHost : IDisposable
     /// <summary>Captures the current snapshot as the "before" for the next Record.</summary>
     public GameStateSnapshot OpenRecordModal()
     {
+        if (AuthoringTarget is { } target)
+            _traceSession.OnOpenRecordModal(target.Value);
         // Reset per-action delta signals so stale KeyItemsAdded/Removed from a previous
         // step don't bleed into the new inference window.
         _aggregator.ResetDeltas();
@@ -223,9 +221,10 @@ public sealed class AuthoringHost : IDisposable
         if (_authoringRunId is not null)
         {
             var stepParams = JsonSerializer.SerializeToElement(new { stepId = finalStepId, stepType = inference.StepType }, _jsonOpts);
-            _authoringTrace.Write(new ActionSubmittedEvent(_authoringRunId, inference.StepType, stepParams, DateTimeOffset.UtcNow));
-            _authoringTrace.Write(new ActionCompletedEvent(_authoringRunId, inference.StepType, "recorded", DateTimeOffset.UtcNow));
+            _traceSession.Write(new ActionSubmittedEvent(_authoringRunId, inference.StepType, stepParams, DateTimeOffset.UtcNow));
+            _traceSession.Write(new ActionCompletedEvent(_authoringRunId, inference.StepType, "recorded", DateTimeOffset.UtcNow));
         }
+        _traceSession.OnConfirmRecordStep();
 
         return Task.CompletedTask;
     }
@@ -376,16 +375,12 @@ public sealed class AuthoringHost : IDisposable
 
             if (_authoringRunId is not null)
             {
-                try
-                {
-                    _authoringTrace.Write(new InventoryChangedEvent(
-                        RunId:   _authoringRunId,
-                        Gained:  result.Gained,
-                        Lost:    result.Lost,
-                        NewHash: result.NewHash,
-                        At:      DateTimeOffset.UtcNow));
-                }
-                catch { /* trace write failure must not affect authoring */ }
+                _traceSession.Write(new InventoryChangedEvent(
+                    RunId:   _authoringRunId,
+                    Gained:  result.Gained,
+                    Lost:    result.Lost,
+                    NewHash: result.NewHash,
+                    At:      DateTimeOffset.UtcNow));
             }
         }
         else
@@ -517,11 +512,7 @@ public sealed class AuthoringHost : IDisposable
         {
             var argEl = JsonSerializer.SerializeToElement(argument, _jsonOpts);
             var valEl = JsonSerializer.SerializeToElement(value, _jsonOpts);
-            var dedupKey = $"{method}:{argEl.GetRawText()}";
-            var valJson = valEl.GetRawText();
-            if (_traceDedup.TryGetValue(dedupKey, out var prev) && prev == valJson) return;
-            _traceDedup[dedupKey] = valJson;
-            _authoringTrace.Write(new ObservationEvent(_authoringRunId, method, argEl, valEl, DateTimeOffset.UtcNow));
+            _traceSession.WriteObservation(method, argEl, valEl, _authoringRunId, DateTimeOffset.UtcNow);
         }
         catch { /* trace write failure must not affect authoring */ }
     }
@@ -531,9 +522,7 @@ public sealed class AuthoringHost : IDisposable
         _services.ClientState.TerritoryChanged -= OnTerritoryChanged;
         _services.Framework.Update -= OnFrameworkUpdate;
         if (_authoringRunId is not null)
-        {
-            _authoringTrace.Write(new RunEndEvent(_authoringRunId, "disposed", DateTimeOffset.UtcNow));
-            (_authoringTrace as IDisposable)?.Dispose();
-        }
+            _traceSession.Write(new RunEndEvent(_authoringRunId, "disposed", DateTimeOffset.UtcNow));
+        // TraceSession lifecycle (OnExitAuthoring / Dispose) is managed by Plugin.cs.
     }
 }
