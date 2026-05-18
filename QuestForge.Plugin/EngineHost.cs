@@ -251,6 +251,10 @@ public sealed class EngineHost : IDisposable
                     $"nav:{n.Destination.X:F0},{n.Destination.Z:F0}",
                     $"[Navigate] → ({n.Destination.X:F1},{n.Destination.Y:F1},{n.Destination.Z:F1}) stop={n.Options.StoppingDistance}");
                 await _navigator.NavigateTo(n.Destination, n.Options, ct);
+                // Advance any Talk dialogue that opened while approaching (e.g. post-attunement
+                // informational text). The attune postcondition becomes true before the dialog
+                // dismisses, so the engine moves to Navigate for the next step while dialog is open.
+                await _interactor.AdvanceDialogue(ct);
                 break;
 
             case EngineAction.Interact i:
