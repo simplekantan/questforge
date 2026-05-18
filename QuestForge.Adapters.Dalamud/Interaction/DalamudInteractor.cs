@@ -28,7 +28,7 @@ public sealed class DalamudInteractor : IInteractor
         foreach (var obj in _svc.ObjectTable)
         {
             if (obj is null || obj.BaseId != npc.Value) continue;
-            if (obj.ObjectKind is not (ObjectKind.EventNpc or ObjectKind.BattleNpc)) continue;
+            if (obj.ObjectKind is not (ObjectKind.EventNpc or ObjectKind.BattleNpc or ObjectKind.Aetheryte)) continue;
 
             _lastInteractAt = DateTimeOffset.UtcNow;
             _svc.TargetManager.Target = obj;
