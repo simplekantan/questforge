@@ -244,7 +244,8 @@ public sealed class EngineHost : IDisposable
 
             case EngineAction.Interact i:
                 DebounceLog($"interact:{i.Target.Value}", $"[Interact] npc={i.Target.Value}");
-                await _navigator.Stop(ct);
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
                 TryCutsceneSkipConfirm();
                 await _interactor.InteractWith(i.Target, ct);
                 // Advance any open dialogue and attempt journal buttons — returns Fail
