@@ -694,19 +694,19 @@ public sealed class AethernetInferenceTests
     }
 
     [Fact]
-    public void SF2_AethernetDestinationEqualsSource_RouteHintNull()
+    public void SF2_AethernetDestinationEqualsSource_UsesBeforePosition()
     {
-        // RED: Will fail until Builder adds 'before' parameter to StepFactory.Build.
-        //
-        // CONTRACT: Given before with shard 125, after with shard also 125 (destination = source),
+        // CONTRACT: Given before with shard 125, after with shard also 125 (same = not confirmed),
         //           When Build is called with both snapshots,
-        //           Then Destination.Position=(10,0,20) (source shard position), RouteHint=null.
+        //           Then Destination.Position = before.Position (author's standing position), RouteHint=null.
         //
-        // BUILDER GUIDANCE: When destination shard equals source shard, emit the shard position
-        // but no RouteHint (cannot provide a useful aethernet hint without a distinct destination).
+        // WHY: Same shard before and after is indistinguishable from a zone-gate walk while
+        // standing near a shard. Using before.Position is safe for both cases — it puts the
+        // player near the shard for genuine aethernet steps, and at the gate for gate walks.
 
         var before = MakeSnapshot(
             zone: new ZoneId(131),
+            position: new WorldPosition(8, 0, 18),   // author standing near shard
             lastAethernetShardInteracted: new AetheryteId(125),
             lastNpcInteracted: new NpcId(125),
             lastNpcPosition: new WorldPosition(10, 0, 20));
@@ -716,31 +716,30 @@ public sealed class AethernetInferenceTests
             lastAethernetShardInteracted: new AetheryteId(125),
             capturedAt: T1);
 
-        // RED: 'before' parameter does not exist yet
         var step = StepFactory.Build("travel", "aethernet-125", "playerZone() == 130", after, before: before);
 
         var travel = Assert.IsType<QuestForge.Schema.TravelStep>(step);
         Assert.NotNull(travel.Destination.Position);
-        Assert.Equal(10f, travel.Destination.Position!.X, precision: 3);
+        Assert.Equal(8f,  travel.Destination.Position!.X, precision: 3);
         Assert.Equal(0f,  travel.Destination.Position!.Y, precision: 3);
-        Assert.Equal(20f, travel.Destination.Position!.Z, precision: 3);
+        Assert.Equal(18f, travel.Destination.Position!.Z, precision: 3);
         Assert.Null(travel.RouteHint);
     }
 
     [Fact]
-    public void SF3_AethernetDestinationNull_RouteHintNull()
+    public void SF3_AethernetDestinationNull_UsesBeforePosition()
     {
-        // RED: Will fail until Builder adds 'before' parameter to StepFactory.Build.
-        //
         // CONTRACT: Given before with shard 125 (conditions met), after.LastAethernetShardInteracted=null,
         //           When Build is called,
-        //           Then Destination.Position=(10,0,20) (source shard position), RouteHint=null.
+        //           Then Destination.Position = before.Position (author's standing position), RouteHint=null.
         //
-        // BUILDER GUIDANCE: Null destination shard means we know aethernet was used but
-        // cannot populate Aethernet hint. Use source shard position, omit RouteHint.
+        // WHY: Null destination shard is indistinguishable from a zone-gate walk (player crossed
+        // before targeting any aetheryte on the other side). Using before.Position is safe —
+        // the author was near the shard, so the player will arrive close enough to interact.
 
         var before = MakeSnapshot(
             zone: new ZoneId(131),
+            position: new WorldPosition(8, 0, 18),   // author standing near shard
             lastAethernetShardInteracted: new AetheryteId(125),
             lastNpcInteracted: new NpcId(125),
             lastNpcPosition: new WorldPosition(10, 0, 20));
@@ -750,14 +749,13 @@ public sealed class AethernetInferenceTests
             lastAethernetShardInteracted: null,
             capturedAt: T1);
 
-        // RED: 'before' parameter does not exist yet
         var step = StepFactory.Build("travel", "travel-130", "playerZone() == 130", after, before: before);
 
         var travel = Assert.IsType<QuestForge.Schema.TravelStep>(step);
         Assert.NotNull(travel.Destination.Position);
-        Assert.Equal(10f, travel.Destination.Position!.X, precision: 3);
+        Assert.Equal(8f,  travel.Destination.Position!.X, precision: 3);
         Assert.Equal(0f,  travel.Destination.Position!.Y, precision: 3);
-        Assert.Equal(20f, travel.Destination.Position!.Z, precision: 3);
+        Assert.Equal(18f, travel.Destination.Position!.Z, precision: 3);
         Assert.Null(travel.RouteHint);
     }
 

@@ -475,7 +475,7 @@ public sealed class ImpliedNavigationTests
 
         var navigate = Assert.IsType<EngineAction.Navigate>(action);
         Assert.Equal(new WorldPosition(35.0f, 4.0f, -151.0f), navigate.Destination);
-        Assert.Equal(3.0f, navigate.Options.StoppingDistance);
+        Assert.Equal(7.0f, navigate.Options.StoppingDistance); // aetheryte default: larger than NPC default
     }
 
     [Fact]

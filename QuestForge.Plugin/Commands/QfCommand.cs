@@ -173,6 +173,10 @@ internal sealed class QfCommand : IDisposable
             return;
         }
 
+        foreach (var seq in quest.Sequences)
+            foreach (var step in seq.Steps)
+                _log.Debug($"[LoadedStep] seq={seq.Sequence} id={step.Id} type={step.GetType().Name} stopDist={step.StopDistance?.ToString() ?? "null"}");
+
         var runId = $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"[..24];
         _host.BeginRun(quest, runId, _config.UserTracingEnabled);
         var traceNote = _config.UserTracingEnabled ? " (tracing on)" : "";

@@ -352,7 +352,15 @@ public sealed class EngineHost : IDisposable
             "quests",
             $"{questId.Value}.json");
         if (!File.Exists(path)) return null;
-        try { return QuestFileLoader.Load(path); }
+        try
+        {
+            var def = QuestFileLoader.Load(path);
+            if (def is not null)
+                foreach (var seq in def.Sequences)
+                    foreach (var step in seq.Steps)
+                        _services.Log.Debug($"[LoadQuest] step={step.Id} type={step.GetType().Name} stopDist={step.StopDistance?.ToString() ?? "null"}");
+            return def;
+        }
         catch { return null; }
     }
 

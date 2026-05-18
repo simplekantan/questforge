@@ -190,7 +190,8 @@ public sealed class QuestEngine
         return (new EngineAction.Wait("all steps in current sequence satisfied; awaiting game sequence advance"), null);
     }
 
-    private const float DefaultStopDistance = 3.0f;
+    private const float DefaultStopDistance        = 3.0f;
+    private const float DefaultAetheryteStopDistance = 7.0f; // crystals are large; need more clearance
 
     private EngineAction ResolveActionForStep(Step step, UiState ui, WorldPosition? playerPos) => step switch
     {
@@ -242,7 +243,8 @@ public sealed class QuestEngine
         AttunementStep attune when attune.Location is not null =>
             ResolveInteractOrNavigate(
                 step, attune.Location.Position, playerPos,
-                new EngineAction.Interact(new NpcId(attune.Target.Value))),
+                new EngineAction.Interact(new NpcId(attune.Target.Value)),
+                defaultStopDistance: DefaultAetheryteStopDistance),
 
         AttunementStep attune => new EngineAction.Interact(new NpcId(attune.Target.Value)),
 
@@ -261,10 +263,11 @@ public sealed class QuestEngine
     };
 
     private static EngineAction ResolveInteractOrNavigate(
-        Step step, Position3 targetPos, WorldPosition? playerPos, EngineAction interactAction)
+        Step step, Position3 targetPos, WorldPosition? playerPos, EngineAction interactAction,
+        float defaultStopDistance = DefaultStopDistance)
     {
         if (playerPos is null) return interactAction; // fail-open: position unavailable
-        var stopDist = step.StopDistance ?? DefaultStopDistance;
+        var stopDist = step.StopDistance ?? defaultStopDistance;
         var target = new WorldPosition(targetPos.X, targetPos.Y, targetPos.Z);
         if (playerPos.Value.DistanceTo(target) <= stopDist) return interactAction;
         return new EngineAction.Navigate(target, new NavigationOptions(StoppingDistance: stopDist));

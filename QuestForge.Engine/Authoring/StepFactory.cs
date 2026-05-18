@@ -38,7 +38,9 @@ public static class StepFactory
                 Id = stepId,
                 Expect = expectValue,
                 Zone = zoneStr,
-                Destination = new TravelDestination(Zone: zone, Position: ResolveTravelPosition(before, after, playerPos, isAethernet))
+                // isAethernet=false: if we fell through from the aethernet branch, the destination
+                // shard was not confirmed (same-shard = zone-gate walk, not an Aethernet hop).
+                Destination = new TravelDestination(Zone: zone, Position: ResolveTravelPosition(before, after, playerPos, false))
             },
             "accept" => new AcceptStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc },
             "turn-in" => new TurnInStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc },
