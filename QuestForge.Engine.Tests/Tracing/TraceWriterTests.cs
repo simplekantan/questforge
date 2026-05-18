@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using QuestForge.Adapters.Tracing;
-using QuestForge.Engine.Tracing;
+using QuestForge.Adapters.Tracing;
 using Xunit;
 
 namespace QuestForge.Engine.Tests.Tracing;

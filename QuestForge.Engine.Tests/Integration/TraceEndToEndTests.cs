@@ -4,7 +4,7 @@ using QuestForge.Adapters.State;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Tests.Helpers;
-using QuestForge.Engine.Tracing;
+using QuestForge.Adapters.Tracing;
 using QuestForge.Schema;
 using Xunit;
 
