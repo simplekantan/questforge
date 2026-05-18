@@ -59,6 +59,10 @@ public sealed class EngineHost : IDisposable
     private DateTimeOffset _lastSchedulerPollAt = DateTimeOffset.MinValue;
     private static readonly TimeSpan SchedulerPollInterval = TimeSpan.FromSeconds(2);
 
+    // Aethernet throttle: prevent re-firing while zone transition / loading is in progress
+    private DateTimeOffset _lastAethernetAt = DateTimeOffset.MinValue;
+    private static readonly TimeSpan AethernetCooldown = TimeSpan.FromSeconds(15);
+
     // Debounced logging: log immediately on change, then at most once per interval for repeats
     private string? _lastDebounceKey;
     private DateTimeOffset _lastDebounceAt = DateTimeOffset.MinValue;
@@ -211,6 +215,13 @@ public sealed class EngineHost : IDisposable
         switch (action)
         {
             case EngineAction.UseAethernet ua:
+                // Throttle: the engine fires UseAethernet every tick while playerZone() fails
+                // (loading screen takes several ticks). Without this, Lifestream receives
+                // duplicate requests and opens the aethernet menu after landing in the
+                // destination zone.
+                if (DateTimeOffset.UtcNow - _lastAethernetAt < AethernetCooldown)
+                    break;
+                _lastAethernetAt = DateTimeOffset.UtcNow;
                 DebounceLog(
                     $"aethernet:{ua.Destination.Value}",
                     $"[UseAethernet] shard={ua.Destination.Value}" +
