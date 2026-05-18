@@ -30,6 +30,7 @@ internal sealed class QfCommand : IDisposable
     private readonly IPluginLog _log;
     private readonly IDalamudPluginInterface _pi;
     private readonly PluginConfig _config;
+    private readonly IObjectTable _objectTable;
 
     public QfCommand(
         EngineHost host,
@@ -47,7 +48,8 @@ internal sealed class QfCommand : IDisposable
         IChatGui chat,
         IPluginLog log,
         IDalamudPluginInterface pi,
-        PluginConfig config)
+        PluginConfig config,
+        IObjectTable objectTable)
     {
         _host = host;
         _authoringHost = authoringHost;
@@ -65,6 +67,7 @@ internal sealed class QfCommand : IDisposable
         _log = log;
         _pi = pi;
         _config = config;
+        _objectTable = objectTable;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
             HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf config trace on|off"
@@ -123,6 +126,9 @@ internal sealed class QfCommand : IDisposable
                 break;
             case "debug" when parts.Length >= 2 && parts[1] == "todolist":
                 HandleDebugToDoList();
+                break;
+            case "debug" when parts.Length >= 2 && parts[1] == "aetheryte":
+                HandleDebugAetheryte(parts.Length >= 3 ? parts[2] : null);
                 break;
             case "debug" when parts.Length >= 3 && parts[1] == "quest":
                 HandleDebugQuest(parts[2]);
@@ -248,6 +254,49 @@ internal sealed class QfCommand : IDisposable
         var msg = $"Offered quest: [{publicId}] {name} (rawRowId={rawRowId})";
         _chat.Print(msg);
         _log.Info($"[debug offered-quest] {msg}");
+    }
+
+    private unsafe void HandleDebugAetheryte(string? idArg)
+    {
+        var uiState = FFXIVClientStructs.FFXIV.Client.Game.UI.UIState.Instance();
+        if (uiState == null) { _chat.Print("UIState unavailable"); return; }
+
+        var sb = new System.Text.StringBuilder();
+
+        // If a specific ID was given, just check that one
+        if (idArg is not null && uint.TryParse(idArg, out var checkId))
+        {
+            var unlocked = uiState->IsAetheryteUnlocked(checkId);
+            var line = $"IsAetheryteUnlocked({checkId}) = {unlocked}";
+            _chat.Print(line);
+            _log.Info($"[debug aetheryte] {line}");
+            return;
+        }
+
+        // Otherwise: scan nearby ObjectTable for Aetheryte objects and report BaseId vs unlock status
+        var local = _objectTable.LocalPlayer;
+        if (local is null) { _chat.Print("No local player"); return; }
+        var playerPos = local.Position;
+
+        _chat.Print("Nearby aetherytes (BaseId | unlocked | distance):");
+        sb.AppendLine("Nearby aetherytes:");
+        foreach (var obj in _objectTable)
+        {
+            if (obj is null) continue;
+            if (obj.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Aetheryte) continue;
+            var dx = obj.Position.X - playerPos.X;
+            var dz = obj.Position.Z - playerPos.Z;
+            var dist = MathF.Sqrt(dx * dx + dz * dz);
+            if (dist > 100f) continue;
+
+            var baseId = obj.BaseId;
+            var unlocked = uiState->IsAetheryteUnlocked(baseId);
+            var line = $"  BaseId={baseId} unlocked={unlocked} dist={dist:F1} pos=({obj.Position.X:F1},{obj.Position.Y:F1},{obj.Position.Z:F1})";
+            _chat.Print(line);
+            sb.AppendLine(line);
+        }
+
+        _log.Info($"[debug aetheryte]\n{sb}");
     }
 
     private unsafe void HandleDebugToDoList()

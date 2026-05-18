@@ -56,10 +56,18 @@ public static class StepFactory
                 Id = stepId,
                 Expect = expectValue,
                 Zone = zoneStr,
-                Target = new QuestForge.Schema.AetheryteId(after?.LastAttuned?.Value ?? 0u),
-                // npcId/npcPos now come from the aetheryte object itself (ObjectKind.Aetheryte,
-                // BaseId = AetheryteId) because PollTargetNpc now includes Aetheryte targets.
-                Location = new NpcLocation(NpcId: npcId, Zone: zone, Position: npcPos)
+                // Prefer LastAethernetShardInteracted (the shard the author physically targeted,
+                // works even when the aetheryte is already attuned). Fall back to LastAttuned
+                // for traces recorded before this field existed.
+                Target = new QuestForge.Schema.AetheryteId(
+                    after?.LastAethernetShardInteracted?.Value
+                    ?? after?.LastAttuned?.Value
+                    ?? 0u),
+                Location = new NpcLocation(NpcId: npcId, Zone: zone, Position: npcPos),
+                // Infer stop distance from the recorded interaction distance (player position vs
+                // aetheryte position at time of recording). Aetheryte crystals are large objects;
+                // using the natural interaction distance prevents the engine from running into them.
+                StopDistance = InferStopDistance(after)
             },
             "pickup-item" => new PickupItemStep
             {
@@ -77,6 +85,18 @@ public static class StepFactory
             },
             _ => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc }
         };
+    }
+
+    private static float? InferStopDistance(GameStateSnapshot? after)
+    {
+        if (after?.LastNpcPosition is not { } npcPos) return null;
+        var p = after.Position;
+        var dx = p.X - npcPos.X;
+        var dy = p.Y - npcPos.Y;
+        var dz = p.Z - npcPos.Z;
+        var dist = MathF.Sqrt(dx * dx + dy * dy + dz * dz);
+        // Round up to nearest 0.5 and clamp to a sensible range
+        return dist > 0.5f ? MathF.Round(dist * 2, MidpointRounding.AwayFromZero) / 2f : null;
     }
 
     private static Position3 ResolveTravelPosition(

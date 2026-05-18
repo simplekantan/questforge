@@ -98,7 +98,7 @@ public sealed class Plugin : IDalamudPlugin
         pi.UiBuilder.Draw += _windowSystem.Draw;
         pi.UiBuilder.OpenMainUi += _mainWindow.Toggle;
 
-        _command = new QfCommand(_host, _authoringHost, _authoringSessionPanel, _interactionPanel, _playerStatePanel, _questStatePanel, _scheduler, _mainWindow, _questData, dataManager, gameGui, commandManager, chatGui, log, pi, config);
+        _command = new QfCommand(_host, _authoringHost, _authoringSessionPanel, _interactionPanel, _playerStatePanel, _questStatePanel, _scheduler, _mainWindow, _questData, dataManager, gameGui, commandManager, chatGui, log, pi, config, objectTable);
 
         Directory.CreateDirectory(questsDir);
 
