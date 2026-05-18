@@ -190,20 +190,21 @@ public sealed class DalamudInteractor : IInteractor
         var placedCount   = addon->AtkValues[0].Int;
         var requiredCount = (int)addon->AtkValues[3].UInt;
 
-        if (placedCount >= requiredCount)
+        // Always attempt the Hand Over button click via the focus node's event chain.
+        // The game rejects the click safely if the item isn't placed yet; the step's
+        // expect predicate (not(playerHasItem(N))) is the authoritative success check.
+        // focusNode and its event are confirmed non-null when the Request addon is open.
+        var focusNode = addon->FocusNode;
+        if (focusNode != null)
         {
-            // The Request addon's button events live on child collision nodes, not on the
-            // button's OwnerNode. The addon's FocusNode (offset 0xF8) points directly to
-            // the Hand Over button's inner collision node, which DOES have events.
-            var focusNode = addon->FocusNode;
-            if (focusNode == null)
-                return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
             var evt = focusNode->AtkEventManager.Event;
-            if (evt == null)
-                return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
-            addon->ReceiveEvent(AtkEventType.ButtonClick, (int)evt->Param, evt);
-            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.HandedOver));
+            if (evt != null)
+                addon->ReceiveEvent(AtkEventType.ButtonClick, (int)evt->Param, evt);
         }
+
+        // If items are already placed, nothing more to do this tick.
+        if (placedCount >= requiredCount)
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.HandedOver));
 
         // Place items not yet in slots — one item per call, engine retries each tick
         var mgr = InventoryManager.Instance();
