@@ -192,8 +192,8 @@ public sealed class DalamudInteractor : IInteractor
 
         if (placedCount >= requiredCount)
         {
-            // NodeId 15 = "Hand Over" button (confirmed via /xldata on Request addon)
-            var btn = addon->GetComponentButtonById(15);
+            // NodeId 14 = "Hand Over" button (left, X=16); NodeId 15 = "Cancel" (right, X=130)
+            var btn = addon->GetComponentButtonById(14);
             if (btn == null)
                 return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
             var resNode = (AtkResNode*)btn->AtkComponentBase.OwnerNode;
