@@ -208,17 +208,24 @@ public sealed class StepInferenceEngine
             if (isAethernet)
             {
                 var sourceShardId = sourceShard!.Value.Value;
-                var destShard = after.LastAethernetShardInteracted;
-                var destDiffers = destShard.HasValue && destShard.Value.Value != sourceShardId;
+
+                // Prefer before.AethernetDestinationSelected (explicit menu selection) over
+                // after.LastAethernetShardInteracted (post-arrival observation).
+                // Only use after.LastAethernetShardInteracted as fallback when it differs from source
+                // (same shard = ambiguous, cannot confirm destination).
+                var afterShard = after.LastAethernetShardInteracted;
+                var afterShardDiffers = afterShard.HasValue && afterShard.Value.Value != sourceShardId;
+                var destId = before.AethernetDestinationSelected?.Value
+                    ?? (afterShardDiffers ? afterShard!.Value.Value : (uint?)null);
 
                 return new InferenceResult(
                     StepType: "travel",
                     SuggestedStepId: $"aethernet-to-zone-{after.Zone.Value}",
                     SuggestedExpect: $"playerZone() == {after.Zone.Value}",
-                    Confidence: destDiffers ? Confidence.High : Confidence.Medium,
+                    Confidence: destId.HasValue ? Confidence.High : Confidence.Medium,
                     InferredFrom: InferredFrom.ZoneChange,
-                    Notes: destDiffers
-                        ? $"Aethernet: shard {sourceShardId} → shard {destShard!.Value.Value}"
+                    Notes: destId.HasValue
+                        ? $"Aethernet: shard {sourceShardId} → shard {destId.Value}"
                         : $"Aethernet from shard {sourceShardId} detected. Target the destination shard in zone {after.Zone.Value} after arrival to capture its ID.");
             }
 

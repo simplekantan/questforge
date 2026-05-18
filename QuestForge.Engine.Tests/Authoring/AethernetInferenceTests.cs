@@ -690,7 +690,9 @@ public sealed class AethernetInferenceTests
         Assert.Equal(20f, travel.Destination.Position!.Z, precision: 3);
         Assert.NotNull(travel.RouteHint);
         Assert.NotNull(travel.RouteHint!.Aethernet);
-        Assert.Equal(new uint[] { 33u }, travel.RouteHint!.Aethernet);
+        // Issue #25: Aethernet is now AethernetRouteHint, not uint[]
+        Assert.Equal(33u, travel.RouteHint!.Aethernet!.To);
+        Assert.Equal(125u, travel.RouteHint!.Aethernet!.From);
     }
 
     [Fact]

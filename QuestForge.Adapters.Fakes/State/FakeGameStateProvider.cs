@@ -332,4 +332,9 @@ public sealed class FakeGameStateProvider : IGameStateProvider
             return Task.FromResult<Result<TravelCapability>>(Result.Ok(cap));
         }
     }
+
+    public AethernetId? LastAethernetDestination { get; set; }
+
+    public Task<Result<AethernetId?>> GetLastAethernetDestination(CancellationToken ct)
+        => Task.FromResult<Result<AethernetId?>>(Result.Ok(LastAethernetDestination));
 }

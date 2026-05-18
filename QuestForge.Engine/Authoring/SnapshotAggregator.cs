@@ -22,6 +22,7 @@ public sealed class SnapshotAggregator
     private IReadOnlyList<uint>? _keyItemsAdded;
     private IReadOnlyList<uint>? _keyItemsRemoved;
     private AetheryteId? _lastAethernetShardInteracted;
+    private AethernetId? _aethernetDestinationSelected;
     private IReadOnlyDictionary<uint, int>? _keyItems;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
@@ -51,7 +52,8 @@ public sealed class SnapshotAggregator
         KeyItems = _keyItems,
         KeyItemsAdded = _keyItemsAdded,
         KeyItemsRemoved = _keyItemsRemoved,
-        LastAethernetShardInteracted = _lastAethernetShardInteracted
+        LastAethernetShardInteracted = _lastAethernetShardInteracted,
+        AethernetDestinationSelected = _aethernetDestinationSelected
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -144,6 +146,21 @@ public sealed class SnapshotAggregator
     {
         _lastAethernetShardInteracted = shardId;
     }
+
+    /// <summary>
+    /// Called when the player selects a destination shard in the aethernet menu.
+    /// Preferred over LastAethernetShardInteracted for the "to" field in aethernet step inference.
+    /// NOT cleared by ResetDeltas — only cleared by OnAethernetMenuClosed.
+    /// </summary>
+    public void OnAethernetDestinationSelected(AethernetId destination)
+        => _aethernetDestinationSelected = destination;
+
+    /// <summary>
+    /// Called when the aethernet menu is closed without a selection (or after teleport completes).
+    /// Clears AethernetDestinationSelected so it does not bleed into subsequent inference windows.
+    /// </summary>
+    public void OnAethernetMenuClosed()
+        => _aethernetDestinationSelected = null;
 
     /// <summary>
     /// Called when the key items container changes. <paramref name="added"/> contains item IDs

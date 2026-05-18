@@ -29,9 +29,17 @@ public static class StepFactory
             && before?.LastNpcInteracted?.Value == sourceShard.Value.Value
             && before?.LastNpcPosition.HasValue == true;
 
+        // Aethernet travel fires when:
+        //   1. The shard conditions are met (isAethernet) AND
+        //   2. A destination is known: either AethernetDestinationSelected (explicit menu pick)
+        //      OR after.LastAethernetShardInteracted differs from the source shard (post-arrival).
+        var hasAethernetDestination = isAethernet
+            && (before?.AethernetDestinationSelected.HasValue == true
+                || (after?.LastAethernetShardInteracted is { } ds2 && ds2.Value != sourceShard!.Value.Value));
+
         return stepType switch
         {
-            "travel" when isAethernet && (after?.LastAethernetShardInteracted is { } ds && ds.Value != sourceShard!.Value.Value) =>
+            "travel" when hasAethernetDestination =>
                 BuildAethernetTravelStep(stepId, expectValue, zoneStr, zone, before!, after, sourceShard!.Value),
             "travel" => new TravelStep
             {
@@ -137,11 +145,17 @@ public static class StepFactory
         var shardPos = before.LastNpcPosition!.Value;
         var destPos = new Position3(shardPos.X, shardPos.Y, shardPos.Z);
 
-        // Populate RouteHint.Aethernet only when we have a distinct destination shard
-        var destShard = after?.LastAethernetShardInteracted;
-        var destDiffers = destShard.HasValue && destShard.Value.Value != sourceShard.Value;
-        var routeHint = destDiffers
-            ? new RouteHint(Aethernet: new[] { destShard!.Value.Value })
+        // Prefer before.AethernetDestinationSelected (explicit menu selection) over
+        // after.LastAethernetShardInteracted (post-arrival observation) for "to".
+        var toValue = before.AethernetDestinationSelected?.Value
+            ?? (after?.LastAethernetShardInteracted is { } ds && ds.Value != sourceShard.Value
+                ? ds.Value
+                : (uint?)null);
+
+        // sourceShard derives from LastNpcInteracted (the shard the author physically targeted
+        // before the hop), not from LastAethernetShardInteracted.
+        var routeHint = toValue is { } to
+            ? new RouteHint(Aethernet: new AethernetRouteHint(From: sourceShard.Value, To: to))
             : null;
 
         return new TravelStep

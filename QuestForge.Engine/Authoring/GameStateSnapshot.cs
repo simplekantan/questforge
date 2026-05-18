@@ -36,4 +36,9 @@ public sealed record GameStateSnapshot(
     // The last aethernet shard (sub-aetheryte) the player targeted/interacted with.
     // Used by StepInferenceEngine to detect aethernet travel hops.
     public AetheryteId? LastAethernetShardInteracted { get; init; }
+
+    // Non-positional: does not affect existing constructor call sites.
+    // The aethernet destination shard selected by the player in the aethernet menu.
+    // Preferred over LastAethernetShardInteracted for "to" in StepInferenceEngine Rule 4.
+    public AethernetId? AethernetDestinationSelected { get; init; }
 }
