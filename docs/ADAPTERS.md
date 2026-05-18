@@ -199,6 +199,11 @@ public interface IGameStateProvider
     Task<Result<InteractableReference?>> FindInteractable(InteractableId obj, CancellationToken ct);
     Task<Result<bool>> IsInteractableActive(InteractableId obj, CancellationToken ct);
     Task<Result<bool>> IsAetheryteAttuned(AetheryteId aetheryte, CancellationToken ct);
+    // Note: DalamudGameStateProvider.IsAetheryteAttuned currently reads attunement state via
+    // UIState (ClientStructs). The initial Phase 11B implementation was a stub that returned 0
+    // for all aetherytes; the UIState-based implementation was completed as part of Phase 11
+    // "Other Phase 11 work." If you observe incorrect attunement values, check the ClientStructs
+    // UIState field mapping — the correct API was UIState, not PlayerState.
     Task<Result<IReadOnlyList<AetheryteId>>> GetAttunedAetherytes(CancellationToken ct);
 
     // UI state (composite)

@@ -784,7 +784,7 @@ A minimal complete trace for a hypothetical two-step quest:
 
 ---
 
-## Known divergences from this spec (Phase 5–6 implementation, current as of Phase 10)
+## Known divergences from this spec (Phase 5–6 implementation, current as of Phase 11)
 
 The trace recorder produces a structurally simpler output than the full spec above. These divergences originate in Phase 5–6 and most remain intentionally in place through Phase 10. Phase 10 (`qf-trace`) explicitly accepts and reads the flat Phase 7+ shape.
 
@@ -804,4 +804,8 @@ The trace recorder produces a structurally simpler output than the full spec abo
 **Ambient quest flag polling (added Phase 8):** `EngineHost.TickAsync` proactively calls `GetQuestFlags` on the active quest after each dispatch when tracing is enabled, so flag-bit transitions appear in traces without requiring `questFlag()` predicates in quest files.
 
 **Phase 10 reading contract:** `qf-trace` reads traces produced by the Phase 7+ recorder — top-level `type` discriminator, `runId` at top level, flat payload fields, `action.submitted`/`action.completed` pairs present. Traces from Phase 5–6 (no action pairs, no type discriminator on some events) are not supported by Phase 10 tooling.
+
+**Phase 11A CLI wiring:** All four `qf-trace` subcommands (`extract-fixture`, `validate-fixture`, `list-fixtures`, `extract-quest`) are now fully implemented and wired in the `qf-trace` CLI. The divergences listed above that were tooling-only (i.e. existed only because the CLI was not yet built) are resolved. The remaining divergences — `seq`, `ts`, `v`, and the `data` sub-object — are still deferred implementation details in the recorder itself.
+
+**`inventory.changed` event (added Phase 11):** When `InventoryChangedEvent` fires (FNV-1a hash-based key-item inventory change detection), the trace recorder emits an `inventory.changed` diagnostic event. This event carries a `KeyItemDelta` payload listing which item IDs were added and which were removed. It is a diagnostic event (not replay-verified) and serves as the signal that `StepInferenceEngine` Rule 2.6 uses to infer `HandOverItemStep` during authoring.
 

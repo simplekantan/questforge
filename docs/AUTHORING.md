@@ -177,6 +177,8 @@ A single "Record current action" button. Pressing it captures the player's most 
 | Interacted with an EventObject | `interact-object` or `pickup-item` | Override required |
 | Key item appeared in inventory | `pickup-item` | ✅ Auto-inferred (Rule 2.3) |
 | Key item disappeared from inventory (handed over via Request addon) | `hand-over-item` | ✅ Auto-inferred (Rule 2.4) |
+| `AethernetShardTargeted` observation fires (aethernet shard targeted) | `attune` | ✅ Auto-inferred (Rule 2.5) |
+| Inventory hash changes between before/after observations (`InventoryChangedEvent`) | `hand-over-item` using the items that disappeared | ✅ Auto-inferred (Rule 2.6) |
 | Duty entry | `duty` | Override required |
 | Used emote | `use-emote` | Override required |
 | Sent chat message | `say-chat-message` | Override required |

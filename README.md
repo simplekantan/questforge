@@ -11,7 +11,7 @@ A Dalamud plugin that automates FFXIV quest completion.
 
 ## Status
 
-Active development. All 10 phases of the implementation roadmap are complete. Not yet released for general use — not available in the Dalamud plugin installer.
+Active development. Phases 0–10 are complete. Phase 11 (incremental corpus expansion, new step types) is ongoing. Not yet released for general use — not available in the Dalamud plugin installer.
 
 ---
 

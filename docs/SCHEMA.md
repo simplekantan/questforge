@@ -1041,6 +1041,7 @@ Drawn from `IGameStateProvider`, `IQuestState`, and a few derived helpers.
 | `playerZone()` | int | Current zone ID |
 | `playerLevel(job?)` | int | Job level; defaults to current job |
 | `playerHasItem(itemId, count?)` | bool | Inventory contains item (≥ count) |
+| `isAttuned(id)` | bool | Aetheryte or aethernet shard with the given `AetheryteId` is attuned |
 | `playerHasEquipped(itemId, slot?)` | bool | Item equipped in slot |
 | `playerAverageItemLevel()` | int | Average iLvl of equipped gear |
 | `playerNear(position, radius)` | bool | Player within radius of position |

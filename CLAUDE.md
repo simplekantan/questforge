@@ -79,6 +79,8 @@ Dalamud Integration Layer
 
 **Schema as source of truth:** C# types in `QuestForge.Schema` define the canonical quest schema. JSON Schema is auto-generated from these types. The same types drive runtime deserialization (source-generated `System.Text.Json`), the validator, and authoring tools.
 
+**TraceSession / TraceMode:** `TraceSession` (in `QuestForge.Adapters/Tracing/TraceSession.cs`) is the unified trace shared by both `AuthoringHost` and `EngineHost` — replacing the two separate trace systems that existed through Phase 9. `TraceMode` is a config enum with values `Off`, `Always`, `Authoring`, and `Recording`. Changing `TraceMode` requires a plugin reload (live switching is tracked in issue #27).
+
 ## Dependency Plugins (Adapter Targets)
 
 The engine delegates to these external Dalamud plugins via adapter implementations:
@@ -124,6 +126,7 @@ All design is in `docs/`:
 | 7 | First real quest + canonical trace + replay harness wired to CI | 2-3 weeks |
 | 8 | UI (settings, quest selection, run control, status) | 2-3 weeks |
 | 9 | Authoring mode (inspect + record + draft management + export) | 3-4 weeks |
-| 10+ | Incremental quest corpus expansion | Ongoing |
+| 10 | Trace extractor CLI (`qf-trace`) | 2-3 weeks |
+| 11 | Corpus expansion: new step types as quests require them | Ongoing |
 
-**Current status: Phase 6 complete. Phase 7 (canonical trace + replay harness) next.**
+**Current status: Phase 11 in progress. AttunementStep, HandOverItemStep, and playerHasItem predicate implemented and validated in-game. Expanding quest corpus.**

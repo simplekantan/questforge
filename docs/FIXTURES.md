@@ -99,6 +99,8 @@ Capabilities use a `namespace:name` format. Readers may filter by namespace pref
 | `step:talk` | `TalkStep` |
 | `step:accept` | `AcceptStep` (Phase 11+) |
 | `step:turn-in` | `TurnInStep` (Phase 11+) |
+| `step:attune` | `AttunementStep` (Phase 11+) |
+| `step:hand-over-item` | `HandOverItemStep` (Phase 11+) |
 | `step:cutscene` | `CutsceneStep` (Phase 11+) |
 | `step:combat` | `CombatStep` (Phase 11+) |
 | `step:duty` | `DutyStep` (Phase 11+) |

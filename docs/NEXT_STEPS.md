@@ -252,6 +252,7 @@ Assert.Equal(1, nav.RecordedNavigationRequests.Count);
 
 **What was built:**
 
+- **`TraceSession` unified trace** — `TraceSession` (in `QuestForge.Adapters/Tracing/TraceSession.cs`) replaced the two separate trace systems that existed through Phase 6. Both `AuthoringHost` and `EngineHost` now share a single session. `TraceMode` enum (`Off`, `Always`, `Authoring`, `Recording`) is a config field; changing it requires a plugin reload (live switching tracked in issue #27).
 - **Recording proxy hoist** — `RecordingGameStateProvider` and `RecordingQuestState` moved from `QuestForge.Adapters.Fakes` to `QuestForge.Adapters.Recording` (production-grade, used by `EngineHost`)
 - **Observation deduplication** — recording proxies only emit an `observation` event when the value changes from the last emission for that `(method, argument)` pair; reduces trace files from ~12,500 lines to ~50–100 lines for quest 66130
 - **Replay infrastructure** (in `QuestForge.Adapters.Fakes.Replay`) — `TraceReader`, `ObservationScanner` with last-known-value fallback, `ReplayGameStateProvider`, `ReplayQuestState`; retained for local debugging and future authoring tools
@@ -433,7 +434,7 @@ qf-trace extract-quest <runId>.jsonl --quest-data ../questforge-data --out 66130
 
 **Key design decision:** `AttunementStep` is a schema-level distinction from `interact-object`; the underlying trace events are identical (same `Interact` action). The step type enables `CapabilityInferrer` to emit `step:attune` and lets the scheduler eventually pre-flight check attunement requirements before starting a quest chain.
 
-**Done when:** ✅ COMPLETE. 224 engine tests passing. `AttunementStep` (`"attune"` discriminator) in schema; `isAttuned(id)` predicate in `FunctionRegistry` and `PredicateEvaluator`; `StepInferenceEngine` Rule 2.5; `GameStateSnapshot.LastAttuned`; engine dispatches `Interact`. `DalamudGameStateProvider.IsAetheryteAttuned` still a stub — see `BACKLOG.md §1` for the ClientStructs upgrade.
+**Done when:** ✅ COMPLETE. 224 engine tests passing. `AttunementStep` (`"attune"` discriminator) in schema; `isAttuned(id)` predicate in `FunctionRegistry` and `PredicateEvaluator`; `StepInferenceEngine` Rule 2.5; `GameStateSnapshot.LastAttuned`; engine dispatches `Interact`. `DalamudGameStateProvider.IsAetheryteAttuned` implemented via `UIState.Instance()->IsAetheryteUnlocked`.
 
 **Post-11B update:** `AttunementStep.Location` is no longer metadata-only. When present, the engine applies implied navigation (same as talk/accept/turn-in): if the player is beyond `StopDistance`, it emits `Navigate` first. A preceding `TravelStep` is only needed when `Location` is absent.
 
