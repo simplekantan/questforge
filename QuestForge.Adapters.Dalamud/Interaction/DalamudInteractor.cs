@@ -192,15 +192,11 @@ public sealed class DalamudInteractor : IInteractor
 
         if (placedCount >= requiredCount)
         {
-            // NodeId 14 = "Hand Over" button (left, X=16); NodeId 15 = "Cancel" (right, X=130)
-            var btn = addon->GetComponentButtonById(14);
-            if (btn == null)
-                return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
-            var resNode = (AtkResNode*)btn->AtkComponentBase.OwnerNode;
-            var evt = resNode->AtkEventManager.Event;
-            if (evt == null)
-                return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
-            addon->ReceiveEvent(AtkEventType.ButtonClick, (int)evt->Param, evt);
+            // FireCallbackInt(0) = "Hand Over" (first button, index 0).
+            // The event-chain approach (GetComponentButtonById → OwnerNode → AtkEventManager.Event)
+            // returns a null Event for Request buttons because events live on the child collision
+            // node, not the button node itself. FireCallbackInt is more reliable here.
+            addon->FireCallbackInt(0);
             return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.HandedOver));
         }
 
