@@ -202,7 +202,14 @@ public sealed class AuthoringHost : IDisposable
         var draftStep = new DraftStep(
             StepId: finalStepId,
             StepType: inference.StepType,
-            SequenceNumber: before.QuestSequence,
+            // Accept always belongs in sequence 0 (before the quest enters NormalQuests).
+            // Steps that advance the sequence (e.g. talk-to-guild: 1→255) belong in the
+            // BEFORE block, not the AFTER block. The beforeSeq > 0 guard handles the
+            // timing window where the heartbeat hasn't run yet (before would be 0 stale).
+            SequenceNumber: inference.StepType == "accept" ? 0
+                : _aggregator.Current.QuestSequence > before.QuestSequence && before.QuestSequence > 0
+                    ? before.QuestSequence
+                    : _aggregator.Current.QuestSequence,
             InferredFrom: inference.InferredFrom,
             ObservedBefore: before,
             ObservedAfter: _aggregator.Current,
