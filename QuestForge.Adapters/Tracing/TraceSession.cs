@@ -14,6 +14,7 @@ public sealed class TraceSession : ITraceWriter, IDisposable
     private readonly TraceMode _mode;
     private readonly string _tracesDir;
     private readonly Func<string, ITraceWriter> _writerFactory;
+    private readonly Action<Exception>? _onOpenError;
 
     // ── state ───────────────────────────────────────────────────────────────
     private readonly object _lock = new();
@@ -40,15 +41,13 @@ public sealed class TraceSession : ITraceWriter, IDisposable
     public TraceSession(
         TraceMode mode,
         string tracesDir,
-        Func<string, ITraceWriter>? writerFactory = null)
+        Func<string, ITraceWriter>? writerFactory = null,
+        Action<Exception>? onOpenError = null)
     {
         _mode = mode;
         _tracesDir = tracesDir;
-        // The default factory opens a real file. Callers that do not inject a factory
-        // but are running in a context where file I/O is unavailable (e.g., unit tests)
-        // should pass an explicit factory. If the factory throws, OpenFileUnderLock
-        // catches the exception and leaves the file closed.
         _writerFactory = writerFactory ?? DefaultFileFactory;
+        _onOpenError   = onOpenError;
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -109,20 +108,22 @@ public sealed class TraceSession : ITraceWriter, IDisposable
 
     /// <summary>
     /// Deduplicating wrapper around <see cref="Write"/>.
-    /// The dedup key is <c>(method, argument.GetRawText())</c>; suppression is based on
+    /// The dedup key is <c>(method, argRawText)</c>; suppression is based on
     /// whether the serialised <paramref name="value"/> has changed since the last emission
-    /// for that key.
+    /// for that key. A null or undefined <paramref name="argument"/> is treated as JSON null.
     /// </summary>
     public void WriteObservation(
         string method,
-        JsonElement argument,
+        JsonElement? argument,
         JsonElement value,
         string runId,
         DateTimeOffset at)
     {
         lock (_lock)
         {
-            var argRaw   = argument.GetRawText();
+            var argRaw   = argument is { ValueKind: not JsonValueKind.Undefined } a
+                           ? a.GetRawText()
+                           : "null";
             var valueRaw = value.GetRawText();
             var key      = (method, argRaw);
 
@@ -135,7 +136,7 @@ public sealed class TraceSession : ITraceWriter, IDisposable
             WriteUnderLock(new ObservationEvent(
                 RunId:    runId,
                 Method:   method,
-                Argument: argument,
+                Argument: argument is { ValueKind: not JsonValueKind.Undefined } ? argument : null,
                 Value:    value,
                 At:       at));
         }
@@ -306,9 +307,10 @@ public sealed class TraceSession : ITraceWriter, IDisposable
             if (clearDedup)
                 _dedup.Clear();
         }
-        catch
+        catch (Exception ex)
         {
-            // Factory threw — leave file closed. Swallow exception.
+            // Factory threw — leave file closed and surface through the error callback.
+            _onOpenError?.Invoke(ex);
         }
     }
 
