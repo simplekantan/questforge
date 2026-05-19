@@ -475,6 +475,9 @@ public sealed class AuthoringHost : IDisposable
                 // Menu just closed after a selection — fire the teleport-completed event.
                 _services.Log.Debug($"[QF-DIAG] TelepotTown closed → OnAethernetTeleportCompleted(from={_pendingAethernetFrom?.Value}, to={_pendingAethernetTo.Value.Value})");
                 _aggregator.OnAethernetTeleportCompleted(_pendingAethernetFrom, _pendingAethernetTo.Value);
+                WriteObservationDeduped("AethernetTeleportCompleted",
+                    _pendingAethernetTo.Value.Value,
+                    _pendingAethernetFrom?.Value ?? 0u);
             }
             _aethernetMenuWasOpen = false;
             _pendingAethernetFrom = null;
@@ -602,6 +605,12 @@ public sealed class AuthoringHost : IDisposable
                             cur.LastNpcPosition.Value.Y,
                             cur.LastNpcPosition.Value.Z)));
             }
+
+            // Emit trace for the captured NPC (whichever path set it).
+            var captured = _aggregator.Current.DialogueNpcSource;
+            if (captured != null)
+                WriteObservationDeduped("DialogueNpcCaptured", captured.NpcId,
+                    new { zone = captured.Zone, x = captured.Position.X, y = captured.Position.Y, z = captured.Position.Z });
         }
         else if (!menuIsOpen)
         {
@@ -631,7 +640,17 @@ public sealed class AuthoringHost : IDisposable
             }
         }
 
+        // Detect when the poller fires OnDialogueOptionSelected (menu just closed with a selection).
+        var prevOpt = _aggregator.Current.DialogueOptionSelected;
         _dialoguePoller.Tick(menuIsOpen, selectedIdx);
+        var newOpt = _aggregator.Current.DialogueOptionSelected;
+        if (newOpt.HasValue && newOpt != prevOpt)
+        {
+            var npcSrc = _aggregator.Current.DialogueNpcSource;
+            WriteObservationDeduped("DialogueOptionSelected",
+                npcSrc?.NpcId ?? 0u,
+                newOpt.Value);
+        }
     }
 
     // Built once on first TelepotTown open; maps AethernetName display string → Aetheryte sheet RowId.

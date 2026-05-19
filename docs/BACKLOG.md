@@ -147,7 +147,34 @@ AUTHORING.md §11 and PHASE_9_PLAN.md §6 explicitly defer fragment and branch r
 
 ---
 
-## 5. Trace format compliance
+## 5. Passive trace coverage gaps (UIObserver)
+
+Authoring-mode traces and passive traces (`TraceMode.Always`/`Recording`) currently capture different signals. The goal is for any trace — regardless of mode — to contain enough data to reconstruct a quest definition via `qf-trace extract-quest`.
+
+### 5.0 Extract `UIObserver` service — close the passive trace gap
+
+Three signals required for aethernet and NPC-dialogue step inference are emitted only by `AuthoringHost` (authoring-mode), because they require direct Dalamud UI addon access that `IGameStateProvider` does not model:
+
+| Signal | Gap |
+|---|---|
+| `AethernetTeleportCompleted` (from/to shard IDs) | Requires TelopTown addon polling |
+| `DialogueNpcCaptured` (NPC location when SelectIconString opens) | Requires SelectIconString + TargetManager |
+| `DialogueOptionSelected` (choice index on close) | Requires SelectIconString polling |
+| `GetTarget` / `AethernetShardTargeted` | PollTargetNpc is authoring-only |
+
+**Fix:** extract the UI polling logic (`PollAethernetDestination`, `PollDialogueOption`, `PollTargetNpc`) from `AuthoringHost` into a standalone `UIObserver` component that:
+- Registers on `IFramework.Update` always (not just in authoring mode)
+- Writes directly to `TraceSession` (gating already handled by TraceSession)
+- Is shared by both `AuthoringHost` and the passive recording path
+
+This is the recording proxy pattern described in `ARCHITECTURE.md`. `AuthoringHost` would delegate to `UIObserver` rather than owning the polls.
+
+**Prerequisite:** quest 65644 authorship and run validated.
+- Source: `QuestForge.Plugin/Authoring/AuthoringHost.cs` (PollAethernetDestination, PollDialogueOption, PollTargetNpc)
+
+---
+
+## 6. Trace format compliance
 
 The recorder produces a flat Phase 7+ shape. Several fields specified in `TRACE_FORMAT.md` are not yet emitted. These matter when full replay, redaction, and tooling are built.
 
