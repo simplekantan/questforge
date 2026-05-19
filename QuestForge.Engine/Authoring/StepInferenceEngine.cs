@@ -202,6 +202,20 @@ public sealed class StepInferenceEngine
         // Rule 4: Zone changed (no quest change from rules above)
         if (after.Zone != before.Zone)
         {
+            // NpcDialogue sub-case: zone changed via SelectIconString NPC interaction
+            if (after.DialogueOptionSelected.HasValue && before.LastNpcInteracted.HasValue)
+            {
+                var npcId = before.LastNpcInteracted.Value.Value;
+                var choiceIdx = after.DialogueOptionSelected.Value;
+                return new InferenceResult(
+                    StepType: "travel",
+                    SuggestedStepId: $"npc-dialogue-to-zone-{after.Zone.Value}",
+                    SuggestedExpect: $"playerZone() == {after.Zone.Value}",
+                    Confidence: Confidence.High,
+                    InferredFrom: InferredFrom.ZoneChange,
+                    Notes: $"NpcDialogue: npc {npcId} → choice {choiceIdx} → zone {after.Zone.Value}");
+            }
+
             // Sub-case: aethernet teleport detected
             var sourceShard = before.LastAethernetShardInteracted;
             var isAethernet = sourceShard.HasValue

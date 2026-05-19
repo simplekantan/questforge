@@ -195,6 +195,13 @@ public sealed class QuestEngine
 
     private EngineAction ResolveActionForStep(Step step, UiState ui, WorldPosition? playerPos) => step switch
     {
+        // NpcDialogue routing: navigate to NPC position, then interact with the NPC.
+        // DialogueChoiceDispatcher reads choices from TravelStep.RouteHint.NpcDialogue via Origin.
+        TravelStep travel when travel.RouteHint?.NpcDialogue is { } npcHint =>
+            ResolveInteractOrNavigate(
+                step, npcHint.Target.Position, playerPos,
+                new EngineAction.Interact(new NpcId(npcHint.Target.NpcId), Origin: step)),
+
         // Aethernet routing: navigate to the source shard (Destination.Position) first,
         // then emit UseAethernet once in range. Lifestream chains from there automatically.
         // If no source position is specified, emit UseAethernet directly (caller ensures proximity).

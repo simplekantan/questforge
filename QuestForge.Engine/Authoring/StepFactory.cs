@@ -59,8 +59,15 @@ public static class StepFactory
             dialogueChoices = [];
         }
 
+        // Detect NpcDialogue travel: all three fields must be present in 'after'
+        var hasNpcDialogue = after?.DialogueOptionSelected.HasValue == true
+            && after?.LastNpcInteracted.HasValue == true
+            && after?.LastNpcPosition.HasValue == true;
+
         return stepType switch
         {
+            "travel" when hasNpcDialogue =>
+                BuildNpcDialogueTravelStep(stepId, expectValue, zoneStr, zone, before, after!, dialogueChoices),
             "travel" when hasAethernetDestination =>
                 BuildAethernetTravelStep(stepId, expectValue, zoneStr, zone, before!, after, sourceShard!.Value),
             "travel" => new TravelStep
@@ -117,6 +124,45 @@ public static class StepFactory
                 Target = new InteractableTarget(InteractableId: npcId, Zone: zone, Position: npcPos)
             },
             _ => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc, DialogueChoices = dialogueChoices }
+        };
+    }
+
+    private static TravelStep BuildNpcDialogueTravelStep(
+        string stepId,
+        ExpectValue? expectValue,
+        string? zoneStr,
+        int zone,
+        GameStateSnapshot? before,
+        GameStateSnapshot after,
+        DialogueChoice[] dialogueChoices)
+    {
+        var npcId = after.LastNpcInteracted!.Value.Value;
+        var npcRaw = after.LastNpcPosition!.Value;
+        var npcPos = new Position3(npcRaw.X, npcRaw.Y, npcRaw.Z);
+        var playerPos = new Position3(after.Position.X, after.Position.Y, after.Position.Z);
+
+        // Source zone: where the NPC resides (before zone); fall back to after zone if before is null
+        var sourceZone = (int)(before?.Zone.Value ?? (uint)zone);
+
+        // Dialogue choices: override wins; fall back to single recorded choice from snapshot
+        var choices = dialogueChoices.Length > 0
+            ? dialogueChoices
+            : [new DialogueChoice(
+                Type: "list",
+                Answer: after.DialogueOptionSelected!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))];
+
+        return new TravelStep
+        {
+            Id = stepId,
+            Expect = expectValue,
+            Zone = zoneStr,
+            Destination = new TravelDestination(Zone: zone, Position: playerPos),
+            RouteHint = new RouteHint(NpcDialogue: new NpcDialogueHint(
+                target: new NpcLocation(
+                    NpcId: npcId,
+                    Zone: sourceZone,
+                    Position: npcPos),
+                dialogueChoices: choices))
         };
     }
 

@@ -21,9 +21,40 @@ public record AethernetRouteHint(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] uint? From,
     uint To);
 
+/// <summary>
+/// Describes NPC-mediated zone travel (e.g. a Lift Attendant). Target.Zone is the SOURCE
+/// zone where the NPC resides; TravelStep.Destination.Zone is the DESTINATION zone.
+/// </summary>
+public record NpcDialogueHint
+{
+    [JsonConstructor]
+    public NpcDialogueHint(NpcLocation Target)
+    {
+        this.Target = Target;
+    }
+
+    public NpcLocation Target { get; init; }
+    /// <summary>
+    /// Ordered list of list-type dialogue choices to drive the NPC menu.
+    /// Empty array when not supplied at construction.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DialogueChoice[] DialogueChoices { get; init; } = [];
+
+    /// <summary>
+    /// Convenience constructor that also accepts dialogue choices.
+    /// </summary>
+    public NpcDialogueHint(NpcLocation target, DialogueChoice[]? dialogueChoices)
+        : this(target)
+    {
+        DialogueChoices = dialogueChoices ?? [];
+    }
+}
+
 public record RouteHint(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Aetheryte = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AethernetRouteHint? Aethernet = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AethernetRouteHint? Aethernet = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] NpcDialogueHint? NpcDialogue = null);
 
 /// <summary>A single dialogue interaction. Type: "list" | "yesno" | "talk".</summary>
 public record DialogueChoice(string Type, string? Prompt = null, string? Answer = null);
