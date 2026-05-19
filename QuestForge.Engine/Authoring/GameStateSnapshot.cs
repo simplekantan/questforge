@@ -55,4 +55,11 @@ public sealed record GameStateSnapshot(
     // during an authoring session. Cleared by OnDialogueOptionConsumed after RecordStep.
     // Survives ResetDeltas.
     public int? DialogueOptionSelected { get; init; }
+
+    // Non-positional. The NPC that opened the SelectIconString dialog (e.g., a Lift Attendant),
+    // captured from the live TargetManager when SelectIconString first appears.
+    // Cleared alongside DialogueOptionSelected by OnDialogueOptionConsumed.
+    // WHY: before.LastNpcInteracted is unreliable (may be a shard or prior NPC);
+    //      reading TargetManager at the moment the dialog opens gives the correct NPC.
+    public QuestForge.Schema.NpcLocation? DialogueNpcSource { get; init; }
 }

@@ -26,6 +26,7 @@ public sealed class SnapshotAggregator
     private AethernetHop? _aethernetTeleportCompleted;
     private IReadOnlyDictionary<uint, int>? _keyItems;
     private int? _dialogueOptionSelected;
+    private QuestForge.Schema.NpcLocation? _dialogueNpcSource;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
     // tests inject FakeClock for deterministic CapturedAt values.
@@ -57,7 +58,8 @@ public sealed class SnapshotAggregator
         LastAethernetShardInteracted = _lastAethernetShardInteracted,
         AethernetDestinationSelected = _aethernetDestinationSelected,
         AethernetTeleportCompleted   = _aethernetTeleportCompleted,
-        DialogueOptionSelected       = _dialogueOptionSelected
+        DialogueOptionSelected       = _dialogueOptionSelected,
+        DialogueNpcSource            = _dialogueNpcSource
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -195,10 +197,21 @@ public sealed class SnapshotAggregator
     public void OnDialogueOptionSelected(int index) => _dialogueOptionSelected = index;
 
     /// <summary>
-    /// Called at the end of RecordStep to consume the selected dialogue option so it does not
-    /// bleed into the next recording window.
+    /// Called when SelectIconString first opens, capturing the NPC that triggered it
+    /// (e.g., a Lift Attendant). Read from live TargetManager so no pre-targeting is required.
+    /// NOT cleared by ResetDeltas — cleared alongside DialogueOptionSelected by OnDialogueOptionConsumed.
     /// </summary>
-    public void OnDialogueOptionConsumed() => _dialogueOptionSelected = null;
+    public void OnDialogueNpcCaptured(QuestForge.Schema.NpcLocation npc) => _dialogueNpcSource = npc;
+
+    /// <summary>
+    /// Called at the end of RecordStep to consume the dialogue option and captured NPC so they
+    /// do not bleed into the next recording window.
+    /// </summary>
+    public void OnDialogueOptionConsumed()
+    {
+        _dialogueOptionSelected = null;
+        _dialogueNpcSource = null;
+    }
 
     /// <summary>
     /// Called when the key items container changes. <paramref name="added"/> contains item IDs

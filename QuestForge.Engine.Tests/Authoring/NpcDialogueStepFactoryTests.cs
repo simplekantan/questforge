@@ -36,7 +36,8 @@ public sealed class NpcDialogueStepFactoryTests
         WorldPosition? lastNpcPosition = null,
         AetheryteId? lastAethernetShardInteracted = null,
         int? dialogueOptionSelected = null,
-        DateTimeOffset? capturedAt = null) =>
+        DateTimeOffset? capturedAt = null,
+        QuestForge.Schema.NpcLocation? dialogueNpcSource = null) =>
         new(
             CapturedAt: capturedAt ?? T0,
             Zone: zone ?? new ZoneId(131),
@@ -54,7 +55,8 @@ public sealed class NpcDialogueStepFactoryTests
             LastAttuned: null)
         {
             LastAethernetShardInteracted = lastAethernetShardInteracted,
-            DialogueOptionSelected = dialogueOptionSelected
+            DialogueOptionSelected = dialogueOptionSelected,
+            DialogueNpcSource = dialogueNpcSource
         };
 
     // SF-ND-1
@@ -89,7 +91,11 @@ public sealed class NpcDialogueStepFactoryTests
             lastNpcInteracted: new NpcId(7777),
             lastNpcPosition: new WorldPosition(10f, 0.5f, 20f),
             dialogueOptionSelected: 0,
-            capturedAt: T1);
+            capturedAt: T1,
+            dialogueNpcSource: new QuestForge.Schema.NpcLocation(
+                NpcId: 7777,
+                Zone: 131,
+                Position: new QuestForge.Schema.Position3(10f, 0.5f, 20f)));
 
         // Act
         var step = StepFactory.Build("travel", "npc-dialogue-to-zone-200",
@@ -140,7 +146,11 @@ public sealed class NpcDialogueStepFactoryTests
             lastNpcPosition: new WorldPosition(10f, 0f, 20f),
             lastAethernetShardInteracted: new AetheryteId(33),
             dialogueOptionSelected: 0,
-            capturedAt: T1);
+            capturedAt: T1,
+            dialogueNpcSource: new QuestForge.Schema.NpcLocation(
+                NpcId: 7777,
+                Zone: 131,
+                Position: new QuestForge.Schema.Position3(10f, 0f, 20f)));
 
         // Act
         var step = StepFactory.Build("travel", "npc-dialogue-to-zone-200",
@@ -173,7 +183,11 @@ public sealed class NpcDialogueStepFactoryTests
             lastNpcInteracted: new NpcId(7777),
             lastNpcPosition: new WorldPosition(10f, 0f, 20f),
             dialogueOptionSelected: 0,
-            capturedAt: T1);
+            capturedAt: T1,
+            dialogueNpcSource: new QuestForge.Schema.NpcLocation(
+                NpcId: 7777,
+                Zone: 200,  // fallback: source zone = after.Zone when before is null
+                Position: new QuestForge.Schema.Position3(10f, 0f, 20f)));
 
         // Act
         var step = StepFactory.Build("travel", "npc-dialogue-to-zone-200",
@@ -306,7 +320,11 @@ public sealed class NpcDialogueStepFactoryTests
             lastNpcInteracted: new NpcId(7777),
             lastNpcPosition: new WorldPosition(10f, 0f, 20f),
             dialogueOptionSelected: 0,
-            capturedAt: T1);
+            capturedAt: T1,
+            dialogueNpcSource: new QuestForge.Schema.NpcLocation(
+                NpcId: 7777,
+                Zone: 131,
+                Position: new QuestForge.Schema.Position3(10f, 0f, 20f)));
 
         // Act
         var step = StepFactory.Build("travel", "npc-dialogue-to-zone-200",
@@ -340,7 +358,11 @@ public sealed class NpcDialogueStepFactoryTests
             lastNpcInteracted: new NpcId(7777),
             lastNpcPosition: new WorldPosition(10f, 0f, 20f),
             dialogueOptionSelected: 0,
-            capturedAt: T1);
+            capturedAt: T1,
+            dialogueNpcSource: new QuestForge.Schema.NpcLocation(
+                NpcId: 7777,
+                Zone: 131,
+                Position: new QuestForge.Schema.Position3(10f, 0f, 20f)));
 
         // Act
         var step = StepFactory.Build("travel", "npc-dialogue-to-zone-200",
@@ -442,7 +464,11 @@ public sealed class NpcDialogueStepFactoryTests
             lastNpcInteracted: new NpcId(7777),
             lastNpcPosition: new WorldPosition(10f, 0.5f, 20f), // NPC position (different)
             dialogueOptionSelected: 0,
-            capturedAt: T1);
+            capturedAt: T1,
+            dialogueNpcSource: new QuestForge.Schema.NpcLocation(
+                NpcId: 7777,
+                Zone: 131,
+                Position: new QuestForge.Schema.Position3(10f, 0.5f, 20f)));
 
         // Act
         var step = StepFactory.Build("travel", "npc-dialogue-to-zone-200",
@@ -479,7 +505,11 @@ public sealed class NpcDialogueStepFactoryTests
             lastNpcInteracted: new NpcId(7777),
             lastNpcPosition: new WorldPosition(10f, 0.5f, 20f),  // NPC position
             dialogueOptionSelected: 0,
-            capturedAt: T1);
+            capturedAt: T1,
+            dialogueNpcSource: new QuestForge.Schema.NpcLocation(
+                NpcId: 7777,
+                Zone: 131,
+                Position: new QuestForge.Schema.Position3(10f, 0.5f, 20f)));
 
         // Act
         var step = StepFactory.Build("travel", "npc-dialogue-to-zone-200",

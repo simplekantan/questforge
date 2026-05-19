@@ -36,7 +36,8 @@ public sealed class NpcDialogueInferenceTests
         WorldPosition? lastNpcPosition = null,
         AetheryteId? lastAethernetShardInteracted = null,
         int? dialogueOptionSelected = null,
-        DateTimeOffset? capturedAt = null) =>
+        DateTimeOffset? capturedAt = null,
+        QuestForge.Schema.NpcLocation? dialogueNpcSource = null) =>
         new(
             CapturedAt: capturedAt ?? T0,
             Zone: zone ?? new ZoneId(131),
@@ -54,7 +55,8 @@ public sealed class NpcDialogueInferenceTests
             LastAttuned: null)
         {
             LastAethernetShardInteracted = lastAethernetShardInteracted,
-            DialogueOptionSelected = dialogueOptionSelected
+            DialogueOptionSelected = dialogueOptionSelected,
+            DialogueNpcSource = dialogueNpcSource
         };
 
     // IN-1
@@ -88,7 +90,11 @@ public sealed class NpcDialogueInferenceTests
             lastNpcInteracted: new NpcId(7777),
             lastNpcPosition: new WorldPosition(10f, 0f, 20f),
             dialogueOptionSelected: 0,
-            capturedAt: T1);
+            capturedAt: T1,
+            dialogueNpcSource: new QuestForge.Schema.NpcLocation(
+                NpcId: 7777,
+                Zone: 131,
+                Position: new QuestForge.Schema.Position3(10f, 0f, 20f)));
 
         // Act
         var result = engine.Infer(before, after);
@@ -129,7 +135,11 @@ public sealed class NpcDialogueInferenceTests
             lastNpcPosition: new WorldPosition(10f, 0f, 20f),
             lastAethernetShardInteracted: new AetheryteId(33),
             dialogueOptionSelected: 0,
-            capturedAt: T1);
+            capturedAt: T1,
+            dialogueNpcSource: new QuestForge.Schema.NpcLocation(
+                NpcId: 7777,
+                Zone: 131,
+                Position: new QuestForge.Schema.Position3(10f, 0f, 20f)));
 
         // Act
         var result = engine.Infer(before, after);
@@ -401,7 +411,11 @@ public sealed class NpcDialogueInferenceTests
             lastNpcInteracted: new NpcId(7777),
             lastNpcPosition: new WorldPosition(10f, 0f, 20f),
             dialogueOptionSelected: 0,
-            capturedAt: T1);
+            capturedAt: T1,
+            dialogueNpcSource: new QuestForge.Schema.NpcLocation(
+                NpcId: 7777,
+                Zone: 131,
+                Position: new QuestForge.Schema.Position3(10f, 0f, 20f)));
 
         // Act
         var result = engine.Infer(before, after);

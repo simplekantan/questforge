@@ -145,7 +145,11 @@ public sealed class NpcDialogueRoundTripTest
             InventoryHash: 0,
             LastAttuned: null)
         {
-            DialogueOptionSelected = 0
+            DialogueOptionSelected = 0,
+            DialogueNpcSource = new NpcLocation(
+                NpcId: 7777,
+                Zone: 131,
+                Position: new Position3(10f, 0f, 20f))
         };
 
         var inferResult = inferenceEngine.Infer(before, after);

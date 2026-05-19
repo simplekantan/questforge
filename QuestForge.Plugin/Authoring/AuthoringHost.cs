@@ -520,6 +520,13 @@ public sealed class AuthoringHost : IDisposable
             return;
         }
 
+        // Don't latch a destination that equals the departure shard — "Aetheryte Plaza" entries
+        // in TelepotTown represent the author's CURRENT location and selecting them produces a
+        // same-shard hop (From == To). This typically happens when the initial SelectedItemIndex
+        // defaults to the current-location entry before the author makes a real selection.
+        if (_pendingAethernetFrom.HasValue && rowId == _pendingAethernetFrom.Value.Value)
+            return;
+
         _pendingAethernetTo = new AethernetId(rowId);
     }
 
@@ -528,19 +535,63 @@ public sealed class AuthoringHost : IDisposable
     private QuestForge.Adapters.Types.AetheryteId? _pendingAethernetFrom;
     private QuestForge.Adapters.Types.AethernetId? _pendingAethernetTo;
 
-    // SelectIconString/SelectString tracking: captures which list option the author chose.
+    // SelectIconString tracking: captures which list option the author chose.
     // Re-created alongside _aggregator so it always targets the active aggregator instance.
     private QuestForge.Engine.Authoring.DialogueMenuPoller _dialoguePoller;
+    // Tracks the open/close transition to capture the source NPC when the menu first appears.
+    private bool _dialogueIconStringWasOpen;
 
     private unsafe void PollDialogueOption()
     {
-        // Try SelectIconString first (destination pickers, lift attendants), then SelectString.
+        // Only track SelectIconString (Lift Attendants, destination pickers).
+        // WHY NOT SelectString: aetheryte interactions show a SelectString menu
+        // ("Teleport/Return to inn/Housing") which produces garbage SelectedItemIndex
+        // values that pollute DialogueOptionSelected and confuse the inference engine
+        // into treating aethernet hops as NPC dialogue travel. SelectString is still
+        // handled for engine PLAYBACK in DalamudInteractor.SelectStringOption.
         var ptr = _services.GameGui.GetAddonByName("SelectIconString");
-        if (ptr.IsNull || !ptr.IsReady)
-            ptr = _services.GameGui.GetAddonByName("SelectString");
 
         bool menuIsOpen = !ptr.IsNull && ptr.IsReady;
         int? selectedIdx = null;
+
+        // Capture the NPC from live TargetManager when SelectIconString first opens.
+        // WHY: before.LastNpcInteracted is unreliable (may be a shard or stale NPC).
+        // Reading TargetManager at the moment the dialog opens mirrors the aethernet
+        // pattern and requires no pre-targeting from the author.
+        if (menuIsOpen && !_dialogueIconStringWasOpen)
+        {
+            _dialogueIconStringWasOpen = true;
+            // FFXIV may clear the hard target when SelectIconString opens, so try multiple sources.
+            // Priority: hard target → previous target → aggregator LastNpcInteracted (250 ms lag but reliable).
+            var liveTarget = _services.TargetManager.Target
+                          ?? _services.TargetManager.PreviousTarget;
+            if (liveTarget is { ObjectKind: Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
+                                          or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc })
+            {
+                var p = liveTarget.Position;
+                _aggregator.OnDialogueNpcCaptured(new QuestForge.Schema.NpcLocation(
+                    NpcId: liveTarget.BaseId,
+                    Zone: (int)_services.ClientState.TerritoryType,
+                    Position: new QuestForge.Schema.Position3(p.X, p.Y, p.Z)));
+            }
+            else
+            {
+                // Final fallback: aggregator state from the most recent PollTargetNpc heartbeat.
+                var cur = _aggregator.Current;
+                if (cur.LastNpcInteracted.HasValue && cur.LastNpcPosition.HasValue)
+                    _aggregator.OnDialogueNpcCaptured(new QuestForge.Schema.NpcLocation(
+                        NpcId: cur.LastNpcInteracted.Value.Value,
+                        Zone: (int)cur.Zone.Value,
+                        Position: new QuestForge.Schema.Position3(
+                            cur.LastNpcPosition.Value.X,
+                            cur.LastNpcPosition.Value.Y,
+                            cur.LastNpcPosition.Value.Z)));
+            }
+        }
+        else if (!menuIsOpen)
+        {
+            _dialogueIconStringWasOpen = false;
+        }
 
         if (menuIsOpen)
         {
@@ -579,7 +630,10 @@ public sealed class AuthoringHost : IDisposable
         if (sheet == null) return _aethernetNameToId;
         foreach (var row in sheet)
         {
-            if (row.AethernetGroup == 0 || row.IsAetheryte) continue;
+            // Include both sub-shards (IsAetheryte=false) AND master aetheryte crystals
+            // (IsAetheryte=true, e.g. "Limsa Lominsa Aetheryte Plaza") since the master
+            // crystal IS a valid arrival destination in the city aethernet network.
+            if (row.AethernetGroup == 0) continue;
             var name = row.AethernetName.ValueNullable?.Name.ExtractText();
             if (!string.IsNullOrEmpty(name))
                 _aethernetNameToId.TryAdd(name, row.RowId);

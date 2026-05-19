@@ -202,10 +202,31 @@ public sealed class StepInferenceEngine
         // Rule 4: Zone changed (no quest change from rules above)
         if (after.Zone != before.Zone)
         {
-            // NpcDialogue sub-case: zone changed via SelectIconString NPC interaction
-            if (after.DialogueOptionSelected.HasValue && before.LastNpcInteracted.HasValue)
+            // AethernetTeleportCompleted is the definitive aethernet signal — check FIRST.
+            // WHY before NpcDialogue: interacting with a main aetheryte crystal can briefly open
+            // a SelectString menu ("Teleport/Return to inn/Housing") that sets DialogueOptionSelected
+            // to a spurious value. AethernetTeleportCompleted must always win over that noise.
+            if (after.AethernetTeleportCompleted is { } hopInterZone)
             {
-                var npcId = before.LastNpcInteracted.Value.Value;
+                var fromId = hopInterZone.From?.Value; // uint?
+                var toId   = hopInterZone.To.Value;
+                return new InferenceResult(
+                    StepType: "travel",
+                    SuggestedStepId: $"aethernet-to-zone-{after.Zone.Value}",
+                    SuggestedExpect: $"playerZone() == {after.Zone.Value}",
+                    Confidence: Confidence.High,
+                    InferredFrom: InferredFrom.ZoneChange,
+                    Notes: fromId.HasValue
+                        ? $"Aethernet: shard {fromId.Value} → shard {toId}"
+                        : $"Aethernet to shard {toId}");
+            }
+
+            // NpcDialogue sub-case: zone changed via SelectIconString NPC interaction.
+            // DialogueNpcSource is captured from live TargetManager when the dialog opens,
+            // so no pre-targeting is required from the author.
+            if (after.DialogueOptionSelected.HasValue && after.DialogueNpcSource != null)
+            {
+                var npcId = after.DialogueNpcSource.NpcId;
                 var choiceIdx = after.DialogueOptionSelected.Value;
                 return new InferenceResult(
                     StepType: "travel",
