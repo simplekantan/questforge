@@ -565,8 +565,6 @@ public sealed class AuthoringHost : IDisposable
             }
         }
 
-        if (menuIsOpen)
-            _services.Log.Debug($"[DialogueMenu] open=true selectedIdx={selectedIdx?.ToString() ?? "null"}");
         _dialoguePoller.Tick(menuIsOpen, selectedIdx);
     }
 
