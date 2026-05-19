@@ -1,0 +1,56 @@
+using Dalamud.Plugin.Services;
+using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using Lumina.Excel.Sheets;
+using QuestForge.Plugin.Tracing;
+
+namespace QuestForge.Plugin.Tracing;
+
+public sealed unsafe class DalamudGameProbe : IGameProbe
+{
+    private readonly IDataManager _dataManager;
+
+    public DalamudGameProbe(IDataManager dataManager) => _dataManager = dataManager;
+
+    public IReadOnlyList<(ushort QuestId, byte Seq, byte Flags)> GetNormalQuests()
+    {
+        var mgr = QuestManager.Instance();
+        if (mgr == null) return [];
+        var result = new List<(ushort, byte, byte)>();
+        foreach (ref var slot in mgr->NormalQuestsSpan)
+        {
+            if (slot.QuestId == 0) continue;
+            result.Add((slot.QuestId, slot.Sequence, slot.Flags));
+        }
+        return result;
+    }
+
+    public bool IsAetheryteUnlocked(uint rowId)
+    {
+        var uiState = UIState.Instance();
+        return uiState != null && uiState->IsAetheryteUnlocked(rowId);
+    }
+
+    public IEnumerable<uint> GetAllAetheryteRowIds()
+    {
+        var sheet = _dataManager.GetExcelSheet<Aetheryte>();
+        if (sheet == null) return [];
+        return sheet.Select(r => r.RowId).Where(id => id > 0);
+    }
+
+    public IReadOnlyList<(uint ItemId, int Qty)> GetKeyItemSlots()
+    {
+        var mgr = InventoryManager.Instance();
+        if (mgr == null) return [];
+        var container = mgr->GetInventoryContainer(InventoryType.KeyItems);
+        if (container == null || !container->Loaded) return [];
+        var result = new List<(uint, int)>();
+        for (var i = 0; i < container->Size; i++)
+        {
+            var slot = container->GetInventorySlot(i);
+            if (slot == null || slot->ItemId == 0) continue;
+            result.Add((slot->ItemId, (int)slot->Quantity));
+        }
+        return result;
+    }
+}

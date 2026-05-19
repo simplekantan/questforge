@@ -170,7 +170,8 @@
         "type": "Project",
         "dependencies": {
           "QuestForge.Adapters": "[1.0.0, )",
-          "QuestForge.Engine": "[1.0.0, )"
+          "QuestForge.Engine": "[1.0.0, )",
+          "QuestForge.Schema": "[0.1.0, )"
         }
       },
       "questforge.predicates": {

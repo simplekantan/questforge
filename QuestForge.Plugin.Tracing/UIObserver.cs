@@ -2,6 +2,7 @@ using System.Text.Json;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Authoring;
+using QuestForge.Schema;
 
 namespace QuestForge.Plugin.Tracing;
 
@@ -25,6 +26,7 @@ public sealed class UIObserver : IDisposable
     private readonly string _passiveRunId;
     private readonly IAddonProbe? _addonProbe;
     private readonly IGameProbe? _gameProbe;
+    private readonly ITargetProbe? _targetProbe;
     private readonly IClock _clock;
 
     // ── aggregator (swappable) ───────────────────────────────────────────────
@@ -56,6 +58,9 @@ public sealed class UIObserver : IDisposable
     // ── SelectYesno tracking ──────────────────────────────────────────────
     private bool _selectYesnoWasOpen;
 
+    // ── Target NPC tracking ───────────────────────────────────────────────
+    private uint _lastTargetBaseId;
+
     // ── disposal ──────────────────────────────────────────────────────────
     private bool _disposed;
 
@@ -76,7 +81,8 @@ public sealed class UIObserver : IDisposable
         string passiveRunId,
         IAddonProbe? addonProbe = null,
         IGameProbe? gameProbe = null,
-        IClock? clock = null)
+        IClock? clock = null,
+        ITargetProbe? targetProbe = null)
     {
         ArgumentNullException.ThrowIfNull(framework);
         ArgumentNullException.ThrowIfNull(traceSession);
@@ -87,6 +93,7 @@ public sealed class UIObserver : IDisposable
         _passiveRunId = passiveRunId;
         _addonProbe   = addonProbe;
         _gameProbe    = gameProbe;
+        _targetProbe  = targetProbe;
         _clock        = clock ?? SystemClock.Instance;
 
         _framework.Subscribe(OnFrameworkUpdate);
@@ -127,6 +134,7 @@ public sealed class UIObserver : IDisposable
         _dialogueIconStringWasOpen = false;
         _pendingDialogueIdx        = null;
         _selectYesnoWasOpen        = false;
+        _lastTargetBaseId          = 0;
 
         _aggregator?.OnAethernetTeleportConsumed();
         _aggregator?.OnDialogueOptionConsumed();
@@ -153,6 +161,7 @@ public sealed class UIObserver : IDisposable
     private void OnFrameworkUpdate()
     {
         // Every-frame pollers
+        PollTargetNpc();
         PollAethernetDestination();
         PollDialogueOption();
         PollSelectYesno();
@@ -241,7 +250,7 @@ public sealed class UIObserver : IDisposable
             if (!_gameProbe.IsAetheryteUnlocked(rowId)) continue;
 
             _attunedAetheryteIds.Add(rowId);
-            _aggregator?.OnAttunementChanged(new AetheryteId(rowId));
+            _aggregator?.OnAttunementChanged(new QuestForge.Adapters.Types.AetheryteId(rowId));
             WriteObservation("IsAetheryteAttuned", rowId, 1, runId, now);
         }
     }
@@ -374,9 +383,41 @@ public sealed class UIObserver : IDisposable
         if (menuIsOpen && !_dialogueIconStringWasOpen)
         {
             _dialogueIconStringWasOpen = true;
-            // TODO: NPC capture requires ITargetProbe — added during AuthoringHost integration.
-            // Currently UIObserver has no TargetManager source; DialogueNpcCaptured is not emitted.
-            // UO-G3 is weakened to "at most one" to accommodate this design gap.
+            // Capture NPC from ITargetProbe: tier 1 = hard target, tier 2 = previous target,
+            // tier 3 = aggregator fallback (LastNpcInteracted from last PollTargetNpc heartbeat).
+            var npcInfo = _targetProbe?.GetInteractableNpcTarget()
+                       ?? _targetProbe?.GetInteractableNpcPreviousTarget();
+
+            NpcLocation? npcLoc = null;
+            if (npcInfo.HasValue)
+            {
+                npcLoc = new NpcLocation(
+                    NpcId: npcInfo.Value.BaseId,
+                    Zone: npcInfo.Value.Zone,
+                    Position: new Position3(npcInfo.Value.X, npcInfo.Value.Y, npcInfo.Value.Z));
+            }
+            else if (_aggregator is not null)
+            {
+                var cur = _aggregator.Current;
+                if (cur.LastNpcInteracted.HasValue && cur.LastNpcPosition.HasValue)
+                    npcLoc = new NpcLocation(
+                        NpcId: cur.LastNpcInteracted.Value.Value,
+                        Zone: (int)cur.Zone.Value,
+                        Position: new Position3(
+                            cur.LastNpcPosition.Value.X,
+                            cur.LastNpcPosition.Value.Y,
+                            cur.LastNpcPosition.Value.Z));
+            }
+
+            if (npcLoc is not null)
+            {
+                _aggregator?.OnDialogueNpcCaptured(npcLoc);
+                var now   = _clock.UtcNow;
+                var runId = CurrentRunId;
+                WriteObservation("DialogueNpcCaptured", npcLoc.NpcId,
+                    new { zone = npcLoc.Zone, x = npcLoc.Position.X, y = npcLoc.Position.Y, z = npcLoc.Position.Z },
+                    runId, now);
+            }
         }
 
         if (!menuIsOpen)
@@ -410,7 +451,40 @@ public sealed class UIObserver : IDisposable
         if (menuIsOpen && !_selectYesnoWasOpen)
         {
             _selectYesnoWasOpen = true;
-            // TODO: NPC capture requires ITargetProbe — added during AuthoringHost integration.
+            // NPC capture: same tier strategy as PollDialogueOption.
+            var npcInfo = _targetProbe?.GetInteractableNpcTarget()
+                       ?? _targetProbe?.GetInteractableNpcPreviousTarget();
+
+            NpcLocation? npcLoc = null;
+            if (npcInfo.HasValue)
+            {
+                npcLoc = new NpcLocation(
+                    NpcId: npcInfo.Value.BaseId,
+                    Zone: npcInfo.Value.Zone,
+                    Position: new Position3(npcInfo.Value.X, npcInfo.Value.Y, npcInfo.Value.Z));
+            }
+            else if (_aggregator is not null)
+            {
+                var cur = _aggregator.Current;
+                if (cur.LastNpcInteracted.HasValue && cur.LastNpcPosition.HasValue)
+                    npcLoc = new NpcLocation(
+                        NpcId: cur.LastNpcInteracted.Value.Value,
+                        Zone: (int)cur.Zone.Value,
+                        Position: new Position3(
+                            cur.LastNpcPosition.Value.X,
+                            cur.LastNpcPosition.Value.Y,
+                            cur.LastNpcPosition.Value.Z));
+            }
+
+            if (npcLoc is not null)
+            {
+                _aggregator?.OnDialogueNpcCaptured(npcLoc);
+                var now   = _clock.UtcNow;
+                var runId = CurrentRunId;
+                WriteObservation("DialogueNpcCaptured", npcLoc.NpcId,
+                    new { zone = npcLoc.Zone, x = npcLoc.Position.X, y = npcLoc.Position.Y, z = npcLoc.Position.Z },
+                    runId, now);
+            }
         }
 
         if (!menuIsOpen)
@@ -426,6 +500,48 @@ public sealed class UIObserver : IDisposable
             }
             _selectYesnoWasOpen = false;
         }
+    }
+
+    private void PollTargetNpc()
+    {
+        if (_targetProbe is null) return;
+
+        // Check aetheryte target first
+        var aetheryteId = _targetProbe.GetAetheryteTarget();
+        if (aetheryteId.HasValue)
+        {
+            if (aetheryteId.Value != _lastTargetBaseId)
+            {
+                _lastTargetBaseId = aetheryteId.Value;
+                var now   = _clock.UtcNow;
+                var runId = CurrentRunId;
+                WriteObservation("GetTarget", 0u, aetheryteId.Value, runId, now);
+                WriteObservation("AethernetShardTargeted", aetheryteId.Value, 0, runId, now);
+                _aggregator?.OnAethernetShardTargeted(new QuestForge.Adapters.Types.AetheryteId(aetheryteId.Value));
+            }
+            return;
+        }
+
+        // Check interactable NPC target
+        var npcInfo = _targetProbe.GetInteractableNpcTarget();
+        if (npcInfo.HasValue)
+        {
+            if (npcInfo.Value.BaseId != _lastTargetBaseId)
+            {
+                _lastTargetBaseId = npcInfo.Value.BaseId;
+                var now   = _clock.UtcNow;
+                var runId = CurrentRunId;
+                WriteObservation("GetTarget", 0u, npcInfo.Value.BaseId, runId, now);
+                _aggregator?.OnInteraction(
+                    new NpcId(npcInfo.Value.BaseId),
+                    new WorldPosition(npcInfo.Value.X, npcInfo.Value.Y, npcInfo.Value.Z));
+            }
+            return;
+        }
+
+        // No valid target
+        if (_lastTargetBaseId != 0)
+            _lastTargetBaseId = 0;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
