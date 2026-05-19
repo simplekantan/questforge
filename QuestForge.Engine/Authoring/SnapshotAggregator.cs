@@ -25,6 +25,7 @@ public sealed class SnapshotAggregator
     private AethernetId? _aethernetDestinationSelected;
     private AethernetHop? _aethernetTeleportCompleted;
     private IReadOnlyDictionary<uint, int>? _keyItems;
+    private int? _dialogueOptionSelected;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
     // tests inject FakeClock for deterministic CapturedAt values.
@@ -55,7 +56,8 @@ public sealed class SnapshotAggregator
         KeyItemsRemoved = _keyItemsRemoved,
         LastAethernetShardInteracted = _lastAethernetShardInteracted,
         AethernetDestinationSelected = _aethernetDestinationSelected,
-        AethernetTeleportCompleted   = _aethernetTeleportCompleted
+        AethernetTeleportCompleted   = _aethernetTeleportCompleted,
+        DialogueOptionSelected       = _dialogueOptionSelected
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -185,6 +187,18 @@ public sealed class SnapshotAggregator
     /// </summary>
     public void OnAethernetTeleportConsumed()
         => _aethernetTeleportCompleted = null;
+
+    /// <summary>
+    /// Called when the player selects an option from a SelectIconString or SelectString menu.
+    /// NOT cleared by ResetDeltas — only cleared by OnDialogueOptionConsumed after RecordStep.
+    /// </summary>
+    public void OnDialogueOptionSelected(int index) => _dialogueOptionSelected = index;
+
+    /// <summary>
+    /// Called at the end of RecordStep to consume the selected dialogue option so it does not
+    /// bleed into the next recording window.
+    /// </summary>
+    public void OnDialogueOptionConsumed() => _dialogueOptionSelected = null;
 
     /// <summary>
     /// Called when the key items container changes. <paramref name="added"/> contains item IDs
