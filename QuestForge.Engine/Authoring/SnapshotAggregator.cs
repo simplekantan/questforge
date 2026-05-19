@@ -23,6 +23,7 @@ public sealed class SnapshotAggregator
     private IReadOnlyList<uint>? _keyItemsRemoved;
     private AetheryteId? _lastAethernetShardInteracted;
     private AethernetId? _aethernetDestinationSelected;
+    private AethernetHop? _aethernetTeleportCompleted;
     private IReadOnlyDictionary<uint, int>? _keyItems;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
@@ -53,7 +54,8 @@ public sealed class SnapshotAggregator
         KeyItemsAdded = _keyItemsAdded,
         KeyItemsRemoved = _keyItemsRemoved,
         LastAethernetShardInteracted = _lastAethernetShardInteracted,
-        AethernetDestinationSelected = _aethernetDestinationSelected
+        AethernetDestinationSelected = _aethernetDestinationSelected,
+        AethernetTeleportCompleted   = _aethernetTeleportCompleted
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -161,6 +163,28 @@ public sealed class SnapshotAggregator
     /// </summary>
     public void OnAethernetMenuClosed()
         => _aethernetDestinationSelected = null;
+
+    /// <summary>
+    /// Called by AuthoringHost when the TelepotTown menu closes after a selection was made.
+    /// Signals that an aethernet teleport completed this recording window.
+    /// NOT cleared by ResetDeltas — only cleared by OnAethernetTeleportConsumed after RecordStep.
+    /// </summary>
+    public void OnAethernetTeleportCompleted(AetheryteId? from, AethernetId to)
+    {
+        _aethernetTeleportCompleted = new AethernetHop(from, to);
+        // WHY: LastAethernetShardInteracted is only updated when the player explicitly targets a shard.
+        // After an aethernet teleport the player may not target the destination shard before clicking
+        // Record. Updating here ensures Rule 2.5 / Rule 2.7 can see the shard changed even when the
+        // player just arrives and waits without re-targeting.
+        _lastAethernetShardInteracted = new AetheryteId(to.Value);
+    }
+
+    /// <summary>
+    /// Called at the end of RecordStep to consume the completed teleport event so it does not
+    /// bleed into the next recording window.
+    /// </summary>
+    public void OnAethernetTeleportConsumed()
+        => _aethernetTeleportCompleted = null;
 
     /// <summary>
     /// Called when the key items container changes. <paramref name="added"/> contains item IDs

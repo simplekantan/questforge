@@ -1,7 +1,9 @@
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using Lumina.Excel.Sheets;
 using QuestForge.Adapters.Dalamud;
 using QuestForge.Adapters.Dalamud.Authoring;
 using QuestForge.Adapters.State;
@@ -226,6 +228,9 @@ public sealed class AuthoringHost : IDisposable
         }
         _traceSession.OnConfirmRecordStep();
 
+        // Consume the completed teleport event so it doesn't bleed into the next recording window.
+        _aggregator.OnAethernetTeleportConsumed();
+
         return Task.CompletedTask;
     }
 
@@ -240,6 +245,11 @@ public sealed class AuthoringHost : IDisposable
     private void OnFrameworkUpdate(IFramework framework)
     {
         if (Mode == AuthoringMode.Off) return;
+
+        // WHY every frame: TelepotTown can open and close within one 250 ms heartbeat interval
+        // (fast double-click = select then travel). Running every frame ensures we never miss
+        // the open→close transition and always fire OnAethernetTeleportCompleted.
+        PollAethernetDestination();
 
         var now = DateTimeOffset.UtcNow;
         if (now - _lastHeartbeatAt < HeartbeatInterval) return;
@@ -429,6 +439,89 @@ public sealed class AuthoringHost : IDisposable
         if (kind is Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
                  or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc)
             UpdateNpcQuestCache(target.BaseId);
+    }
+
+    private unsafe void PollAethernetDestination()
+    {
+        var ptr = _services.GameGui.GetAddonByName("TelepotTown");
+        bool menuIsOpen = !ptr.IsNull && ptr.IsReady;
+
+        if (!menuIsOpen)
+        {
+            if (_aethernetMenuWasOpen && _pendingAethernetTo.HasValue)
+                // Menu just closed after a selection — fire the teleport-completed event.
+                _aggregator.OnAethernetTeleportCompleted(_pendingAethernetFrom, _pendingAethernetTo.Value);
+            _aethernetMenuWasOpen = false;
+            _pendingAethernetFrom = null;
+            _pendingAethernetTo   = null;
+            return;
+        }
+
+        if (!_aethernetMenuWasOpen)
+        {
+            // Menu just opened — capture departure shard from current aggregator state.
+            _aethernetMenuWasOpen = true;
+            var cur = _aggregator.Current;
+            _pendingAethernetFrom =
+                cur.LastAethernetShardInteracted.HasValue
+                && cur.LastNpcInteracted.HasValue
+                && cur.LastNpcInteracted.Value.Value == cur.LastAethernetShardInteracted.Value.Value
+                    ? cur.LastAethernetShardInteracted
+                    : null;
+        }
+
+        var addon = (FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase*)ptr.Address;
+
+        // List (AtkComponentTreeList*) at offset 0x238 in AddonTeleportTown.
+        // SelectedItemIndex at offset 0x134 within AtkComponentTreeList.
+        var listPtr = *(nint*)(ptr.Address + 0x238);
+        if (listPtr == 0) return;
+
+        var selectedIdx = *(int*)(listPtr + 0x134);
+        if (selectedIdx < 0) return;
+
+        // Destination names start at AtkValues[262].
+        const int NamesBase = 262;
+        if (addon->AtkValuesCount <= NamesBase + selectedIdx) return;
+
+        var nameVal = addon->AtkValues[NamesBase + selectedIdx];
+        if (nameVal.Type != FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.String
+            || nameVal.String.Value == null) return;
+
+        var destName = Marshal.PtrToStringUTF8((nint)nameVal.String.Value);
+        if (string.IsNullOrEmpty(destName)) return;
+
+        if (!GetAethernetNameMap().TryGetValue(destName, out var rowId))
+        {
+            _services.Log.Warning($"[TelepotTown] No Aetheryte sheet match for '{destName}' (idx={selectedIdx})");
+            return;
+        }
+
+        _pendingAethernetTo = new AethernetId(rowId);
+    }
+
+    // TelepotTown tracking: latch departure + destination when menu opens/closes.
+    private bool _aethernetMenuWasOpen;
+    private QuestForge.Adapters.Types.AetheryteId? _pendingAethernetFrom;
+    private QuestForge.Adapters.Types.AethernetId? _pendingAethernetTo;
+
+    // Built once on first TelepotTown open; maps AethernetName display string → Aetheryte sheet RowId.
+    private Dictionary<string, uint>? _aethernetNameToId;
+
+    private Dictionary<string, uint> GetAethernetNameMap()
+    {
+        if (_aethernetNameToId != null) return _aethernetNameToId;
+        _aethernetNameToId = new Dictionary<string, uint>(StringComparer.Ordinal);
+        var sheet = _services.DataManager.GetExcelSheet<Aetheryte>();
+        if (sheet == null) return _aethernetNameToId;
+        foreach (var row in sheet)
+        {
+            if (row.AethernetGroup == 0 || row.IsAetheryte) continue;
+            var name = row.AethernetName.ValueNullable?.Name.ExtractText();
+            if (!string.IsNullOrEmpty(name))
+                _aethernetNameToId.TryAdd(name, row.RowId);
+        }
+        return _aethernetNameToId;
     }
 
     // WHY: Lumina Quest sheet has 5000+ rows. A linear scan per NPC retarget would
