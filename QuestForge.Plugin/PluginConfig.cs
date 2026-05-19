@@ -25,14 +25,8 @@ public sealed class PluginConfig
 
     /// <summary>
     /// Controls when trace files are written. Defaults to Off (no traces) for normal users.
-    ///
-    /// NOTE: TraceMode is fixed at plugin load and cannot be changed while the plugin is running.
-    /// Changing this setting takes effect on the next plugin reload (game restart or /xlplugins
-    /// reinstall). This is intentional — TraceSession is constructed once at startup and the
-    /// mode cannot safely change mid-session without closing/reopening the active file.
-    ///
-    /// For quest development, Authoring is the recommended mode. Once the quest corpus is
-    /// stable, this can remain Off.
+    /// Can be changed live via the settings UI — no plugin reload required.
+    /// For quest development, Authoring is the recommended mode.
     /// </summary>
     public TraceMode TraceMode { get; set; } = TraceMode.Off;
 

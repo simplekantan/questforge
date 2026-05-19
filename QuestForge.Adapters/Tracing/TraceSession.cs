@@ -11,7 +11,7 @@ namespace QuestForge.Adapters.Tracing;
 public sealed class TraceSession : ITraceWriter, IDisposable
 {
     // ── dependencies ────────────────────────────────────────────────────────
-    private readonly TraceMode _mode;
+    private TraceMode _mode;
     private readonly string _tracesDir;
     private readonly Func<string, ITraceWriter> _writerFactory;
     private readonly Action<Exception>? _onOpenError;
@@ -54,7 +54,7 @@ public sealed class TraceSession : ITraceWriter, IDisposable
     // Public properties
     // ────────────────────────────────────────────────────────────────────────
 
-    public TraceMode Mode => _mode;
+    public TraceMode Mode { get { lock (_lock) return _mode; } }
 
     public bool IsFileOpen
     {
@@ -69,6 +69,48 @@ public sealed class TraceSession : ITraceWriter, IDisposable
     public string? CurrentFilePath
     {
         get { lock (_lock) return _currentFilePath; }
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Live mode switching
+    // ────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Switches the trace mode at runtime without requiring a plugin reload.
+    /// <list type="bullet">
+    ///   <item>Any → Off: closes the file immediately.</item>
+    ///   <item>Any → Always: closes any open file and opens a new session file now.</item>
+    ///   <item>Any → Authoring/Recording: closes an Always file; the per-session file
+    ///         opens on the next <see cref="OnEnterAuthorMode"/> / <see cref="OnOpenRecordModal"/>.
+    ///         An active authoring session is not disrupted — tracing starts next session.</item>
+    /// </list>
+    /// </summary>
+    public void ChangeMode(TraceMode newMode)
+    {
+        lock (_lock)
+        {
+            if (_disposed || newMode == _mode) return;
+            _mode = newMode;
+
+            switch (newMode)
+            {
+                case TraceMode.Off:
+                    CloseFileUnderLock();
+                    break;
+
+                case TraceMode.Always:
+                    CloseFileUnderLock();
+                    var fileName = $"session-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.jsonl";
+                    OpenFileUnderLock(fileName, clearDedup: true);
+                    break;
+
+                case TraceMode.Authoring:
+                case TraceMode.Recording:
+                    // Close the always-open file if present; per-session files open later.
+                    CloseFileUnderLock();
+                    break;
+            }
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────────

@@ -79,7 +79,7 @@ public sealed class Plugin : IDalamudPlugin
             new QuestForge.Engine.Scheduling.SchedulerOptions([], config.EnableCraftGatherQuests, config.EnableSideQuests, config.EnableBlueQuests),
             new QuestForge.Plugin.Logging.DalamudLogger<QuestForge.Engine.Scheduling.QuestScheduler>(log));
 
-        _mainWindow = new UI.MainWindow(_host, _scheduler, config, pi);
+        _mainWindow = new UI.MainWindow(_host, _scheduler, config, pi, _traceSession);
         _windowSystem.AddWindow(_mainWindow);
 
         // Authoring infrastructure
