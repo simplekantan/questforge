@@ -544,16 +544,24 @@ public sealed class AuthoringHost : IDisposable
 
         if (menuIsOpen)
         {
-            // List component pointer at addon offset 0x238; SelectedItemIndex at list offset 0x134.
-            // NOTE: 0x238 is confirmed for AddonTeleportTown; SelectIconString/SelectString may differ.
-            // If selection is never captured in-game, inspect the SelectIconString struct with /xldata
-            // to find the correct list-component offset and update here.
-            var listPtr = *(nint*)(ptr.Address + 0x238);
-            if (listPtr != 0)
+            // Walk the addon's node list to find the AtkComponentList (node type 0x3F6 = 1014? or 1010).
+            // WHY node traversal: SelectIconString is a plain AtkUnitBase with no typed fields after it,
+            // so reading at a fixed addon offset (like TelepotTown's 0x238) walks past the struct end
+            // and causes an access violation. Node traversal is safe for any addon.
+            var addon = (FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase*)ptr.Address;
+            for (var i = 0; i < addon->UldManager.NodeListCount; i++)
             {
-                var raw = *(int*)(listPtr + 0x134);
+                var node = addon->UldManager.NodeList[i];
+                if (node == null) continue;
+                // AtkComponentList = node type 1010 (0x3F2); AtkComponentTreeList = 1022 (0x3FE)
+                if ((ushort)node->Type != 1010 && (ushort)node->Type != 1022) continue;
+                var compNode = (FFXIVClientStructs.FFXIV.Component.GUI.AtkComponentNode*)node;
+                if (compNode->Component == null) continue;
+                // AtkComponentList.SelectedItemIndex is at component offset 0x134
+                var raw = *(int*)((nint)compNode->Component + 0x134);
                 if (raw >= 0)
                     selectedIdx = raw;
+                break;
             }
         }
 
