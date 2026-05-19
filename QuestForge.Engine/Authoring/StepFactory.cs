@@ -1,3 +1,4 @@
+using System.Linq;
 using QuestForge.Adapters.Types;
 using QuestForge.Schema;
 
@@ -6,7 +7,8 @@ namespace QuestForge.Engine.Authoring;
 public static class StepFactory
 {
     public static Step Build(string stepType, string stepId, string? expect, GameStateSnapshot? after,
-        GameStateSnapshot? before = null, uint[]? itemsOverride = null)
+        GameStateSnapshot? before = null, uint[]? itemsOverride = null,
+        IReadOnlyList<int>? dialogueChoicesOverride = null)
     {
         ExpectValue? expectValue = expect is { Length: > 0 }
             ? new PredicateExpect { Predicate = expect }
@@ -40,6 +42,23 @@ public static class StepFactory
                 && (before?.AethernetDestinationSelected.HasValue == true
                     || (after?.LastAethernetShardInteracted is { } ds2 && ds2.Value != sourceShard!.Value.Value)));
 
+        // Build dialogue choices: override beats snapshot
+        DialogueChoice[] dialogueChoices;
+        if (dialogueChoicesOverride is { Count: > 0 })
+        {
+            dialogueChoices = dialogueChoicesOverride
+                .Select(i => new DialogueChoice(Type: "list", Answer: i.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+                .ToArray();
+        }
+        else if (after?.DialogueOptionSelected is { } idx)
+        {
+            dialogueChoices = [new DialogueChoice(Type: "list", Answer: idx.ToString(System.Globalization.CultureInfo.InvariantCulture))];
+        }
+        else
+        {
+            dialogueChoices = [];
+        }
+
         return stepType switch
         {
             "travel" when hasAethernetDestination =>
@@ -56,7 +75,7 @@ public static class StepFactory
             },
             "accept" => new AcceptStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc },
             "turn-in" => new TurnInStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc },
-            "talk" => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc },
+            "talk" => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc, DialogueChoices = dialogueChoices },
             "hand-over-item" => new HandOverItemStep
             {
                 Id = stepId,
@@ -97,7 +116,7 @@ public static class StepFactory
                 Zone = zoneStr,
                 Target = new InteractableTarget(InteractableId: npcId, Zone: zone, Position: npcPos)
             },
-            _ => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc }
+            _ => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc, DialogueChoices = dialogueChoices }
         };
     }
 

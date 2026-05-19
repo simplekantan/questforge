@@ -64,6 +64,24 @@ public sealed class DalamudInteractor : IInteractor
 
     public Task<Result<DialogueOutcome>> AdvanceDialogue(CancellationToken ct)
     {
+        // SelectYesno: auto-confirm Yes — quest progression never requires No
+        var yesnoPtr = _svc.GameGui.GetAddonByName("SelectYesno");
+        if (!yesnoPtr.IsNull && yesnoPtr.IsReady)
+        {
+            if (DateTimeOffset.UtcNow - _lastAdvanceAt >= AdvanceThrottle)
+            {
+                _lastAdvanceAt = DateTimeOffset.UtcNow;
+                unsafe
+                {
+                    var addon = (AtkUnitBase*)yesnoPtr.Address;
+                    var values = stackalloc AtkValue[1];
+                    values[0] = new AtkValue { Type = AtkValueType.Int, Int = 0 }; // 0 = Yes
+                    addon->FireCallback(1, values);
+                }
+            }
+            return Task.FromResult<Result<DialogueOutcome>>(Result.Ok(DialogueOutcome.Advanced));
+        }
+
         var addonPtr = _svc.GameGui.GetAddonByName("Talk");
         // IsReady is the preferred check (per AtkUnitBase docs); IsVisible can be false
         // even when the addon is rendering and accepting events.
@@ -109,10 +127,48 @@ public sealed class DalamudInteractor : IInteractor
             Result.Fail<DialogueOutcome>("notImplemented", "Phase 6 placeholder"));
 
     public Task<Result<Unit>> ConfirmYesNoPrompt(bool yes, CancellationToken ct)
+        // Not yet implemented — the target addon for this prompt (cutscene/tutorial confirm)
+        // has not been identified. SelectYesno is handled separately in AdvanceDialogue.
         => Task.FromResult<Result<Unit>>(Result.Fail("notImplemented", "Phase 6 placeholder"));
 
+    /// <summary>
+    /// Selects an option by zero-based index from SelectString or SelectIconString addons.
+    /// SelectIconString: AtkValues[5]=count, options at [7],[10],[13]... with stride 3.
+    /// SelectString uses the same callback pattern.
+    /// </summary>
     public Task<Result<Unit>> SelectStringOption(int zeroBasedIndex, CancellationToken ct)
-        => Task.FromResult<Result<Unit>>(Result.Fail("notImplemented", "Phase 6 placeholder"));
+    {
+        // Try SelectIconString first (lift attendant, destination picker, etc.)
+        var iconPtr = _svc.GameGui.GetAddonByName("SelectIconString");
+        if (!iconPtr.IsNull && iconPtr.IsReady)
+        {
+            unsafe
+            {
+                var addon = (AtkUnitBase*)iconPtr.Address;
+                var values = stackalloc AtkValue[2];
+                values[0] = new AtkValue { Type = AtkValueType.Int, Int = zeroBasedIndex };
+                values[1] = new AtkValue { Type = AtkValueType.Int, Int = 0 };
+                addon->FireCallback(2, values);
+            }
+            return Task.FromResult<Result<Unit>>(Result.Ok());
+        }
+
+        // Fall back to SelectString
+        var strPtr = _svc.GameGui.GetAddonByName("SelectString");
+        if (!strPtr.IsNull && strPtr.IsReady)
+        {
+            unsafe
+            {
+                var addon = (AtkUnitBase*)strPtr.Address;
+                var values = stackalloc AtkValue[1];
+                values[0] = new AtkValue { Type = AtkValueType.Int, Int = zeroBasedIndex };
+                addon->FireCallback(2, values);
+            }
+            return Task.FromResult<Result<Unit>>(Result.Ok());
+        }
+
+        return Task.FromResult<Result<Unit>>(Result.Fail("addonNotOpen", "Neither SelectIconString nor SelectString is open"));
+    }
 
     public Task<Result<Unit>> CloseDialogue(CancellationToken ct)
         => Task.FromResult<Result<Unit>>(Result.Fail("notImplemented", "Phase 6 placeholder"));

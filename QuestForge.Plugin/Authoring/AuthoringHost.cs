@@ -321,6 +321,7 @@ public sealed class AuthoringHost : IDisposable
                 _aggregator.OnQuestAccepted(publicId);
                 _aggregator.OnQuestSequenceChanged(publicId, seq);
                 _aggregator.OnQuestFlagsChanged(publicId, flags);
+                WriteObservationDeduped("IsQuestAccepted", publicId, true);
             }
 
             // Passive trace — dedup suppresses redundant JSONL writes
@@ -338,6 +339,7 @@ public sealed class AuthoringHost : IDisposable
             var publicId = ToPublicQuestId(id);
             _aggregator.OnQuestCompleted(publicId);
             RecentChange = (publicId, "Quest completed (left NormalQuests)", DateTimeOffset.UtcNow);
+            WriteObservationDeduped("IsQuestComplete", publicId, true);
             _lastKnownQuestState.Remove(id);
             _log.Info($"QuestForge Authoring: quest {publicId.Value} removed from NormalQuests (completed or abandoned)");
         }

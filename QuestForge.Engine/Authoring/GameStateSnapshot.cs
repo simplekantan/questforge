@@ -50,4 +50,9 @@ public sealed record GameStateSnapshot(
     // in RecordStep so it does not bleed into the next inference window.
     // This is the primary signal for aethernet inference — replaces the fragile snapshot-diff approach.
     public AethernetHop? AethernetTeleportCompleted { get; init; }
+
+    // Non-positional. Set when the player selects an option from SelectIconString/SelectString
+    // during an authoring session. Cleared by OnDialogueOptionConsumed after RecordStep.
+    // Survives ResetDeltas.
+    public int? DialogueOptionSelected { get; init; }
 }
