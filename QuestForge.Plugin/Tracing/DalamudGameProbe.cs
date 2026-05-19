@@ -17,7 +17,7 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
         var mgr = QuestManager.Instance();
         if (mgr == null) return [];
         var result = new List<(ushort, byte, byte)>();
-        foreach (ref var slot in mgr->NormalQuestsSpan)
+        foreach (ref var slot in mgr->NormalQuests)
         {
             if (slot.QuestId == 0) continue;
             result.Add((slot.QuestId, slot.Sequence, slot.Flags));
@@ -43,7 +43,7 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
         var mgr = InventoryManager.Instance();
         if (mgr == null) return [];
         var container = mgr->GetInventoryContainer(InventoryType.KeyItems);
-        if (container == null || !container->Loaded) return [];
+        if (container == null || !container->IsLoaded) return [];
         var result = new List<(uint, int)>();
         for (var i = 0; i < container->Size; i++)
         {
