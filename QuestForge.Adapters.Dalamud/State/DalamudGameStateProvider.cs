@@ -323,6 +323,10 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         // Phase 6 placeholder
         => Task.FromResult<Result<long>>(Result.Ok(0L));
 
+    public Task<Result<AethernetId?>> GetLastAethernetDestination(CancellationToken ct)
+        // Phase 7 placeholder: real TelepotTown hook implementation deferred
+        => Task.FromResult<Result<AethernetId?>>(Result.Ok((AethernetId?)null));
+
     public Task<Result<TravelCapability>> GetTravelCapability(ZoneId destination, CancellationToken ct)
     {
         // CanFly: PlayerState.CanFly is set by the game on zone load and accounts for Aether Current unlocks.

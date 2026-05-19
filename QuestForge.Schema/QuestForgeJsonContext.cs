@@ -36,6 +36,8 @@ namespace QuestForge.Schema;
 [JsonSerializable(typeof(UseTeleportRecoverAction))]
 [JsonSerializable(typeof(AwaitUserRecoverAction))]
 [JsonSerializable(typeof(AbandonRecoverAction))]
+// Shared value types
+[JsonSerializable(typeof(AethernetRouteHint))]
 // ExpectValue subtypes (converter handles polymorphism; register for completeness)
 [JsonSerializable(typeof(ExpectValue))]
 [JsonSerializable(typeof(PredicateExpect))]

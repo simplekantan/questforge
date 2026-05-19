@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace QuestForge.Schema;
 
 // ---------------------------------------------------------------------------
@@ -15,7 +17,13 @@ public record NpcLocation(uint NpcId, int Zone, Position3 Position);
 
 public record TravelDestination(int Zone, Position3? Position = null, uint? AetheryteId = null);
 
-public record RouteHint(string? Aetheryte = null, uint[]? Aethernet = null);
+public record AethernetRouteHint(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] uint? From,
+    uint To);
+
+public record RouteHint(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Aetheryte = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AethernetRouteHint? Aethernet = null);
 
 /// <summary>A single dialogue interaction. Type: "list" | "yesno" | "talk".</summary>
 public record DialogueChoice(string Type, string? Prompt = null, string? Answer = null);

@@ -250,4 +250,11 @@ public sealed class RecordingGameStateProvider : IGameStateProvider
         Record(nameof(GetTravelCapability), destination, result);
         return result;
     }
+
+    public async Task<Result<AethernetId?>> GetLastAethernetDestination(CancellationToken ct)
+    {
+        var result = await _inner.GetLastAethernetDestination(ct);
+        Record(nameof(GetLastAethernetDestination), null, result);
+        return result;
+    }
 }

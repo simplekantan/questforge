@@ -104,7 +104,7 @@ public sealed class AttunementStepTests
             step: new AttunementStep
             {
                 Id = "attune-limsa",
-                Target = new Schema.AetheryteId(1000),
+                Target = new QuestForge.Schema.AetheryteId(1000),
                 SkipIf = new PredicateExpect { Predicate = "isAttuned(1000)" }
             });
 
@@ -151,7 +151,7 @@ public sealed class AttunementStepTests
             step: new AttunementStep
             {
                 Id = "attune-limsa",
-                Target = new Schema.AetheryteId(1000),
+                Target = new QuestForge.Schema.AetheryteId(1000),
                 Expect = new PredicateExpect { Predicate = "isAttuned(1000)" }
                 // SkipIf is null — postcondition only
             });
@@ -203,7 +203,7 @@ public sealed class AttunementStepTests
             step: new AttunementStep
             {
                 Id = "attune-limsa",
-                Target = new Schema.AetheryteId(1000),
+                Target = new QuestForge.Schema.AetheryteId(1000),
                 Expect = new PredicateExpect { Predicate = "isAttuned(1000)" }
             });
 
@@ -255,7 +255,7 @@ public sealed class AttunementStepTests
             step: new AttunementStep
             {
                 Id = "attune-with-location",
-                Target = new Schema.AetheryteId(1000),
+                Target = new QuestForge.Schema.AetheryteId(1000),
                 Location = new NpcLocation(
                     NpcId: 999999,   // deliberately different from Target.Value
                     Zone: 130,
@@ -305,7 +305,7 @@ public sealed class AttunementStepTests
             step: new AttunementStep
             {
                 Id = "attune-skipif-only",
-                Target = new Schema.AetheryteId(1000),
+                Target = new QuestForge.Schema.AetheryteId(1000),
                 SkipIf = new PredicateExpect { Predicate = "isAttuned(1000)" }
                 // Expect is null intentionally — SkipIf doubles as postcondition
             });

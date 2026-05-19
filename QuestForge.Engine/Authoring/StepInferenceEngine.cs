@@ -80,12 +80,15 @@ public sealed class StepInferenceEngine
         // fires whenever the author targets the crystal during recording, regardless of prior
         // attunement state. The LastNpcInteracted guard ensures the author is physically AT the
         // crystal (not just viewing it in an aethernet menu from another shard). Zone-change
-        // cases are handled by Rule 4.
+        // cases are handled by Rule 4. AethernetDestinationSelected guard: if the author used
+        // the TelepotTown menu this window, the shard change is an intra-zone aethernet hop
+        // (Rule 2.7), not genuine attunement.
         if (after.LastAethernetShardInteracted.HasValue
             && after.LastAethernetShardInteracted != before.LastAethernetShardInteracted
             && after.Zone == before.Zone
             && after.LastNpcInteracted.HasValue
-            && after.LastNpcInteracted.Value.Value == after.LastAethernetShardInteracted.Value.Value)
+            && after.LastNpcInteracted.Value.Value == after.LastAethernetShardInteracted.Value.Value
+            && after.AethernetTeleportCompleted is null)
         {
             var aetheryteId = after.LastAethernetShardInteracted.Value.Value;
             return new InferenceResult(
@@ -208,17 +211,27 @@ public sealed class StepInferenceEngine
             if (isAethernet)
             {
                 var sourceShardId = sourceShard!.Value.Value;
-                var destShard = after.LastAethernetShardInteracted;
-                var destDiffers = destShard.HasValue && destShard.Value.Value != sourceShardId;
+
+                // Prefer before.AethernetDestinationSelected (explicit menu selection) over
+                // after.LastAethernetShardInteracted (post-arrival observation).
+                // Only use after.LastAethernetShardInteracted as fallback when it differs from source
+                // (same shard = ambiguous, cannot confirm destination).
+                var hop = after.AethernetTeleportCompleted;
+                var afterShard = after.LastAethernetShardInteracted;
+                var afterShardDiffers = afterShard.HasValue && afterShard.Value.Value != sourceShardId;
+                var destId = hop?.To.Value
+                    ?? before.AethernetDestinationSelected?.Value
+                    ?? (afterShardDiffers ? afterShard!.Value.Value : (uint?)null);
+                var fromId = hop?.From?.Value ?? sourceShardId;
 
                 return new InferenceResult(
                     StepType: "travel",
                     SuggestedStepId: $"aethernet-to-zone-{after.Zone.Value}",
                     SuggestedExpect: $"playerZone() == {after.Zone.Value}",
-                    Confidence: destDiffers ? Confidence.High : Confidence.Medium,
+                    Confidence: destId.HasValue ? Confidence.High : Confidence.Medium,
                     InferredFrom: InferredFrom.ZoneChange,
-                    Notes: destDiffers
-                        ? $"Aethernet: shard {sourceShardId} → shard {destShard!.Value.Value}"
+                    Notes: destId.HasValue
+                        ? $"Aethernet: shard {fromId} → shard {destId.Value}"
                         : $"Aethernet from shard {sourceShardId} detected. Target the destination shard in zone {after.Zone.Value} after arrival to capture its ID.");
             }
 
@@ -230,6 +243,25 @@ public sealed class StepInferenceEngine
                 Confidence: Confidence.High,
                 InferredFrom: InferredFrom.ZoneChange,
                 Notes: null);
+        }
+
+        // Rule 2.7: Intra-zone aethernet — fires when AethernetTeleportCompleted is set
+        // (TelepotTown menu closed after a selection) AND zone did not change.
+        // WHY placed here (before Rules 5/6/7): NpcInteracted changes naturally when the player
+        // arrives near the destination shard; if Rule 7 ran first it would produce a false talk-step.
+        // The user's insight: check NpcType=Aetheryte + position changed + event set as a combined signal.
+        if (after.AethernetTeleportCompleted is { } hop2 && before.Zone == after.Zone)
+        {
+            var hop = hop2;
+            return new InferenceResult(
+                StepType: "travel",
+                SuggestedStepId: $"aethernet-intra-zone-{hop.To.Value}",
+                SuggestedExpect: null,
+                Confidence: Confidence.High,
+                InferredFrom: InferredFrom.ZoneChange,
+                Notes: hop.From.HasValue
+                    ? $"Aethernet: shard {hop.From.Value.Value} → shard {hop.To.Value}"
+                    : $"Aethernet to shard {hop.To.Value} (departure shard not captured)");
         }
 
         // Rule 5: QuestFlags changed, sequence unchanged

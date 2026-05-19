@@ -465,6 +465,9 @@ file sealed class FailureGameStateProvider : IGameStateProvider
 
     public Task<Result<TravelCapability>> GetTravelCapability(ZoneId destination, CancellationToken ct) =>
         Task.FromResult<Result<TravelCapability>>(Result.Fail<TravelCapability>(_reason));
+
+    public Task<Result<AethernetId?>> GetLastAethernetDestination(CancellationToken ct) =>
+        Task.FromResult<Result<AethernetId?>>(Result.Fail<AethernetId?>(_reason));
 }
 
 /// <summary>

@@ -42,6 +42,9 @@ public interface IGameStateProvider
 
     // Composite/derived
     Task<Result<TravelCapability>> GetTravelCapability(ZoneId destination, CancellationToken ct);
+
+    // Aethernet
+    Task<Result<AethernetId?>> GetLastAethernetDestination(CancellationToken ct);
 }
 
 public enum MountState

@@ -184,6 +184,12 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
         return Task.FromResult(Materialize<TravelCapability>(obs.Value));
     }
 
+    // ----- Aethernet -----
+
+    public Task<Result<AethernetId?>> GetLastAethernetDestination(CancellationToken ct)
+        // Phase 7 placeholder: not recorded in trace observations, return null
+        => Task.FromResult<Result<AethernetId?>>(Result.Ok((AethernetId?)null));
+
     private static Result<T> Materialize<T>(JsonElement? value)
         => ObservationMaterializer.Materialize<T>(value);
 }

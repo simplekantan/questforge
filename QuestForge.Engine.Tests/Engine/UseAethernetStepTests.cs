@@ -27,21 +27,25 @@ public sealed class UseAethernetStepTests
     public async Task TravelStep_AethernetHint_EmitsUseAethernet_WithFirstShard()
     {
         /*
-         * RED: Will fail to compile until Builder adds EngineAction.UseAethernet.
+         * RED: Will fail to compile until Builder adds:
+         *   1. EngineAction.UseAethernet action type
+         *   2. AethernetRouteHint record in QuestForge.Schema
+         *   3. RouteHint.Aethernet changed from uint[]? to AethernetRouteHint?
+         *   4. Engine dispatch arm updated: { Length: > 0 } shards → { To: > 0 } hop
          *
-         * CONTRACT: Given a TravelStep with RouteHint.Aethernet == [33u],
+         * CONTRACT: Given a TravelStep with RouteHint.Aethernet == { To=33u },
          *           AND player is in zone 130 (different from destination zone 131),
          *           When Engine.Tick is called,
          *           Then EngineAction.UseAethernet(new AethernetId(33)) is returned.
          *
          * BUILDER GUIDANCE:
-         *   1. Add `public sealed record UseAethernet(AethernetId Destination) : EngineAction;`
-         *      to EngineAction.cs.
-         *   2. In QuestEngine.ResolveActionForStep, add an arm before the existing
-         *      TravelStep Position arm that matches when RouteHint?.Aethernet has length > 0:
-         *        TravelStep travel when travel.RouteHint?.Aethernet is { Length: > 0 } shards =>
-         *            new EngineAction.UseAethernet(new AethernetId(shards[0])),
-         *   3. Change RouteHint.Aethernet from string[]? to uint[]? in SharedValueTypes.cs.
+         *   1. Add `public sealed record UseAethernet(AethernetId Destination, ...) : EngineAction;`
+         *   2. Change engine dispatch pattern from `is { Length: > 0 } shards` to
+         *      `is { To: > 0 } hop`, and use `new AethernetId(hop.To)` instead of `shards[0]`.
+         *
+         * TODO FOR BUILDER: This test previously used `new uint[] { 33 }` which was the
+         * old array form. It now uses `new AethernetRouteHint(null, 33u)` per Issue #25.
+         * The old array form is a breaking change — see SER_2_8 for the rejection test.
          */
 
         // Arrange
@@ -56,7 +60,9 @@ public sealed class UseAethernetStepTests
             {
                 Id = "to-thal",
                 Destination = new TravelDestination(Zone: 131),
-                RouteHint = new RouteHint(Aethernet: new uint[] { 33 })
+                // TODO BUILDER: old form was `new uint[] { 33 }` — now AethernetRouteHint
+                // RED: AethernetRouteHint does not exist yet — compile error expected
+                RouteHint = new RouteHint(Aethernet: new AethernetRouteHint(From: null, To: 33u))
             });
 
         harness.Engine.StartQuest(quest);
@@ -70,22 +76,27 @@ public sealed class UseAethernetStepTests
     }
 
     // =========================================================================
-    // B2 — Multiple shards: Aethernet=[33,125] emits UseAethernet(33) (first only)
+    // B2 — AethernetRouteHint with From=125, To=33 → emits UseAethernet(33)
+    //       (single hop; old multi-shard array form is removed per Issue #25)
     // =========================================================================
 
     [Fact]
-    public async Task TravelStep_MultipleAethernetShards_EmitsFirstShard()
+    public async Task TravelStep_AethernetRouteHintFromAndTo_EmitsUseAethernetWithTo()
     {
         /*
-         * RED: Will fail to compile until Builder adds EngineAction.UseAethernet.
+         * RED: Will fail to compile until Builder adds EngineAction.UseAethernet
+         * AND adds AethernetRouteHint and changes dispatch pattern to { To: > 0 } hop.
          *
-         * CONTRACT: Given a TravelStep with RouteHint.Aethernet == [33u, 125u],
+         * CONTRACT: Given a TravelStep with RouteHint.Aethernet == { From=125, To=33 },
          *           When Engine.Tick is called,
          *           Then EngineAction.UseAethernet with Destination == AethernetId(33) is returned.
-         *           The engine emits only the first shard; the quest file encodes the full chain.
+         *           The engine reads hop.To as the destination shard ID.
          *
-         * BUILDER GUIDANCE: The dispatch arm selects shards[0]. Future multi-hop sequencing
-         *   (emitting shard[1] after the zone changes) is deferred to a later phase.
+         * BUILDER GUIDANCE: Change the dispatch pattern from:
+         *   travel.RouteHint?.Aethernet is { Length: > 0 } shards → new AethernetId(shards[0])
+         * to:
+         *   travel.RouteHint?.Aethernet is { To: > 0 } hop → new AethernetId(hop.To)
+         * The From field is informational (used by trace/authoring); engine only uses To.
          */
 
         // Arrange
@@ -93,6 +104,11 @@ public sealed class UseAethernetStepTests
         harness.QuestState.SetQuestSequence(new QuestId(99002), 0);
         harness.GameState.SetZone(new ZoneId(128));
 
+        // NOTE: With the new AethernetRouteHint type, multi-hop encoding via an array
+        // is no longer supported. AethernetRouteHint carries a single From→To hop.
+        // The "first shard" semantics now map to .To directly.
+        // TODO BUILDER: Old form was `new uint[] { 33, 125 }`. Now uses single hop.
+        // RED: AethernetRouteHint does not exist yet — compile error expected
         var quest = BuildSingleStepQuest(
             questId: 99002,
             sequence: 0,
@@ -100,7 +116,7 @@ public sealed class UseAethernetStepTests
             {
                 Id = "multi-shard",
                 Destination = new TravelDestination(Zone: 131),
-                RouteHint = new RouteHint(Aethernet: new uint[] { 33, 125 })
+                RouteHint = new RouteHint(Aethernet: new AethernetRouteHint(From: 125u, To: 33u))
             });
 
         harness.Engine.StartQuest(quest);
@@ -108,7 +124,7 @@ public sealed class UseAethernetStepTests
         // Act
         var action = await harness.Engine.Tick(CancellationToken.None);
 
-        // Assert — only the first shard is emitted
+        // Assert — destination shard (hop.To) is emitted
         var useAethernet = Assert.IsType<EngineAction.UseAethernet>(action); // RED: type does not exist yet
         Assert.Equal(new AethernetId(33), useAethernet.Destination);
     }
@@ -165,19 +181,29 @@ public sealed class UseAethernetStepTests
     // =========================================================================
 
     [Fact]
-    public async Task TravelStep_EmptyAethernetArray_WithPosition_EmitsNavigate()
+    public async Task TravelStep_NullAethernet_WithPosition_EmitsNavigate()
     {
         /*
-         * RED: Will fail at runtime until Builder implements the Aethernet dispatch arm.
-         * The arm must guard on `Length: > 0`; an empty array must fall through.
-         *
-         * CONTRACT: Given a TravelStep with RouteHint.Aethernet == [] (empty)
+         * CONTRACT: Given a TravelStep with RouteHint.Aethernet == null
          *               AND Destination.Position is set,
          *           When Engine.Tick is called,
-         *           Then EngineAction.Navigate is returned (empty array = no aethernet route).
+         *           Then EngineAction.Navigate is returned (null = no aethernet route).
          *
-         * BUILDER GUIDANCE: The pattern `{ Length: > 0 }` naturally handles this —
-         *   an empty array does not match and falls through to the Position arm.
+         * NOTE: With the AethernetRouteHint type change, the old empty-array sentinel
+         * (Array.Empty<uint>()) no longer applies. The equivalent is Aethernet = null.
+         * The dispatch pattern changes from `{ Length: > 0 }` to `{ To: > 0 }`;
+         * a null Aethernet does not match and falls through to the Position arm.
+         *
+         * TODO BUILDER: Old test used `new RouteHint(Aethernet: Array.Empty<uint>())`.
+         * That form is now a compile error. This test now verifies the null case.
+         * The AethernetRouteHint(From, To) form with To=0 is the equivalent "bad" case
+         * and is covered by engine dispatch tests for To==0 guard.
+         *
+         * BUILDER GUIDANCE: Change the dispatch pattern from:
+         *   travel.RouteHint?.Aethernet is { Length: > 0 } shards
+         * to:
+         *   travel.RouteHint?.Aethernet is { To: > 0 } hop
+         * Then: null Aethernet does not match → falls through to Position arm.
          */
 
         // Arrange
@@ -189,9 +215,9 @@ public sealed class UseAethernetStepTests
             sequence: 0,
             step: new TravelStep
             {
-                Id = "empty-aethernet",
+                Id = "null-aethernet",
                 Destination = new TravelDestination(Zone: 131, Position: new Position3(5f, 0f, 5f)),
-                RouteHint = new RouteHint(Aethernet: Array.Empty<uint>())
+                RouteHint = new RouteHint(Aethernet: null)
             });
 
         harness.Engine.StartQuest(quest);
@@ -199,7 +225,7 @@ public sealed class UseAethernetStepTests
         // Act
         var action = await harness.Engine.Tick(CancellationToken.None);
 
-        // Assert — empty array does not trigger Aethernet path
+        // Assert — null Aethernet does not trigger Aethernet path
         Assert.IsType<EngineAction.Navigate>(action);
     }
 
@@ -241,7 +267,9 @@ public sealed class UseAethernetStepTests
             {
                 Id = "to-thal-expect",
                 Destination = new TravelDestination(Zone: 131),
-                RouteHint = new RouteHint(Aethernet: new uint[] { 33 }),
+                // TODO BUILDER: old form was `new uint[] { 33 }` — now AethernetRouteHint
+                // RED: AethernetRouteHint does not exist yet — compile error expected
+                RouteHint = new RouteHint(Aethernet: new AethernetRouteHint(From: null, To: 33u)),
                 Expect = new PredicateExpect { Predicate = "playerZone() == 131" }
             });
 
@@ -282,7 +310,9 @@ public sealed class UseAethernetStepTests
             {
                 Id = "aethernet-at-source",
                 Destination = new TravelDestination(Zone: 131, Position: new Position3(10f, 0f, 20f)),
-                RouteHint = new RouteHint(Aethernet: new uint[] { 33 })
+                // TODO BUILDER: old form was `new uint[] { 33 }` — now AethernetRouteHint
+                // RED: AethernetRouteHint does not exist yet — compile error expected
+                RouteHint = new RouteHint(Aethernet: new AethernetRouteHint(From: null, To: 33u))
             });
 
         harness.Engine.StartQuest(quest);
@@ -303,7 +333,7 @@ public sealed class UseAethernetStepTests
     public async Task TravelStep_AethernetAndPosition_PlayerFarFromSource_EmitsNavigate()
     {
         /*
-         * CONTRACT: Given the same TravelStep (Aethernet=[33], Position=(10,0,20)),
+         * CONTRACT: Given the same TravelStep (Aethernet={ To=33 }, Position=(10,0,20)),
          *           AND player is FAR from source (0,0,0) — distance > StopDistance,
          *           When Engine.Tick is called,
          *           Then EngineAction.Navigate toward (10,0,20) is returned.
@@ -321,7 +351,9 @@ public sealed class UseAethernetStepTests
             {
                 Id = "aethernet-navigate-first",
                 Destination = new TravelDestination(Zone: 131, Position: new Position3(10f, 0f, 20f)),
-                RouteHint = new RouteHint(Aethernet: new uint[] { 33 })
+                // TODO BUILDER: old form was `new uint[] { 33 }` — now AethernetRouteHint
+                // RED: AethernetRouteHint does not exist yet — compile error expected
+                RouteHint = new RouteHint(Aethernet: new AethernetRouteHint(From: null, To: 33u))
             });
 
         harness.Engine.StartQuest(quest);
@@ -431,7 +463,9 @@ public sealed class UseAethernetStepTests
             {
                 Id = "integration-aethernet",
                 Destination = new TravelDestination(Zone: 131),
-                RouteHint = new RouteHint(Aethernet: new uint[] { 33 }),
+                // TODO BUILDER: old form was `new uint[] { 33 }` — now AethernetRouteHint
+                // RED: AethernetRouteHint does not exist yet — compile error expected
+                RouteHint = new RouteHint(Aethernet: new AethernetRouteHint(From: null, To: 33u)),
                 Expect = new PredicateExpect { Predicate = "playerZone() == 131" }
             });
 

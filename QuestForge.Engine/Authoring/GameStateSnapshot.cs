@@ -2,6 +2,9 @@ using QuestForge.Adapters.Types;
 
 namespace QuestForge.Engine.Authoring;
 
+/// <summary>Captures the departure and destination shard of a completed aethernet teleport.</summary>
+public sealed record AethernetHop(AetheryteId? From, AethernetId To);
+
 public sealed record GameStateSnapshot(
     DateTimeOffset CapturedAt,
     ZoneId Zone,
@@ -36,4 +39,15 @@ public sealed record GameStateSnapshot(
     // The last aethernet shard (sub-aetheryte) the player targeted/interacted with.
     // Used by StepInferenceEngine to detect aethernet travel hops.
     public AetheryteId? LastAethernetShardInteracted { get; init; }
+
+    // Non-positional: does not affect existing constructor call sites.
+    // The aethernet destination shard selected by the player in the aethernet menu.
+    // Preferred over LastAethernetShardInteracted for "to" in StepInferenceEngine Rule 4.
+    public AethernetId? AethernetDestinationSelected { get; init; }
+
+    // Non-positional: set when an aethernet teleport completes this recording window
+    // (TelepotTown menu closed after a selection was made). Cleared by OnAethernetTeleportConsumed
+    // in RecordStep so it does not bleed into the next inference window.
+    // This is the primary signal for aethernet inference — replaces the fragile snapshot-diff approach.
+    public AethernetHop? AethernetTeleportCompleted { get; init; }
 }
