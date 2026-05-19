@@ -26,6 +26,8 @@ public sealed class SnapshotAggregator
     private AethernetHop? _aethernetTeleportCompleted;
     private IReadOnlyDictionary<uint, int>? _keyItems;
     private int? _dialogueOptionSelected;
+    private QuestForge.Schema.NpcLocation? _dialogueNpcSource;
+    private QuestId? _foreignQuestAccepted;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
     // tests inject FakeClock for deterministic CapturedAt values.
@@ -57,7 +59,9 @@ public sealed class SnapshotAggregator
         LastAethernetShardInteracted = _lastAethernetShardInteracted,
         AethernetDestinationSelected = _aethernetDestinationSelected,
         AethernetTeleportCompleted   = _aethernetTeleportCompleted,
-        DialogueOptionSelected       = _dialogueOptionSelected
+        DialogueOptionSelected       = _dialogueOptionSelected,
+        DialogueNpcSource            = _dialogueNpcSource,
+        ForeignQuestAccepted         = _foreignQuestAccepted
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -75,6 +79,8 @@ public sealed class SnapshotAggregator
     {
         if (_activeQuest == quest || _activeQuest is null)
             _questAccepted = true;
+        else
+            _foreignQuestAccepted = quest;
     }
 
     public void OnQuestCompleted(QuestId quest)
@@ -195,10 +201,21 @@ public sealed class SnapshotAggregator
     public void OnDialogueOptionSelected(int index) => _dialogueOptionSelected = index;
 
     /// <summary>
-    /// Called at the end of RecordStep to consume the selected dialogue option so it does not
-    /// bleed into the next recording window.
+    /// Called when SelectIconString first opens, capturing the NPC that triggered it
+    /// (e.g., a Lift Attendant). Read from live TargetManager so no pre-targeting is required.
+    /// NOT cleared by ResetDeltas — cleared alongside DialogueOptionSelected by OnDialogueOptionConsumed.
     /// </summary>
-    public void OnDialogueOptionConsumed() => _dialogueOptionSelected = null;
+    public void OnDialogueNpcCaptured(QuestForge.Schema.NpcLocation npc) => _dialogueNpcSource = npc;
+
+    /// <summary>
+    /// Called at the end of RecordStep to consume the dialogue option and captured NPC so they
+    /// do not bleed into the next recording window.
+    /// </summary>
+    public void OnDialogueOptionConsumed()
+    {
+        _dialogueOptionSelected = null;
+        _dialogueNpcSource = null;
+    }
 
     /// <summary>
     /// Called when the key items container changes. <paramref name="added"/> contains item IDs
@@ -229,5 +246,12 @@ public sealed class SnapshotAggregator
     {
         _keyItemsAdded = null;
         _keyItemsRemoved = null;
+        _foreignQuestAccepted = null;
+        // WHY: _lastAethernetShardInteracted persists across windows (never auto-cleared). If left
+        // set from a previous aethernet step it makes isAethernet=true in the new before-snapshot,
+        // causing the isAethernet fallback in Rule 4 to fire when it shouldn't (e.g. after aethernet
+        // travel → Lift Attendant: the aethernet step "resurfaces" in the next recording window).
+        // Clearing here ensures isAethernet only considers shards targeted within this window.
+        _lastAethernetShardInteracted = null;
     }
 }

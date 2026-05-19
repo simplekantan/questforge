@@ -7,7 +7,22 @@ This document collects every explicit deferral, TODO, open question, and known g
 
 ---
 
-## 1. Adapter completeness (Phase 6 stubs)
+## 1. Engine step completion — predicate discipline and persistent cursor
+
+### 1.0 `expect` must use permanent predicates only (authoring rule + validator enforcement)
+
+The engine re-evaluates all steps from scratch every tick. Step completion is determined by the `expect` predicate being currently true. **Transient predicates** (`playerZone()`, position) break on restart because they become false when the player leaves the zone — causing the engine to re-execute already-completed steps and loop.
+
+**Rule:** `expect` must only reference permanent game state (quest flags, quest accepted/complete, item ownership, attunement). Travel steps must use the downstream side-effect as their expect (e.g. `isQuestComplete(65647)` not `playerZone() == 129`).
+
+**Enforcement:** DraftValidator (backlog §4.5, issue #33) should flag transient predicates in `expect` at export time.
+
+**Future:** Persistent step cursor — engine writes confirmed step index to disk on completion, reads it on restart to skip confirmed steps regardless of predicate state. Tracked in issue #33.
+- Source: Quest 65644 authoring — `travel-to-zone-129` used `playerZone() == 129`, became false on return trip causing loop over all subsequent steps.
+
+---
+
+## 2. Adapter completeness (Phase 6 stubs)
 
 The Dalamud-backed adapters were minimally wired in Phase 6 to complete quest 66130. Many methods return `Result.Fail("notImplemented", ...)`. These block the engine from automating step types beyond `travel` and `talk`.
 
@@ -147,7 +162,34 @@ AUTHORING.md §11 and PHASE_9_PLAN.md §6 explicitly defer fragment and branch r
 
 ---
 
-## 5. Trace format compliance
+## 5. Passive trace coverage gaps (UIObserver)
+
+Authoring-mode traces and passive traces (`TraceMode.Always`/`Recording`) currently capture different signals. The goal is for any trace — regardless of mode — to contain enough data to reconstruct a quest definition via `qf-trace extract-quest`.
+
+### 5.0 Extract `UIObserver` service — close the passive trace gap
+
+Three signals required for aethernet and NPC-dialogue step inference are emitted only by `AuthoringHost` (authoring-mode), because they require direct Dalamud UI addon access that `IGameStateProvider` does not model:
+
+| Signal | Gap |
+|---|---|
+| `AethernetTeleportCompleted` (from/to shard IDs) | Requires TelopTown addon polling |
+| `DialogueNpcCaptured` (NPC location when SelectIconString opens) | Requires SelectIconString + TargetManager |
+| `DialogueOptionSelected` (choice index on close) | Requires SelectIconString polling |
+| `GetTarget` / `AethernetShardTargeted` | PollTargetNpc is authoring-only |
+
+**Fix:** extract the UI polling logic (`PollAethernetDestination`, `PollDialogueOption`, `PollTargetNpc`) from `AuthoringHost` into a standalone `UIObserver` component that:
+- Registers on `IFramework.Update` always (not just in authoring mode)
+- Writes directly to `TraceSession` (gating already handled by TraceSession)
+- Is shared by both `AuthoringHost` and the passive recording path
+
+This is the recording proxy pattern described in `ARCHITECTURE.md`. `AuthoringHost` would delegate to `UIObserver` rather than owning the polls.
+
+**Prerequisite:** quest 65644 authorship and run validated.
+- Source: `QuestForge.Plugin/Authoring/AuthoringHost.cs` (PollAethernetDestination, PollDialogueOption, PollTargetNpc)
+
+---
+
+## 6. Trace format compliance
 
 The recorder produces a flat Phase 7+ shape. Several fields specified in `TRACE_FORMAT.md` are not yet emitted. These matter when full replay, redaction, and tooling are built.
 

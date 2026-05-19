@@ -38,6 +38,23 @@ public sealed class StepInferenceEngine
                 Notes: null);
         }
 
+        // Rule 2.1: Foreign quest accepted (mandatory sub-quest offered mid-sequence)
+        if (after.ForeignQuestAccepted is { } foreignQuest
+            && after.ForeignQuestAccepted != before.ForeignQuestAccepted)
+        {
+            var npcId = after.LastNpcInteracted ?? before.LastNpcInteracted;
+            var suggestedId = npcId.HasValue
+                ? $"accept-quest-{foreignQuest.Value}"
+                : "accept-quest";
+            return new InferenceResult(
+                StepType: "accept",
+                SuggestedStepId: suggestedId,
+                SuggestedExpect: $"isQuestAccepted({foreignQuest.Value})",
+                Confidence: Confidence.High,
+                InferredFrom: InferredFrom.QuestAccepted,
+                Notes: $"Mandatory sub-quest {foreignQuest.Value} accepted. NPC: {npcId?.Value}");
+        }
+
         // Rule 2.3: Key item acquired
         if (after.KeyItemsAdded is { Count: > 0 } newItems)
         {
@@ -202,6 +219,41 @@ public sealed class StepInferenceEngine
         // Rule 4: Zone changed (no quest change from rules above)
         if (after.Zone != before.Zone)
         {
+            // AethernetTeleportCompleted is the definitive aethernet signal — check FIRST.
+            // WHY before NpcDialogue: interacting with a main aetheryte crystal can briefly open
+            // a SelectString menu ("Teleport/Return to inn/Housing") that sets DialogueOptionSelected
+            // to a spurious value. AethernetTeleportCompleted must always win over that noise.
+            if (after.AethernetTeleportCompleted is { } hopInterZone)
+            {
+                var fromId = hopInterZone.From?.Value; // uint?
+                var toId   = hopInterZone.To.Value;
+                return new InferenceResult(
+                    StepType: "travel",
+                    SuggestedStepId: $"aethernet-to-zone-{after.Zone.Value}",
+                    SuggestedExpect: $"playerZone() == {after.Zone.Value}",
+                    Confidence: Confidence.High,
+                    InferredFrom: InferredFrom.ZoneChange,
+                    Notes: fromId.HasValue
+                        ? $"Aethernet: shard {fromId.Value} → shard {toId}"
+                        : $"Aethernet to shard {toId}");
+            }
+
+            // NpcDialogue sub-case: zone changed via SelectIconString NPC interaction.
+            // DialogueNpcSource is captured from live TargetManager when the dialog opens,
+            // so no pre-targeting is required from the author.
+            if (after.DialogueOptionSelected.HasValue && after.DialogueNpcSource != null)
+            {
+                var npcId = after.DialogueNpcSource.NpcId;
+                var choiceIdx = after.DialogueOptionSelected.Value;
+                return new InferenceResult(
+                    StepType: "travel",
+                    SuggestedStepId: $"npc-dialogue-to-zone-{after.Zone.Value}",
+                    SuggestedExpect: $"playerZone() == {after.Zone.Value}",
+                    Confidence: Confidence.High,
+                    InferredFrom: InferredFrom.ZoneChange,
+                    Notes: $"NpcDialogue: npc {npcId} → choice {choiceIdx} → zone {after.Zone.Value}");
+            }
+
             // Sub-case: aethernet teleport detected
             var sourceShard = before.LastAethernetShardInteracted;
             var isAethernet = sourceShard.HasValue

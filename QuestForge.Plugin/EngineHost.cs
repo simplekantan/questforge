@@ -43,6 +43,10 @@ public sealed class EngineHost : IDisposable
     private readonly SeededTimingProfile _timing;
 
     private readonly TraceSession _traceSession;
+
+    // Per-step dialogue choice progress: reset when the source step changes across ticks.
+    private string? _lastInteractStepId;
+    private int _dialogueChoiceProgress;
     private QuestEngine? _engine;
     private RecordingQuestState? _recordingQs;
     private string? _runId;
@@ -261,9 +265,25 @@ public sealed class EngineHost : IDisposable
                     await _navigator.Stop(ct);
                 TryCutsceneSkipConfirm();
                 await _interactor.InteractWith(i.Target, ct);
-                // Advance any open dialogue and attempt journal buttons — returns Fail
-                // immediately if the respective addon is not visible.
-                await _interactor.AdvanceDialogue(ct);
+                // Reset dialogue choice progress when the source step changes.
+                if (i.Origin?.Id != _lastInteractStepId)
+                {
+                    _lastInteractStepId = i.Origin?.Id;
+                    _dialogueChoiceProgress = 0;
+                }
+                // Drive SelectIconString/SelectString choices from the step's DialogueChoices.
+                // If a choice was dispatched, skip AdvanceDialogue this tick so the selection
+                // can register before the SelectYesno confirmation opens.
+                var sip = _services.GameGui.GetAddonByName("SelectIconString");
+                var ssp = _services.GameGui.GetAddonByName("SelectString");
+                var choiceDispatched = DialogueChoiceDispatcher.TryDispatch(
+                    i.Origin,
+                    !sip.IsNull && sip.IsReady,
+                    !ssp.IsNull && ssp.IsReady,
+                    ref _dialogueChoiceProgress,
+                    _interactor, ct);
+                if (!choiceDispatched)
+                    await _interactor.AdvanceDialogue(ct);
                 await _interactor.AcceptQuest(_currentQuestId, ct);
                 await _interactor.CompleteQuest(_currentQuestId, ct);
                 break;

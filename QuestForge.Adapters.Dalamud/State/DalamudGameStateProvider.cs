@@ -248,12 +248,14 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
 
     public unsafe Task<Result<bool>> IsAetheryteAttuned(AetheryteId aetheryte, CancellationToken ct)
     {
-        // WHY: UIState tracks aetheryte attunement (not PlayerState as the spec initially guessed).
-        // Confirmed against Questionable's AetheryteFunctions.cs: UIState.Instance()->IsAetheryteUnlocked(uint).
+        // UIState->IsAetheryteUnlocked is correct for both main aetherytes and city aethernet
+        // sub-shards: the bit is set only when the player physically attunes the specific crystal,
+        // NOT when the parent aetheryte group becomes accessible. Telepo.TeleportList was explored
+        // as an alternative but is only populated when the teleport window is opened, making it
+        // unreliable for postcondition checks during engine execution.
         var uiState = UIState.Instance();
         if (uiState == null)
             return Task.FromResult<Result<bool>>(Result.Fail<bool>("noUiState", "UIState.Instance() returned null"));
-
         return Task.FromResult<Result<bool>>(Result.Ok(uiState->IsAetheryteUnlocked(aetheryte.Value)));
     }
 

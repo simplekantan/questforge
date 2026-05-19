@@ -102,6 +102,7 @@ public sealed class AuthoringHost : IDisposable
         _traceSession = traceSession;
         _draftManager = new DraftManager(storage, SystemClock.Instance, TimeSpan.FromSeconds(60));
         _aggregator = new SnapshotAggregator(null, SystemClock.Instance);
+        _dialoguePoller = new QuestForge.Engine.Authoring.DialogueMenuPoller(_aggregator);
 
         _services.ClientState.TerritoryChanged += OnTerritoryChanged;
         _services.Framework.Update += OnFrameworkUpdate;
@@ -129,6 +130,7 @@ public sealed class AuthoringHost : IDisposable
         Mode = AuthoringMode.Author;
         AuthoringTarget = target;
         _aggregator = new SnapshotAggregator(target, SystemClock.Instance);
+        _dialoguePoller = new QuestForge.Engine.Authoring.DialogueMenuPoller(_aggregator);
         _lastKnownQuestState.Clear();
         // Preload the draft into cache so RecordStep calls are synchronous (cache hit)
         _ = _draftManager.GetOrCreate(target, CancellationToken.None);
@@ -163,9 +165,19 @@ public sealed class AuthoringHost : IDisposable
     {
         if (AuthoringTarget is { } target)
             _traceSession.OnOpenRecordModal(target.Value);
-        // Reset per-action delta signals so stale KeyItemsAdded/Removed from a previous
-        // step don't bleed into the new inference window.
+        // Reset all per-window signals. ResetDeltas covers KeyItemsAdded/Removed and
+        // LastAethernetShardInteracted. The explicit consumes clear any events that fired
+        // in a previous window but were never confirmed (e.g. author hit Back without
+        // Confirming — RecordStep was never called so the events were never consumed).
         _aggregator.ResetDeltas();
+        _aggregator.OnAethernetTeleportConsumed();
+        _aggregator.OnDialogueOptionConsumed();
+        // Reset in-progress menu tracking so the first open of each menu in this window
+        // is treated as a fresh transition (NPC capture, shard capture, etc.).
+        _aethernetMenuWasOpen = false;
+        _pendingAethernetFrom = null;
+        _pendingAethernetTo   = null;
+        _dialogueIconStringWasOpen = false;
         return _aggregator.Current;
     }
 
@@ -181,6 +193,7 @@ public sealed class AuthoringHost : IDisposable
         PollQuestState();
         PollTargetNpc();
         var after = _aggregator.Current;
+        _services.Log.Debug($"[QF-DIAG] PreviewInference: zone {before.Zone.Value}→{after.Zone.Value} AethernetTeleportCompleted={after.AethernetTeleportCompleted?.To.Value} DialogueOptionSelected={after.DialogueOptionSelected} DialogueNpcSource={after.DialogueNpcSource?.NpcId} isAethernet_before_shard={before.LastAethernetShardInteracted?.Value} isAethernet_before_npc={before.LastNpcInteracted?.Value}");
         return _inferenceEngine.Infer(before, after);
     }
 
@@ -207,11 +220,14 @@ public sealed class AuthoringHost : IDisposable
         var draftStep = new DraftStep(
             StepId: finalStepId,
             StepType: inference.StepType,
-            // Accept always belongs in sequence 0 (before the quest enters NormalQuests).
+            // Accept steps use before.QuestSequence: the main quest accept happens at seq 0
+            // (before.QuestSequence = 0), and mandatory sub-quest accepts happen at whatever
+            // sequence the parent quest is at when the sub-quest is offered (e.g. seq 1).
+            // Hardcoding 0 for all accepts was wrong for foreign-quest accepts mid-sequence.
             // Steps that advance the sequence (e.g. talk-to-guild: 1→255) belong in the
             // BEFORE block, not the AFTER block. The beforeSeq > 0 guard handles the
             // timing window where the heartbeat hasn't run yet (before would be 0 stale).
-            SequenceNumber: inference.StepType == "accept" ? 0
+            SequenceNumber: inference.StepType == "accept" ? before.QuestSequence
                 : _aggregator.Current.QuestSequence > before.QuestSequence && before.QuestSequence > 0
                     ? before.QuestSequence
                     : _aggregator.Current.QuestSequence,
@@ -234,8 +250,9 @@ public sealed class AuthoringHost : IDisposable
         }
         _traceSession.OnConfirmRecordStep();
 
-        // Consume the completed teleport event so it doesn't bleed into the next recording window.
+        // Consume per-step events so they don't bleed into the next recording window.
         _aggregator.OnAethernetTeleportConsumed();
+        _aggregator.OnDialogueOptionConsumed();
 
         return Task.CompletedTask;
     }
@@ -252,10 +269,10 @@ public sealed class AuthoringHost : IDisposable
     {
         if (Mode == AuthoringMode.Off) return;
 
-        // WHY every frame: TelepotTown can open and close within one 250 ms heartbeat interval
-        // (fast double-click = select then travel). Running every frame ensures we never miss
-        // the open→close transition and always fire OnAethernetTeleportCompleted.
+        // WHY every frame: menus (TelepotTown, SelectIconString) can open and close within one
+        // 250 ms heartbeat. Running every frame ensures we never miss open→close transitions.
         PollAethernetDestination();
+        PollDialogueOption();
 
         var now = DateTimeOffset.UtcNow;
         if (now - _lastHeartbeatAt < HeartbeatInterval) return;
@@ -322,6 +339,8 @@ public sealed class AuthoringHost : IDisposable
                 _aggregator.OnQuestSequenceChanged(publicId, seq);
                 _aggregator.OnQuestFlagsChanged(publicId, flags);
                 WriteObservationDeduped("IsQuestAccepted", publicId, true);
+                if (AuthoringTarget.HasValue && publicId != AuthoringTarget.Value)
+                    WriteObservationDeduped("ForeignQuestAccepted", publicId, 1);
             }
 
             // Passive trace — dedup suppresses redundant JSONL writes
@@ -457,8 +476,14 @@ public sealed class AuthoringHost : IDisposable
         if (!menuIsOpen)
         {
             if (_aethernetMenuWasOpen && _pendingAethernetTo.HasValue)
+            {
                 // Menu just closed after a selection — fire the teleport-completed event.
+                _services.Log.Debug($"[QF-DIAG] TelepotTown closed → OnAethernetTeleportCompleted(from={_pendingAethernetFrom?.Value}, to={_pendingAethernetTo.Value.Value})");
                 _aggregator.OnAethernetTeleportCompleted(_pendingAethernetFrom, _pendingAethernetTo.Value);
+                WriteObservationDeduped("AethernetTeleportCompleted",
+                    _pendingAethernetTo.Value.Value,
+                    _pendingAethernetFrom?.Value ?? 0u);
+            }
             _aethernetMenuWasOpen = false;
             _pendingAethernetFrom = null;
             _pendingAethernetTo   = null;
@@ -467,6 +492,7 @@ public sealed class AuthoringHost : IDisposable
 
         if (!_aethernetMenuWasOpen)
         {
+            _services.Log.Debug($"[QF-DIAG] TelepotTown opened");
             // Menu just opened — capture departure shard.
             // WHY read TargetManager directly: PollTargetNpc is throttled to 250 ms so the
             // aggregator state may lag. Reading the live target bypasses that lag and captures
@@ -517,6 +543,13 @@ public sealed class AuthoringHost : IDisposable
             return;
         }
 
+        // Don't latch a destination that equals the departure shard — "Aetheryte Plaza" entries
+        // in TelepotTown represent the author's CURRENT location and selecting them produces a
+        // same-shard hop (From == To). This typically happens when the initial SelectedItemIndex
+        // defaults to the current-location entry before the author makes a real selection.
+        if (_pendingAethernetFrom.HasValue && rowId == _pendingAethernetFrom.Value.Value)
+            return;
+
         _pendingAethernetTo = new AethernetId(rowId);
     }
 
@@ -524,6 +557,106 @@ public sealed class AuthoringHost : IDisposable
     private bool _aethernetMenuWasOpen;
     private QuestForge.Adapters.Types.AetheryteId? _pendingAethernetFrom;
     private QuestForge.Adapters.Types.AethernetId? _pendingAethernetTo;
+
+    // SelectIconString tracking: captures which list option the author chose.
+    // Re-created alongside _aggregator so it always targets the active aggregator instance.
+    private QuestForge.Engine.Authoring.DialogueMenuPoller _dialoguePoller;
+    // Tracks the open/close transition to capture the source NPC when the menu first appears.
+    private bool _dialogueIconStringWasOpen;
+
+    private unsafe void PollDialogueOption()
+    {
+        // Only track SelectIconString (Lift Attendants, destination pickers).
+        // WHY NOT SelectString: aetheryte interactions show a SelectString menu
+        // ("Teleport/Return to inn/Housing") which produces garbage SelectedItemIndex
+        // values that pollute DialogueOptionSelected and confuse the inference engine
+        // into treating aethernet hops as NPC dialogue travel. SelectString is still
+        // handled for engine PLAYBACK in DalamudInteractor.SelectStringOption.
+        var ptr = _services.GameGui.GetAddonByName("SelectIconString");
+
+        bool menuIsOpen = !ptr.IsNull && ptr.IsReady;
+        int? selectedIdx = null;
+
+        // Capture the NPC from live TargetManager when SelectIconString first opens.
+        // WHY: before.LastNpcInteracted is unreliable (may be a shard or stale NPC).
+        // Reading TargetManager at the moment the dialog opens mirrors the aethernet
+        // pattern and requires no pre-targeting from the author.
+        if (menuIsOpen && !_dialogueIconStringWasOpen)
+        {
+            _dialogueIconStringWasOpen = true;
+            // FFXIV may clear the hard target when SelectIconString opens, so try multiple sources.
+            // Priority: hard target → previous target → aggregator LastNpcInteracted (250 ms lag but reliable).
+            var liveTarget = _services.TargetManager.Target
+                          ?? _services.TargetManager.PreviousTarget;
+            if (liveTarget is { ObjectKind: Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
+                                          or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc })
+            {
+                var p = liveTarget.Position;
+                _aggregator.OnDialogueNpcCaptured(new QuestForge.Schema.NpcLocation(
+                    NpcId: liveTarget.BaseId,
+                    Zone: (int)_services.ClientState.TerritoryType,
+                    Position: new QuestForge.Schema.Position3(p.X, p.Y, p.Z)));
+            }
+            else
+            {
+                // Final fallback: aggregator state from the most recent PollTargetNpc heartbeat.
+                var cur = _aggregator.Current;
+                if (cur.LastNpcInteracted.HasValue && cur.LastNpcPosition.HasValue)
+                    _aggregator.OnDialogueNpcCaptured(new QuestForge.Schema.NpcLocation(
+                        NpcId: cur.LastNpcInteracted.Value.Value,
+                        Zone: (int)cur.Zone.Value,
+                        Position: new QuestForge.Schema.Position3(
+                            cur.LastNpcPosition.Value.X,
+                            cur.LastNpcPosition.Value.Y,
+                            cur.LastNpcPosition.Value.Z)));
+            }
+
+            // Emit trace for the captured NPC (whichever path set it).
+            var captured = _aggregator.Current.DialogueNpcSource;
+            if (captured != null)
+                WriteObservationDeduped("DialogueNpcCaptured", captured.NpcId,
+                    new { zone = captured.Zone, x = captured.Position.X, y = captured.Position.Y, z = captured.Position.Z });
+        }
+        else if (!menuIsOpen)
+        {
+            _dialogueIconStringWasOpen = false;
+        }
+
+        if (menuIsOpen)
+        {
+            // Walk the addon's node list to find the AtkComponentList (node type 0x3F6 = 1014? or 1010).
+            // WHY node traversal: SelectIconString is a plain AtkUnitBase with no typed fields after it,
+            // so reading at a fixed addon offset (like TelepotTown's 0x238) walks past the struct end
+            // and causes an access violation. Node traversal is safe for any addon.
+            var addon = (FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase*)ptr.Address;
+            for (var i = 0; i < addon->UldManager.NodeListCount; i++)
+            {
+                var node = addon->UldManager.NodeList[i];
+                if (node == null) continue;
+                // AtkComponentList = node type 1010 (0x3F2); AtkComponentTreeList = 1022 (0x3FE)
+                if ((ushort)node->Type != 1010 && (ushort)node->Type != 1022) continue;
+                var compNode = (FFXIVClientStructs.FFXIV.Component.GUI.AtkComponentNode*)node;
+                if (compNode->Component == null) continue;
+                // AtkComponentList.SelectedItemIndex is at component offset 0x134
+                var raw = *(int*)((nint)compNode->Component + 0x134);
+                if (raw >= 0)
+                    selectedIdx = raw;
+                break;
+            }
+        }
+
+        // Detect when the poller fires OnDialogueOptionSelected (menu just closed with a selection).
+        var prevOpt = _aggregator.Current.DialogueOptionSelected;
+        _dialoguePoller.Tick(menuIsOpen, selectedIdx);
+        var newOpt = _aggregator.Current.DialogueOptionSelected;
+        if (newOpt.HasValue && newOpt != prevOpt)
+        {
+            var npcSrc = _aggregator.Current.DialogueNpcSource;
+            WriteObservationDeduped("DialogueOptionSelected",
+                npcSrc?.NpcId ?? 0u,
+                newOpt.Value);
+        }
+    }
 
     // Built once on first TelepotTown open; maps AethernetName display string → Aetheryte sheet RowId.
     private Dictionary<string, uint>? _aethernetNameToId;
@@ -536,7 +669,10 @@ public sealed class AuthoringHost : IDisposable
         if (sheet == null) return _aethernetNameToId;
         foreach (var row in sheet)
         {
-            if (row.AethernetGroup == 0 || row.IsAetheryte) continue;
+            // Include both sub-shards (IsAetheryte=false) AND master aetheryte crystals
+            // (IsAetheryte=true, e.g. "Limsa Lominsa Aetheryte Plaza") since the master
+            // crystal IS a valid arrival destination in the city aethernet network.
+            if (row.AethernetGroup == 0) continue;
             var name = row.AethernetName.ValueNullable?.Name.ExtractText();
             if (!string.IsNullOrEmpty(name))
                 _aethernetNameToId.TryAdd(name, row.RowId);

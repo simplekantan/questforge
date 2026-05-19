@@ -31,13 +31,19 @@ public static class StepFactory
             && before?.LastNpcInteracted?.Value == sourceShard.Value.Value
             && before?.LastNpcPosition.HasValue == true;
 
-        // Aethernet travel fires when:
-        //   1. The shard conditions are met (isAethernet) AND
-        //   2. A destination is known: either AethernetDestinationSelected (explicit menu pick)
-        //      OR after.LastAethernetShardInteracted differs from the source shard (post-arrival).
-        // Aethernet travel fires when AethernetTeleportCompleted is set (explicit TelepotTown event),
+        // WHY effectiveSourceShard: when AethernetTeleportCompleted is set but the author
+        // never explicitly targeted a shard (e.g. used the main aetheryte crystal which
+        // isn't tracked as LastAethernetShardInteracted), sourceShard is null. Fall back
+        // to the From field carried by the teleport event itself.
+        var effectiveSourceShard = sourceShard
+            ?? (after?.AethernetTeleportCompleted?.From is { } fromHop
+                ? new QuestForge.Adapters.Types.AetheryteId(fromHop.Value)
+                : (QuestForge.Adapters.Types.AetheryteId?)null);
+
+        // Aethernet travel fires when AethernetTeleportCompleted is set (explicit TelepotTown event)
+        // AND we have an effective source shard to navigate to,
         // or via legacy signals when the shard conditions and destination are met.
-        var hasAethernetDestination = after?.AethernetTeleportCompleted != null
+        var hasAethernetDestination = (after?.AethernetTeleportCompleted != null && effectiveSourceShard.HasValue)
             || (isAethernet
                 && (before?.AethernetDestinationSelected.HasValue == true
                     || (after?.LastAethernetShardInteracted is { } ds2 && ds2.Value != sourceShard!.Value.Value)));
@@ -59,10 +65,18 @@ public static class StepFactory
             dialogueChoices = [];
         }
 
+        // Detect NpcDialogue travel: both the dialogue selection AND the source NPC must be
+        // captured. DialogueNpcSource is set from live TargetManager when SelectIconString opens,
+        // so no pre-targeting is required from the author.
+        var hasNpcDialogue = after?.DialogueOptionSelected.HasValue == true
+            && after?.DialogueNpcSource != null;
+
         return stepType switch
         {
+            "travel" when hasNpcDialogue =>
+                BuildNpcDialogueTravelStep(stepId, expectValue, zoneStr, zone, before, after!, dialogueChoices),
             "travel" when hasAethernetDestination =>
-                BuildAethernetTravelStep(stepId, expectValue, zoneStr, zone, before!, after, sourceShard!.Value),
+                BuildAethernetTravelStep(stepId, expectValue, zoneStr, zone, before!, after, effectiveSourceShard!.Value),
             "travel" => new TravelStep
             {
                 Id = stepId,
@@ -71,7 +85,7 @@ public static class StepFactory
                 // isAethernet=false: if we fell through from the aethernet branch, the destination
                 // shard was not confirmed (same-shard = zone-gate walk, not an Aethernet hop).
                 Destination = new TravelDestination(Zone: zone, Position: ResolveTravelPosition(before, after, playerPos, false)),
-                StopDistance = 0f  // navigate to exact position; gate triggers require precision
+                StopDistance = 1.0f  // close enough to trigger zone-gate crossing and NPC interact
             },
             "accept" => new AcceptStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc },
             "turn-in" => new TurnInStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc },
@@ -120,6 +134,47 @@ public static class StepFactory
         };
     }
 
+    private static TravelStep BuildNpcDialogueTravelStep(
+        string stepId,
+        ExpectValue? expectValue,
+        string? zoneStr,
+        int zone,
+        GameStateSnapshot? before,
+        GameStateSnapshot after,
+        DialogueChoice[] dialogueChoices)
+    {
+        // Use DialogueNpcSource: captured from live TargetManager when SelectIconString opened,
+        // independent of before/after LastNpcInteracted. No pre-targeting required from the author.
+        var srcNpc = after.DialogueNpcSource!;
+        var npcId  = srcNpc.NpcId;
+        var npcPos = srcNpc.Position;
+        var playerPos = new Position3(after.Position.X, after.Position.Y, after.Position.Z);
+
+        // Source zone from DialogueNpcSource (captured when SelectIconString opened = source zone).
+        var sourceZone = srcNpc.Zone;
+
+        // Dialogue choices: override wins; fall back to single recorded choice from snapshot
+        var choices = dialogueChoices.Length > 0
+            ? dialogueChoices
+            : [new DialogueChoice(
+                Type: "list",
+                Answer: after.DialogueOptionSelected!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))];
+
+        return new TravelStep
+        {
+            Id = stepId,
+            Expect = expectValue,
+            Zone = zoneStr,
+            Destination = new TravelDestination(Zone: zone, Position: playerPos),
+            RouteHint = new RouteHint(NpcDialogue: new NpcDialogueHint(
+                target: new NpcLocation(
+                    NpcId: npcId,
+                    Zone: sourceZone,
+                    Position: npcPos),
+                dialogueChoices: choices))
+        };
+    }
+
     private static float? InferStopDistance(GameStateSnapshot? after)
     {
         if (after?.LastNpcPosition is not { } npcPos) return null;
@@ -163,8 +218,14 @@ public static class StepFactory
         GameStateSnapshot? after,
         QuestForge.Adapters.Types.AetheryteId sourceShard)
     {
-        // Use the source shard's world position so the engine can navigate to it first
-        var shardPos = before.LastNpcPosition!.Value;
+        // Use the source shard's world position so the engine can navigate to it first.
+        // Only treat LastNpcPosition as the shard position when LastNpcInteracted WAS the
+        // departure shard. If the player last talked to a quest NPC (not the shard), LastNpcPosition
+        // is that NPC's location — using it would send the engine back to the wrong spot.
+        // before.Position is where the player stood when they opened the Record modal, which
+        // is always near the shard (they just used it).
+        var lastNpcWasShard = before.LastNpcInteracted?.Value == sourceShard.Value;
+        var shardPos = (lastNpcWasShard ? before.LastNpcPosition : null) ?? before.Position;
         var destPos = new Position3(shardPos.X, shardPos.Y, shardPos.Z);
 
         // Prefer AethernetTeleportCompleted (explicit event) → AethernetDestinationSelected

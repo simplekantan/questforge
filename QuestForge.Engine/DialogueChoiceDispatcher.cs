@@ -14,11 +14,16 @@ public static class DialogueChoiceDispatcher
         IInteractor interactor,
         CancellationToken ct)
     {
-        if (currentStep is not TalkStep talkStep) return false;
-        if (progress >= talkStep.DialogueChoices.Length) return false;
+        DialogueChoice[] choices = currentStep switch
+        {
+            TalkStep talk => talk.DialogueChoices,
+            TravelStep travel => travel.RouteHint?.NpcDialogue?.DialogueChoices ?? Array.Empty<DialogueChoice>(),
+            _ => Array.Empty<DialogueChoice>()
+        };
+        if (choices.Length == 0 || progress >= choices.Length) return false;
         if (!selectIconStringOpen && !selectStringOpen) return false;
 
-        var choice = talkStep.DialogueChoices[progress];
+        var choice = choices[progress];
         // "yesno" and other non-list types are handled by AdvanceDialogue's SelectYesno auto-confirm;
         // returning false lets the caller fall through to AdvanceDialogue rather than stalling here.
         if (choice.Type != "list") return false;
