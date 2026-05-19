@@ -459,15 +459,27 @@ public sealed class AuthoringHost : IDisposable
 
         if (!_aethernetMenuWasOpen)
         {
-            // Menu just opened — capture departure shard from current aggregator state.
+            // Menu just opened — capture departure shard.
+            // WHY read TargetManager directly: PollTargetNpc is throttled to 250 ms so the
+            // aggregator state may lag. Reading the live target bypasses that lag and captures
+            // the shard the player just interacted with to open the menu.
             _aethernetMenuWasOpen = true;
-            var cur = _aggregator.Current;
-            _pendingAethernetFrom =
-                cur.LastAethernetShardInteracted.HasValue
-                && cur.LastNpcInteracted.HasValue
-                && cur.LastNpcInteracted.Value.Value == cur.LastAethernetShardInteracted.Value.Value
-                    ? cur.LastAethernetShardInteracted
-                    : null;
+            var liveTarget = _services.TargetManager.Target;
+            if (liveTarget?.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Aetheryte)
+            {
+                _pendingAethernetFrom = new QuestForge.Adapters.Types.AetheryteId(liveTarget.BaseId);
+            }
+            else
+            {
+                // Fall back to aggregator if the target was cleared when the menu opened.
+                var cur = _aggregator.Current;
+                _pendingAethernetFrom =
+                    cur.LastAethernetShardInteracted.HasValue
+                    && cur.LastNpcInteracted.HasValue
+                    && cur.LastNpcInteracted.Value.Value == cur.LastAethernetShardInteracted.Value.Value
+                        ? cur.LastAethernetShardInteracted
+                        : null;
+            }
         }
 
         var addon = (FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase*)ptr.Address;
