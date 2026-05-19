@@ -242,5 +242,11 @@ public sealed class SnapshotAggregator
     {
         _keyItemsAdded = null;
         _keyItemsRemoved = null;
+        // WHY: _lastAethernetShardInteracted persists across windows (never auto-cleared). If left
+        // set from a previous aethernet step it makes isAethernet=true in the new before-snapshot,
+        // causing the isAethernet fallback in Rule 4 to fire when it shouldn't (e.g. after aethernet
+        // travel → Lift Attendant: the aethernet step "resurfaces" in the next recording window).
+        // Clearing here ensures isAethernet only considers shards targeted within this window.
+        _lastAethernetShardInteracted = null;
     }
 }

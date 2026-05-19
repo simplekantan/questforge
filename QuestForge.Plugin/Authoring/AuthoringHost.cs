@@ -165,9 +165,19 @@ public sealed class AuthoringHost : IDisposable
     {
         if (AuthoringTarget is { } target)
             _traceSession.OnOpenRecordModal(target.Value);
-        // Reset per-action delta signals so stale KeyItemsAdded/Removed from a previous
-        // step don't bleed into the new inference window.
+        // Reset all per-window signals. ResetDeltas covers KeyItemsAdded/Removed and
+        // LastAethernetShardInteracted. The explicit consumes clear any events that fired
+        // in a previous window but were never confirmed (e.g. author hit Back without
+        // Confirming — RecordStep was never called so the events were never consumed).
         _aggregator.ResetDeltas();
+        _aggregator.OnAethernetTeleportConsumed();
+        _aggregator.OnDialogueOptionConsumed();
+        // Reset in-progress menu tracking so the first open of each menu in this window
+        // is treated as a fresh transition (NPC capture, shard capture, etc.).
+        _aethernetMenuWasOpen = false;
+        _pendingAethernetFrom = null;
+        _pendingAethernetTo   = null;
+        _dialogueIconStringWasOpen = false;
         return _aggregator.Current;
     }
 
@@ -183,6 +193,7 @@ public sealed class AuthoringHost : IDisposable
         PollQuestState();
         PollTargetNpc();
         var after = _aggregator.Current;
+        _services.Log.Debug($"[QF-DIAG] PreviewInference: zone {before.Zone.Value}→{after.Zone.Value} AethernetTeleportCompleted={after.AethernetTeleportCompleted?.To.Value} DialogueOptionSelected={after.DialogueOptionSelected} DialogueNpcSource={after.DialogueNpcSource?.NpcId} isAethernet_before_shard={before.LastAethernetShardInteracted?.Value} isAethernet_before_npc={before.LastNpcInteracted?.Value}");
         return _inferenceEngine.Infer(before, after);
     }
 
@@ -460,8 +471,11 @@ public sealed class AuthoringHost : IDisposable
         if (!menuIsOpen)
         {
             if (_aethernetMenuWasOpen && _pendingAethernetTo.HasValue)
+            {
                 // Menu just closed after a selection — fire the teleport-completed event.
+                _services.Log.Debug($"[QF-DIAG] TelepotTown closed → OnAethernetTeleportCompleted(from={_pendingAethernetFrom?.Value}, to={_pendingAethernetTo.Value.Value})");
                 _aggregator.OnAethernetTeleportCompleted(_pendingAethernetFrom, _pendingAethernetTo.Value);
+            }
             _aethernetMenuWasOpen = false;
             _pendingAethernetFrom = null;
             _pendingAethernetTo   = null;
@@ -470,6 +484,7 @@ public sealed class AuthoringHost : IDisposable
 
         if (!_aethernetMenuWasOpen)
         {
+            _services.Log.Debug($"[QF-DIAG] TelepotTown opened");
             // Menu just opened — capture departure shard.
             // WHY read TargetManager directly: PollTargetNpc is throttled to 250 ms so the
             // aggregator state may lag. Reading the live target bypasses that lag and captures
