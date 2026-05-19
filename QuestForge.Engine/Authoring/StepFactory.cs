@@ -85,7 +85,7 @@ public static class StepFactory
                 // isAethernet=false: if we fell through from the aethernet branch, the destination
                 // shard was not confirmed (same-shard = zone-gate walk, not an Aethernet hop).
                 Destination = new TravelDestination(Zone: zone, Position: ResolveTravelPosition(before, after, playerPos, false)),
-                StopDistance = 0f  // navigate to exact position; gate triggers require precision
+                StopDistance = 1.0f  // close enough to trigger zone-gate crossing and NPC interact
             },
             "accept" => new AcceptStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc },
             "turn-in" => new TurnInStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc },
