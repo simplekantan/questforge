@@ -171,9 +171,15 @@ public sealed class AuthoringHost : IDisposable
 
     /// <summary>
     /// Captures "after" snapshot, calls inference, returns the suggestion for the modal to display.
+    /// WHY the extra polls: the heartbeat runs every 250 ms; if the author clicks Record in the
+    /// same frame a quest state change occurred, the aggregator may not reflect it yet. Forcing
+    /// a fresh poll ensures inference always sees the current game state.
     /// </summary>
     public InferenceResult PreviewInference(GameStateSnapshot before)
     {
+        // Flush the most time-sensitive pollers so accept/complete/sequence are always current.
+        PollQuestState();
+        PollTargetNpc();
         var after = _aggregator.Current;
         return _inferenceEngine.Infer(before, after);
     }
