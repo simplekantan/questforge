@@ -242,25 +242,22 @@ public sealed class AethernetInferenceTests
     }
 
     [Fact]
-    public void SA4_ResetDeltas_DoesNotClearLastAethernetShardInteracted()
+    public void SA4_ResetDeltas_ClearsLastAethernetShardInteracted()
     {
-        // RED: Will fail until Builder adds OnAethernetShardTargeted method.
-        //
         // CONTRACT: Given LastAethernetShardInteracted set to AetheryteId(125),
         //           When ResetDeltas() is called,
-        //           Then LastAethernetShardInteracted remains AetheryteId(125).
+        //           Then LastAethernetShardInteracted is null.
         //
-        // BUILDER GUIDANCE: ResetDeltas only clears per-action delta signals (KeyItemsAdded,
-        // KeyItemsRemoved). Do NOT clear _lastAethernetShardInteracted in ResetDeltas.
-        // The shard targeted persists across the before/after window.
+        // WHY changed: stale shard from a previous aethernet step bled into the next
+        // recording window making isAethernet=true, causing Rule 4 fallback to fire for
+        // unrelated steps (e.g. Lift Attendant after an aethernet hop).
 
         var aggregator = new SnapshotAggregator(activeQuest: ActiveQuest);
-        // RED: Method does not exist yet
         aggregator.OnAethernetShardTargeted(new AetheryteId(125));
 
         aggregator.ResetDeltas();
 
-        Assert.Equal(new AetheryteId(125), aggregator.Current.LastAethernetShardInteracted!.Value);
+        Assert.Null(aggregator.Current.LastAethernetShardInteracted);
     }
 
     [Fact]

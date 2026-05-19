@@ -267,13 +267,35 @@ internal sealed class QfCommand : IDisposable
 
         var sb = new System.Text.StringBuilder();
 
-        // If a specific ID was given, just check that one
+        // If a specific ID was given, dump full diagnostic for that ID
         if (idArg is not null && uint.TryParse(idArg, out var checkId))
         {
-            var unlocked = uiState->IsAetheryteUnlocked(checkId);
-            var line = $"IsAetheryteUnlocked({checkId}) = {unlocked}";
-            _chat.Print(line);
-            _log.Info($"[debug aetheryte] {line}");
+            var uiUnlocked = uiState->IsAetheryteUnlocked(checkId);
+
+            var sheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Aetheryte>();
+            var row   = sheet?.GetRow(checkId);
+            var isAetheryte   = row.HasValue ? row.Value.IsAetheryte : (bool?)null;
+            var aethernetName = row.HasValue ? row.Value.AethernetName.ValueNullable?.Name.ExtractText() : null;
+
+            var telepo    = FFXIVClientStructs.FFXIV.Client.Game.UI.Telepo.Instance();
+            bool inTelepo = false;
+            int  telepoCount = 0;
+            if (telepo != null)
+            {
+                telepoCount = (int)(telepo->TeleportList.Last - telepo->TeleportList.First);
+                for (var ptr = telepo->TeleportList.First; ptr < telepo->TeleportList.Last; ptr++)
+                    if (ptr->AetheryteId == checkId) { inTelepo = true; break; }
+            }
+
+            _chat.Print($"--- Aetheryte {checkId} ---");
+            _chat.Print($"  UIState.IsAetheryteUnlocked = {uiUnlocked}");
+            _chat.Print($"  Lumina row exists           = {row.HasValue}");
+            _chat.Print($"  Lumina IsAetheryte          = {isAetheryte}");
+            _chat.Print($"  Lumina AethernetName        = {aethernetName ?? "(null)"}");
+            _chat.Print($"  Telepo instance exists      = {telepo != null}");
+            _chat.Print($"  Telepo list count           = {telepoCount}");
+            _chat.Print($"  In Telepo.TeleportList      = {inTelepo}");
+            _log.Info($"[debug aetheryte] id={checkId} uiUnlocked={uiUnlocked} lumina.exists={row.HasValue} lumina.IsAetheryte={isAetheryte} lumina.Name={aethernetName} telepoCount={telepoCount} inTelepo={inTelepo}");
             return;
         }
 

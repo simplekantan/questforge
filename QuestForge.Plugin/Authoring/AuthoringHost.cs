@@ -336,6 +336,8 @@ public sealed class AuthoringHost : IDisposable
                 _aggregator.OnQuestSequenceChanged(publicId, seq);
                 _aggregator.OnQuestFlagsChanged(publicId, flags);
                 WriteObservationDeduped("IsQuestAccepted", publicId, true);
+                if (AuthoringTarget.HasValue && publicId != AuthoringTarget.Value)
+                    WriteObservationDeduped("ForeignQuestAccepted", publicId, 1);
             }
 
             // Passive trace — dedup suppresses redundant JSONL writes

@@ -219,10 +219,13 @@ public static class StepFactory
         QuestForge.Adapters.Types.AetheryteId sourceShard)
     {
         // Use the source shard's world position so the engine can navigate to it first.
-        // Fall back to the player's own position if the NPC position wasn't recorded
-        // (e.g. effectiveSourceShard came from AethernetTeleportCompleted.From rather than
-        // a tracked shard target).
-        var shardPos = before.LastNpcPosition ?? before.Position;
+        // Only treat LastNpcPosition as the shard position when LastNpcInteracted WAS the
+        // departure shard. If the player last talked to a quest NPC (not the shard), LastNpcPosition
+        // is that NPC's location — using it would send the engine back to the wrong spot.
+        // before.Position is where the player stood when they opened the Record modal, which
+        // is always near the shard (they just used it).
+        var lastNpcWasShard = before.LastNpcInteracted?.Value == sourceShard.Value;
+        var shardPos = (lastNpcWasShard ? before.LastNpcPosition : null) ?? before.Position;
         var destPos = new Position3(shardPos.X, shardPos.Y, shardPos.Z);
 
         // Prefer AethernetTeleportCompleted (explicit event) → AethernetDestinationSelected

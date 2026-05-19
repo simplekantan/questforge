@@ -62,4 +62,9 @@ public sealed record GameStateSnapshot(
     // WHY: before.LastNpcInteracted is unreliable (may be a shard or prior NPC);
     //      reading TargetManager at the moment the dialog opens gives the correct NPC.
     public QuestForge.Schema.NpcLocation? DialogueNpcSource { get; init; }
+
+    // Non-positional. Set when a quest OTHER than the active quest is accepted during this
+    // recording window (e.g. a mandatory sub-quest offered by an NPC mid-sequence).
+    // Cleared by ResetDeltas so it is a per-window delta signal.
+    public QuestId? ForeignQuestAccepted { get; init; }
 }

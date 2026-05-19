@@ -38,6 +38,23 @@ public sealed class StepInferenceEngine
                 Notes: null);
         }
 
+        // Rule 2.1: Foreign quest accepted (mandatory sub-quest offered mid-sequence)
+        if (after.ForeignQuestAccepted is { } foreignQuest
+            && after.ForeignQuestAccepted != before.ForeignQuestAccepted)
+        {
+            var npcId = after.LastNpcInteracted ?? before.LastNpcInteracted;
+            var suggestedId = npcId.HasValue
+                ? $"accept-quest-{foreignQuest.Value}"
+                : "accept-quest";
+            return new InferenceResult(
+                StepType: "accept",
+                SuggestedStepId: suggestedId,
+                SuggestedExpect: $"isQuestAccepted({foreignQuest.Value})",
+                Confidence: Confidence.High,
+                InferredFrom: InferredFrom.QuestAccepted,
+                Notes: $"Mandatory sub-quest {foreignQuest.Value} accepted. NPC: {npcId?.Value}");
+        }
+
         // Rule 2.3: Key item acquired
         if (after.KeyItemsAdded is { Count: > 0 } newItems)
         {

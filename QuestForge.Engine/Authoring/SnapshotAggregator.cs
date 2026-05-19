@@ -27,6 +27,7 @@ public sealed class SnapshotAggregator
     private IReadOnlyDictionary<uint, int>? _keyItems;
     private int? _dialogueOptionSelected;
     private QuestForge.Schema.NpcLocation? _dialogueNpcSource;
+    private QuestId? _foreignQuestAccepted;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
     // tests inject FakeClock for deterministic CapturedAt values.
@@ -59,7 +60,8 @@ public sealed class SnapshotAggregator
         AethernetDestinationSelected = _aethernetDestinationSelected,
         AethernetTeleportCompleted   = _aethernetTeleportCompleted,
         DialogueOptionSelected       = _dialogueOptionSelected,
-        DialogueNpcSource            = _dialogueNpcSource
+        DialogueNpcSource            = _dialogueNpcSource,
+        ForeignQuestAccepted         = _foreignQuestAccepted
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -77,6 +79,8 @@ public sealed class SnapshotAggregator
     {
         if (_activeQuest == quest || _activeQuest is null)
             _questAccepted = true;
+        else
+            _foreignQuestAccepted = quest;
     }
 
     public void OnQuestCompleted(QuestId quest)
@@ -242,6 +246,7 @@ public sealed class SnapshotAggregator
     {
         _keyItemsAdded = null;
         _keyItemsRemoved = null;
+        _foreignQuestAccepted = null;
         // WHY: _lastAethernetShardInteracted persists across windows (never auto-cleared). If left
         // set from a previous aethernet step it makes isAethernet=true in the new before-snapshot,
         // causing the isAethernet fallback in Rule 4 to fire when it shouldn't (e.g. after aethernet
