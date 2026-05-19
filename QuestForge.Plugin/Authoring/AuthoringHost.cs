@@ -102,6 +102,7 @@ public sealed class AuthoringHost : IDisposable
         _traceSession = traceSession;
         _draftManager = new DraftManager(storage, SystemClock.Instance, TimeSpan.FromSeconds(60));
         _aggregator = new SnapshotAggregator(null, SystemClock.Instance);
+        _dialoguePoller = new QuestForge.Engine.Authoring.DialogueMenuPoller(_aggregator);
 
         _services.ClientState.TerritoryChanged += OnTerritoryChanged;
         _services.Framework.Update += OnFrameworkUpdate;
@@ -129,6 +130,7 @@ public sealed class AuthoringHost : IDisposable
         Mode = AuthoringMode.Author;
         AuthoringTarget = target;
         _aggregator = new SnapshotAggregator(target, SystemClock.Instance);
+        _dialoguePoller = new QuestForge.Engine.Authoring.DialogueMenuPoller(_aggregator);
         _lastKnownQuestState.Clear();
         // Preload the draft into cache so RecordStep calls are synchronous (cache hit)
         _ = _draftManager.GetOrCreate(target, CancellationToken.None);
@@ -234,8 +236,9 @@ public sealed class AuthoringHost : IDisposable
         }
         _traceSession.OnConfirmRecordStep();
 
-        // Consume the completed teleport event so it doesn't bleed into the next recording window.
+        // Consume per-step events so they don't bleed into the next recording window.
         _aggregator.OnAethernetTeleportConsumed();
+        _aggregator.OnDialogueOptionConsumed();
 
         return Task.CompletedTask;
     }
@@ -252,10 +255,10 @@ public sealed class AuthoringHost : IDisposable
     {
         if (Mode == AuthoringMode.Off) return;
 
-        // WHY every frame: TelepotTown can open and close within one 250 ms heartbeat interval
-        // (fast double-click = select then travel). Running every frame ensures we never miss
-        // the open→close transition and always fire OnAethernetTeleportCompleted.
+        // WHY every frame: menus (TelepotTown, SelectIconString) can open and close within one
+        // 250 ms heartbeat. Running every frame ensures we never miss open→close transitions.
         PollAethernetDestination();
+        PollDialogueOption();
 
         var now = DateTimeOffset.UtcNow;
         if (now - _lastHeartbeatAt < HeartbeatInterval) return;
@@ -524,6 +527,38 @@ public sealed class AuthoringHost : IDisposable
     private bool _aethernetMenuWasOpen;
     private QuestForge.Adapters.Types.AetheryteId? _pendingAethernetFrom;
     private QuestForge.Adapters.Types.AethernetId? _pendingAethernetTo;
+
+    // SelectIconString/SelectString tracking: captures which list option the author chose.
+    // Re-created alongside _aggregator so it always targets the active aggregator instance.
+    private QuestForge.Engine.Authoring.DialogueMenuPoller _dialoguePoller;
+
+    private unsafe void PollDialogueOption()
+    {
+        // Try SelectIconString first (destination pickers, lift attendants), then SelectString.
+        var ptr = _services.GameGui.GetAddonByName("SelectIconString");
+        if (ptr.IsNull || !ptr.IsReady)
+            ptr = _services.GameGui.GetAddonByName("SelectString");
+
+        bool menuIsOpen = !ptr.IsNull && ptr.IsReady;
+        int? selectedIdx = null;
+
+        if (menuIsOpen)
+        {
+            // List component pointer at addon offset 0x238; SelectedItemIndex at list offset 0x134.
+            // NOTE: 0x238 is confirmed for AddonTeleportTown; SelectIconString/SelectString may differ.
+            // If selection is never captured in-game, inspect the SelectIconString struct with /xldata
+            // to find the correct list-component offset and update here.
+            var listPtr = *(nint*)(ptr.Address + 0x238);
+            if (listPtr != 0)
+            {
+                var raw = *(int*)(listPtr + 0x134);
+                if (raw >= 0)
+                    selectedIdx = raw;
+            }
+        }
+
+        _dialoguePoller.Tick(menuIsOpen, selectedIdx);
+    }
 
     // Built once on first TelepotTown open; maps AethernetName display string → Aetheryte sheet RowId.
     private Dictionary<string, uint>? _aethernetNameToId;

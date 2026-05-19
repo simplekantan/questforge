@@ -217,7 +217,7 @@ public sealed class QuestEngine
         TalkStep talk when talk.Target is not null =>
             ResolveInteractOrNavigate(
                 step, talk.Target.Position, playerPos,
-                new EngineAction.Interact(new NpcId(talk.Target.NpcId))),
+                new EngineAction.Interact(new NpcId(talk.Target.NpcId), Origin: step)),
 
         TalkStep talk when talk.Target is null && talk.Targets is { Length: > 0 } =>
             throw new NotSupportedException("Phase 4 does not support multi-target talk steps"),
@@ -225,12 +225,12 @@ public sealed class QuestEngine
         AcceptStep accept =>
             ResolveInteractOrNavigate(
                 step, accept.Target.Position, playerPos,
-                new EngineAction.Interact(new NpcId(accept.Target.NpcId))),
+                new EngineAction.Interact(new NpcId(accept.Target.NpcId), Origin: step)),
 
         TurnInStep turnIn =>
             ResolveInteractOrNavigate(
                 step, turnIn.Target.Position, playerPos,
-                new EngineAction.Interact(new NpcId(turnIn.Target.NpcId))),
+                new EngineAction.Interact(new NpcId(turnIn.Target.NpcId), Origin: step)),
 
         // TODO: replace with EngineAction.InteractObject(InteractableId) once that action type exists.
         // Coercing InteractableId into NpcId is a shim — the in-range Interact path is not yet
@@ -238,15 +238,15 @@ public sealed class QuestEngine
         InteractObjectStep interactObj =>
             ResolveInteractOrNavigate(
                 step, interactObj.Target.Position, playerPos,
-                new EngineAction.Interact(new NpcId(interactObj.Target.InteractableId))),
+                new EngineAction.Interact(new NpcId(interactObj.Target.InteractableId), Origin: step)),
 
         AttunementStep attune when attune.Location is not null =>
             ResolveInteractOrNavigate(
                 step, attune.Location.Position, playerPos,
-                new EngineAction.Interact(new NpcId(attune.Target.Value)),
+                new EngineAction.Interact(new NpcId(attune.Target.Value), Origin: step),
                 defaultStopDistance: DefaultAetheryteStopDistance),
 
-        AttunementStep attune => new EngineAction.Interact(new NpcId(attune.Target.Value)),
+        AttunementStep attune => new EngineAction.Interact(new NpcId(attune.Target.Value), Origin: step),
 
         HandOverItemStep handOver =>
             ResolveInteractOrNavigate(
