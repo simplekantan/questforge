@@ -106,6 +106,7 @@ public sealed class TraceSession : ITraceWriter, IDisposable
 
                 case TraceMode.Authoring:
                 case TraceMode.Recording:
+                case TraceMode.QuestRun:
                     // Close the always-open file if present; per-session files open later.
                     CloseFileUnderLock();
                     break;
@@ -235,6 +236,10 @@ public sealed class TraceSession : ITraceWriter, IDisposable
                     // Gate stays closed.
                     break;
 
+                case TraceMode.QuestRun:
+                    // QuestRun has its own lifecycle via OnQuestRunStart/OnQuestRunEnd.
+                    break;
+
                 // Always / Off: no-op
             }
         }
@@ -282,6 +287,7 @@ public sealed class TraceSession : ITraceWriter, IDisposable
     /// <summary>
     /// Called when the user exits Author/Recording mode.
     /// Closes and disposes the file in both Authoring and Recording modes.
+    /// QuestRun has its own lifecycle — OnExitAuthoring is a no-op for it.
     /// </summary>
     public void OnExitAuthoring()
     {
@@ -293,8 +299,39 @@ public sealed class TraceSession : ITraceWriter, IDisposable
                 case TraceMode.Recording:
                     CloseFileUnderLock();
                     break;
-                // Always / Off: no-op
+                // Always / Off / QuestRun: no-op
             }
+        }
+    }
+
+    /// <summary>
+    /// Called when a quest run begins in <see cref="TraceMode.QuestRun"/> mode.
+    /// Opens a new trace file named <c>{questId}-run-{timestamp}.jsonl</c> and opens the gate.
+    /// No-op for all other modes.
+    /// </summary>
+    public void OnQuestRunStart(uint questId)
+    {
+        if (_mode != TraceMode.QuestRun) return;
+
+        lock (_lock)
+        {
+            var fileName = $"{questId}-run-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.jsonl";
+            OpenFileUnderLock(fileName, clearDedup: true);
+        }
+    }
+
+    /// <summary>
+    /// Called when a quest run ends in <see cref="TraceMode.QuestRun"/> mode.
+    /// Closes the gate and the trace file.
+    /// No-op for all other modes.
+    /// </summary>
+    public void OnQuestRunEnd()
+    {
+        if (_mode != TraceMode.QuestRun) return;
+
+        lock (_lock)
+        {
+            CloseFileUnderLock();
         }
     }
 

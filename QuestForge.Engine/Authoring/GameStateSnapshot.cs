@@ -67,4 +67,10 @@ public sealed record GameStateSnapshot(
     // recording window (e.g. a mandatory sub-quest offered by an NPC mid-sequence).
     // Cleared by ResetDeltas so it is a per-window delta signal.
     public QuestId? ForeignQuestAccepted { get; init; }
+
+    // Non-positional. True when the player confirmed a SelectYesno prompt during this
+    // recording window. Distinct from DialogueOptionSelected (SelectIconString list choices)
+    // so StepFactory emits {type:"yesno"} rather than a spurious {type:"list"} choice.
+    // Cleared alongside DialogueOptionSelected by OnDialogueOptionConsumed.
+    public bool SelectYesnoConfirmed { get; init; }
 }

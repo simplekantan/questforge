@@ -238,20 +238,22 @@ public sealed class StepInferenceEngine
                         : $"Aethernet to shard {toId}");
             }
 
-            // NpcDialogue sub-case: zone changed via SelectIconString NPC interaction.
+            // NpcDialogue sub-case: zone changed via SelectIconString list choice or SelectYesno.
             // DialogueNpcSource is captured from live TargetManager when the dialog opens,
             // so no pre-targeting is required from the author.
-            if (after.DialogueOptionSelected.HasValue && after.DialogueNpcSource != null)
+            if ((after.DialogueOptionSelected.HasValue || after.SelectYesnoConfirmed) && after.DialogueNpcSource != null)
             {
                 var npcId = after.DialogueNpcSource.NpcId;
-                var choiceIdx = after.DialogueOptionSelected.Value;
+                var choiceIdx = after.DialogueOptionSelected;
                 return new InferenceResult(
                     StepType: "travel",
                     SuggestedStepId: $"npc-dialogue-to-zone-{after.Zone.Value}",
                     SuggestedExpect: $"playerZone() == {after.Zone.Value}",
                     Confidence: Confidence.High,
                     InferredFrom: InferredFrom.ZoneChange,
-                    Notes: $"NpcDialogue: npc {npcId} → choice {choiceIdx} → zone {after.Zone.Value}");
+                    Notes: after.SelectYesnoConfirmed
+                        ? $"NpcDialogue: npc {npcId} → yesno → zone {after.Zone.Value}"
+                        : $"NpcDialogue: npc {npcId} → choice {choiceIdx} → zone {after.Zone.Value}");
             }
 
             // Sub-case: aethernet teleport detected

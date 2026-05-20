@@ -1,9 +1,5 @@
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using Dalamud.Plugin.Services;
-using FFXIVClientStructs.FFXIV.Client.Game;
-using FFXIVClientStructs.FFXIV.Client.Game.UI;
-using Lumina.Excel.Sheets;
 using QuestForge.Adapters.Dalamud;
 using QuestForge.Adapters.Dalamud.Authoring;
 using QuestForge.Adapters.State;
@@ -11,6 +7,7 @@ using QuestForge.Adapters;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Authoring;
+using QuestForge.Plugin.Tracing;
 using QuestForge.Schema;
 
 namespace QuestForge.Plugin.Authoring;
@@ -19,8 +16,9 @@ namespace QuestForge.Plugin.Authoring;
 public sealed record NpcQuestInfo(uint QuestId, string QuestName, bool IsAvailable, bool IsComplete);
 
 /// <summary>
-/// Plugin-side authoring coordinator. Subscribes to Dalamud events, maintains
-/// a fresh GameStateSnapshot, and exposes the recording workflow to the UI panels.
+/// Plugin-side authoring coordinator. Delegates all polling to UIObserver, maintains
+/// a fresh GameStateSnapshot via SnapshotAggregator, and exposes the recording workflow
+/// to the UI panels.
 /// </summary>
 public sealed class AuthoringHost : IDisposable
 {
@@ -30,6 +28,7 @@ public sealed class AuthoringHost : IDisposable
     private readonly StepInferenceEngine _inferenceEngine = new();
     private readonly IQuestState _questState;
     private readonly TraceSession _traceSession;
+    private readonly UIObserver _uiObserver;
     private SnapshotAggregator _aggregator;
 
     // Logical run-id label for events emitted during this authoring session.
@@ -40,19 +39,6 @@ public sealed class AuthoringHost : IDisposable
     private uint _lastQuestQueryNpcBaseId;
     private IReadOnlyList<NpcQuestInfo> _cachedNpcQuests = [];
     private PluginConfig _config;
-
-    // Quest-state polling: track last known (seq, flags) per quest to detect changes
-    private readonly Dictionary<ushort, (byte Seq, byte Flags)> _lastKnownQuestState = new();
-    private DateTimeOffset _lastHeartbeatAt = DateTimeOffset.MinValue;
-    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromMilliseconds(250);
-
-    // Attunement polling: track aetherytes we've already seen as attuned
-    private readonly HashSet<uint> _attunedAetheryteIds = new();
-
-    // Key item polling: track previous key item map (itemId → qty) for diff
-    private Dictionary<uint, int> _previousKeyItemsMap = new();
-
-    // (dedup is now owned by TraceSession)
 
     public AuthoringMode Mode { get; private set; } = AuthoringMode.Off;
     public QuestId? AuthoringTarget { get; private set; }
@@ -102,7 +88,14 @@ public sealed class AuthoringHost : IDisposable
         _traceSession = traceSession;
         _draftManager = new DraftManager(storage, SystemClock.Instance, TimeSpan.FromSeconds(60));
         _aggregator = new SnapshotAggregator(null, SystemClock.Instance);
-        _dialoguePoller = new QuestForge.Engine.Authoring.DialogueMenuPoller(_aggregator);
+
+        _uiObserver = new UIObserver(
+            new DalamudFrameworkDispatch(services.Framework),
+            traceSession,
+            passiveRunId: $"passive-{DateTime.UtcNow:yyyyMMdd-HHmmss}",
+            new DalamudAddonProbe(services.GameGui, services.DataManager),
+            new DalamudGameProbe(services.DataManager, services.ObjectTable, services.ClientState),
+            targetProbe: new DalamudTargetProbe(services.TargetManager, services.ClientState));
 
         _services.ClientState.TerritoryChanged += OnTerritoryChanged;
         _services.Framework.Update += OnFrameworkUpdate;
@@ -111,14 +104,17 @@ public sealed class AuthoringHost : IDisposable
     // --- Mode management ---
 
     // WHY: mode changes called from the chat-command thread (not Framework thread).
-    // RunOnFrameworkThread ensures _aggregator, _lastKnownQuestState, and Mode are
-    // only mutated from the same thread that reads them in OnFrameworkUpdate.
+    // RunOnFrameworkThread ensures _aggregator and Mode are only mutated from the
+    // same thread that reads them in OnFrameworkUpdate.
     public void EnterInspectMode() =>
         _services.Framework.RunOnFrameworkThread(EnterInspectModeCore);
 
     private void EnterInspectModeCore()
     {
         Mode = AuthoringMode.Inspect;
+        // Attach aggregator so UIObserver polls update LastNpcInteracted/Position for the
+        // Interaction panel. Trace gate is closed in Inspect mode so nothing writes to disk.
+        _uiObserver.SetAggregator(_aggregator, "inspect");
         _log.Info("QuestForge Authoring: entered Inspect mode");
     }
 
@@ -130,14 +126,15 @@ public sealed class AuthoringHost : IDisposable
         Mode = AuthoringMode.Author;
         AuthoringTarget = target;
         _aggregator = new SnapshotAggregator(target, SystemClock.Instance);
-        _dialoguePoller = new QuestForge.Engine.Authoring.DialogueMenuPoller(_aggregator);
-        _lastKnownQuestState.Clear();
         // Preload the draft into cache so RecordStep calls are synchronous (cache hit)
         _ = _draftManager.GetOrCreate(target, CancellationToken.None);
 
         _authoringRunId = $"author-{target.Value}-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
         _traceSession.OnEnterAuthorMode(target.Value);
         _traceSession.Write(new RunStartEvent(_authoringRunId, target.Value, target.Value, DateTimeOffset.UtcNow));
+
+        _uiObserver.ResetHeartbeatState();
+        _uiObserver.SetAggregator(_aggregator, _authoringRunId);
 
         _log.Info($"QuestForge Authoring: entered Author mode for quest {target.Value}, runId: {_authoringRunId}");
     }
@@ -152,6 +149,7 @@ public sealed class AuthoringHost : IDisposable
             _traceSession.Write(new RunEndEvent(_authoringRunId, "authored", DateTimeOffset.UtcNow));
             _authoringRunId = null;
         }
+        _uiObserver.SetAggregator(null, null);
         _traceSession.OnExitAuthoring();
         Mode = AuthoringMode.Off;
         AuthoringTarget = null;
@@ -165,19 +163,11 @@ public sealed class AuthoringHost : IDisposable
     {
         if (AuthoringTarget is { } target)
             _traceSession.OnOpenRecordModal(target.Value);
-        // Reset all per-window signals. ResetDeltas covers KeyItemsAdded/Removed and
-        // LastAethernetShardInteracted. The explicit consumes clear any events that fired
-        // in a previous window but were never confirmed (e.g. author hit Back without
-        // Confirming — RecordStep was never called so the events were never consumed).
+        // Reset all per-window signals. ResetWindowState covers ResetDeltas, consume calls,
+        // and in-progress menu tracking so the first open of each menu in this window
+        // is treated as a fresh transition.
         _aggregator.ResetDeltas();
-        _aggregator.OnAethernetTeleportConsumed();
-        _aggregator.OnDialogueOptionConsumed();
-        // Reset in-progress menu tracking so the first open of each menu in this window
-        // is treated as a fresh transition (NPC capture, shard capture, etc.).
-        _aethernetMenuWasOpen = false;
-        _pendingAethernetFrom = null;
-        _pendingAethernetTo   = null;
-        _dialogueIconStringWasOpen = false;
+        _uiObserver.ResetWindowState();
         return _aggregator.Current;
     }
 
@@ -189,9 +179,6 @@ public sealed class AuthoringHost : IDisposable
     /// </summary>
     public InferenceResult PreviewInference(GameStateSnapshot before)
     {
-        // Flush the most time-sensitive pollers so accept/complete/sequence are always current.
-        PollQuestState();
-        PollTargetNpc();
         var after = _aggregator.Current;
         _services.Log.Debug($"[QF-DIAG] PreviewInference: zone {before.Zone.Value}→{after.Zone.Value} AethernetTeleportCompleted={after.AethernetTeleportCompleted?.To.Value} DialogueOptionSelected={after.DialogueOptionSelected} DialogueNpcSource={after.DialogueNpcSource?.NpcId} isAethernet_before_shard={before.LastAethernetShardInteracted?.Value} isAethernet_before_npc={before.LastNpcInteracted?.Value}");
         return _inferenceEngine.Infer(before, after);
@@ -247,6 +234,18 @@ public sealed class AuthoringHost : IDisposable
             var stepParams = JsonSerializer.SerializeToElement(new { stepId = finalStepId, stepType = inference.StepType }, _jsonOpts);
             _traceSession.Write(new ActionSubmittedEvent(_authoringRunId, inference.StepType, stepParams, DateTimeOffset.UtcNow));
             _traceSession.Write(new ActionCompletedEvent(_authoringRunId, inference.StepType, "recorded", DateTimeOffset.UtcNow));
+
+            // Serialize the step to JSON using the quest file options and emit step.recorded
+            // so qf-trace extract-quest can reconstruct quest definitions from the trace.
+            var stepJson = JsonSerializer.SerializeToElement(
+                rawStep,
+                QuestForge.Schema.QuestForgeJsonContext.QuestFileOptions);
+            _traceSession.Write(new StepRecordedEvent(
+                RunId:          _authoringRunId,
+                StepId:         finalStepId,
+                SequenceNumber: draftStep.SequenceNumber,
+                Step:           stepJson,
+                At:             DateTimeOffset.UtcNow));
         }
         _traceSession.OnConfirmRecordStep();
 
@@ -265,419 +264,18 @@ public sealed class AuthoringHost : IDisposable
         _aggregator.OnZoneChanged(new ZoneId(territoryId), pos);
     }
 
-    private void OnFrameworkUpdate(IFramework framework)
+    private void OnFrameworkUpdate(IFramework _)
     {
+        // UIObserver owns all polling. AuthoringHost only updates the NPC quest
+        // cache used by the authoring UI panel, triggered by target changes.
         if (Mode == AuthoringMode.Off) return;
-
-        // WHY every frame: menus (TelepotTown, SelectIconString) can open and close within one
-        // 250 ms heartbeat. Running every frame ensures we never miss open→close transitions.
-        PollAethernetDestination();
-        PollDialogueOption();
-
-        var now = DateTimeOffset.UtcNow;
-        if (now - _lastHeartbeatAt < HeartbeatInterval) return;
-        _lastHeartbeatAt = now;
-
-        PollPlayerPosition();
-        PollQuestState();
-        PollAttunement();
-        PollKeyItems();
-        PollTargetNpc();
-    }
-
-    private void PollPlayerPosition()
-    {
-        var local = _services.ObjectTable.LocalPlayer;
-        if (local is null) return;
-
-        var p = local.Position;
-        _aggregator.OnPlayerMoved(new WorldPosition(p.X, p.Y, p.Z));
-        WriteObservationDeduped("GetPlayerPosition", 0, new { x = p.X, y = p.Y, z = p.Z });
-    }
-
-    private unsafe void PollQuestState()
-    {
-        var qm = QuestManager.Instance();
-        if (qm == null) return;
-
-        var quests = qm->NormalQuests;
-
-        // Track which quest IDs are present this tick
-        var seenIds = new HashSet<ushort>();
-
-        for (var i = 0; i < quests.Length; i++)
-        {
-            var id = quests[i].QuestId;
-            if (id == 0) continue;
-            seenIds.Add(id);
-
-            var seq = quests[i].Sequence;
-            var flags = quests[i].Flags;
-
-            if (_lastKnownQuestState.TryGetValue(id, out var last))
-            {
-                if (seq != last.Seq)
-                {
-                    var publicId = ToPublicQuestId(id);
-                    _aggregator.OnQuestSequenceChanged(publicId, seq);
-                    RecentChange = (publicId, $"Sequence changed to {seq}", DateTimeOffset.UtcNow);
-                    _lastKnownQuestState[id] = (seq, flags);
-                }
-                else if (flags != last.Flags)
-                {
-                    var publicId = ToPublicQuestId(id);
-                    _aggregator.OnQuestFlagsChanged(publicId, flags);
-                    RecentChange = (publicId, $"Flags changed to 0x{flags:X2}", DateTimeOffset.UtcNow);
-                    _lastKnownQuestState[id] = (seq, flags);
-                }
-            }
-            else
-            {
-                _lastKnownQuestState[id] = (seq, flags);
-                var publicId = ToPublicQuestId(id);
-                _aggregator.OnQuestAccepted(publicId);
-                _aggregator.OnQuestSequenceChanged(publicId, seq);
-                _aggregator.OnQuestFlagsChanged(publicId, flags);
-                WriteObservationDeduped("IsQuestAccepted", publicId, true);
-                if (AuthoringTarget.HasValue && publicId != AuthoringTarget.Value)
-                    WriteObservationDeduped("ForeignQuestAccepted", publicId, 1);
-            }
-
-            // Passive trace — dedup suppresses redundant JSONL writes
-            {
-                var publicId = ToPublicQuestId(id);
-                WriteObservationDeduped("GetQuestSequence", publicId, (int)seq);
-                WriteObservationDeduped("GetQuestFlags", publicId, (int)flags);
-            }
-        }
-
-        // Detect quests that disappeared (turned in / abandoned)
-        var removedIds = _lastKnownQuestState.Keys.Where(id => !seenIds.Contains(id)).ToList();
-        foreach (var id in removedIds)
-        {
-            var publicId = ToPublicQuestId(id);
-            _aggregator.OnQuestCompleted(publicId);
-            RecentChange = (publicId, "Quest completed (left NormalQuests)", DateTimeOffset.UtcNow);
-            WriteObservationDeduped("IsQuestComplete", publicId, true);
-            _lastKnownQuestState.Remove(id);
-            _log.Info($"QuestForge Authoring: quest {publicId.Value} removed from NormalQuests (completed or abandoned)");
-        }
-    }
-
-    private unsafe void PollAttunement()
-    {
-        var uiState = UIState.Instance();
-        if (uiState == null) return;
-        var aetheryteSheet = _services.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Aetheryte>();
-        if (aetheryteSheet == null) return;
-        foreach (var row in aetheryteSheet)
-        {
-            if (row.RowId == 0) continue;
-            if (_attunedAetheryteIds.Contains(row.RowId)) continue;
-            if (uiState->IsAetheryteUnlocked(row.RowId))
-            {
-                _attunedAetheryteIds.Add(row.RowId);
-                _aggregator.OnAttunementChanged(new QuestForge.Adapters.Types.AetheryteId(row.RowId));
-                WriteObservationDeduped("IsAetheryteAttuned", row.RowId, 1);
-            }
-        }
-    }
-
-    private unsafe void PollKeyItems()
-    {
-        var mgr = InventoryManager.Instance();
-        if (mgr == null) return;
-        var container = mgr->GetInventoryContainer(InventoryType.KeyItems);
-        if (container == null) return;
-
-        var currentSlots = new List<(uint id, int qty)>(container->Size);
-        for (var i = 0; i < container->Size; i++)
-        {
-            var slot = container->GetInventorySlot(i);
-            if (slot == null || slot->ItemId == 0) continue;
-            currentSlots.Add((slot->ItemId, (int)slot->Quantity));
-        }
-
-        var result = KeyItemPollDiff.Diff(_previousKeyItemsMap, currentSlots);
-        _previousKeyItemsMap = result.NewMap;
-
-        if (result.Changed)
-        {
-            _aggregator.OnKeyItemsSnapshot(result.NewMap, result.NewHash);
-
-            if (result.AddedIds.Count > 0)
-                _aggregator.OnKeyItemsChanged(result.AddedIds);
-            if (result.RemovedIds.Count > 0)
-                _aggregator.OnKeyItemsRemoved(result.RemovedIds);
-
-            if (_authoringRunId is not null)
-            {
-                _traceSession.Write(new InventoryChangedEvent(
-                    RunId:   _authoringRunId,
-                    Gained:  result.Gained,
-                    Lost:    result.Lost,
-                    NewHash: result.NewHash,
-                    At:      DateTimeOffset.UtcNow));
-            }
-        }
-        else
-        {
-            _aggregator.OnInventoryHashChanged(result.NewHash);
-        }
-    }
-
-    private void PollTargetNpc()
-    {
         var target = _services.TargetManager.Target;
-        var kind = target?.ObjectKind;
-        var isInteractable = kind is Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
-                                  or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc
-                                  or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Aetheryte;
-
-        if (target is null || !isInteractable)
+        if (target is not null && target.BaseId != _lastQuestQueryNpcBaseId
+            && target.ObjectKind is Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
+                                 or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc)
         {
-            // No valid target — clear the quest cache
-            if (_lastQuestQueryNpcBaseId != 0)
-            {
-                _cachedNpcQuests = [];
-                _lastQuestQueryNpcBaseId = 0;
-            }
-            return;
-        }
-
-        var npcId = new NpcId(target.BaseId);
-        var p = target.Position;
-        var npcPos = new WorldPosition(p.X, p.Y, p.Z);
-        // WHY: OnInteraction fires for aetherytes too, keeping LastNpcInteracted == shard.BaseId.
-        // This is the staleness-guard invariant for StepInferenceEngine Rule 4: aethernet is
-        // detected only when LastNpcInteracted.Value == LastAethernetShardInteracted.Value —
-        // meaning the most recent interaction was the shard, not a stale value from earlier.
-        _aggregator.OnInteraction(npcId, npcPos);
-        WriteObservationDeduped("GetTarget", 0, target.BaseId);
-
-        // For aetheryte/aethernet shard targets: record the shard for aethernet hop inference
-        if (kind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Aetheryte)
-        {
-            _aggregator.OnAethernetShardTargeted(new QuestForge.Adapters.Types.AetheryteId(target.BaseId));
-            WriteObservationDeduped("AethernetShardTargeted", target.BaseId, 0);
-        }
-
-        // Only update NPC quest cache for EventNpc/BattleNpc — aetherytes don't have quests
-        if (kind is Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
-                 or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc)
             UpdateNpcQuestCache(target.BaseId);
-    }
-
-    private unsafe void PollAethernetDestination()
-    {
-        var ptr = _services.GameGui.GetAddonByName("TelepotTown");
-        bool menuIsOpen = !ptr.IsNull && ptr.IsReady;
-
-        if (!menuIsOpen)
-        {
-            if (_aethernetMenuWasOpen && _pendingAethernetTo.HasValue)
-            {
-                // Menu just closed after a selection — fire the teleport-completed event.
-                _services.Log.Debug($"[QF-DIAG] TelepotTown closed → OnAethernetTeleportCompleted(from={_pendingAethernetFrom?.Value}, to={_pendingAethernetTo.Value.Value})");
-                _aggregator.OnAethernetTeleportCompleted(_pendingAethernetFrom, _pendingAethernetTo.Value);
-                WriteObservationDeduped("AethernetTeleportCompleted",
-                    _pendingAethernetTo.Value.Value,
-                    _pendingAethernetFrom?.Value ?? 0u);
-            }
-            _aethernetMenuWasOpen = false;
-            _pendingAethernetFrom = null;
-            _pendingAethernetTo   = null;
-            return;
         }
-
-        if (!_aethernetMenuWasOpen)
-        {
-            _services.Log.Debug($"[QF-DIAG] TelepotTown opened");
-            // Menu just opened — capture departure shard.
-            // WHY read TargetManager directly: PollTargetNpc is throttled to 250 ms so the
-            // aggregator state may lag. Reading the live target bypasses that lag and captures
-            // the shard the player just interacted with to open the menu.
-            _aethernetMenuWasOpen = true;
-            var liveTarget = _services.TargetManager.Target;
-            if (liveTarget?.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Aetheryte)
-            {
-                _pendingAethernetFrom = new QuestForge.Adapters.Types.AetheryteId(liveTarget.BaseId);
-            }
-            else
-            {
-                // Fall back to aggregator if the target was cleared when the menu opened.
-                var cur = _aggregator.Current;
-                _pendingAethernetFrom =
-                    cur.LastAethernetShardInteracted.HasValue
-                    && cur.LastNpcInteracted.HasValue
-                    && cur.LastNpcInteracted.Value.Value == cur.LastAethernetShardInteracted.Value.Value
-                        ? cur.LastAethernetShardInteracted
-                        : null;
-            }
-        }
-
-        var addon = (FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase*)ptr.Address;
-
-        // List (AtkComponentTreeList*) at offset 0x238 in AddonTeleportTown.
-        // SelectedItemIndex at offset 0x134 within AtkComponentTreeList.
-        var listPtr = *(nint*)(ptr.Address + 0x238);
-        if (listPtr == 0) return;
-
-        var selectedIdx = *(int*)(listPtr + 0x134);
-        if (selectedIdx < 0) return;
-
-        // Destination names start at AtkValues[262].
-        const int NamesBase = 262;
-        if (addon->AtkValuesCount <= NamesBase + selectedIdx) return;
-
-        var nameVal = addon->AtkValues[NamesBase + selectedIdx];
-        if (nameVal.Type != FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.String
-            || nameVal.String.Value == null) return;
-
-        var destName = Marshal.PtrToStringUTF8((nint)nameVal.String.Value);
-        if (string.IsNullOrEmpty(destName)) return;
-
-        if (!GetAethernetNameMap().TryGetValue(destName, out var rowId))
-        {
-            _services.Log.Warning($"[TelepotTown] No Aetheryte sheet match for '{destName}' (idx={selectedIdx})");
-            return;
-        }
-
-        // Don't latch a destination that equals the departure shard — "Aetheryte Plaza" entries
-        // in TelepotTown represent the author's CURRENT location and selecting them produces a
-        // same-shard hop (From == To). This typically happens when the initial SelectedItemIndex
-        // defaults to the current-location entry before the author makes a real selection.
-        if (_pendingAethernetFrom.HasValue && rowId == _pendingAethernetFrom.Value.Value)
-            return;
-
-        _pendingAethernetTo = new AethernetId(rowId);
-    }
-
-    // TelepotTown tracking: latch departure + destination when menu opens/closes.
-    private bool _aethernetMenuWasOpen;
-    private QuestForge.Adapters.Types.AetheryteId? _pendingAethernetFrom;
-    private QuestForge.Adapters.Types.AethernetId? _pendingAethernetTo;
-
-    // SelectIconString tracking: captures which list option the author chose.
-    // Re-created alongside _aggregator so it always targets the active aggregator instance.
-    private QuestForge.Engine.Authoring.DialogueMenuPoller _dialoguePoller;
-    // Tracks the open/close transition to capture the source NPC when the menu first appears.
-    private bool _dialogueIconStringWasOpen;
-
-    private unsafe void PollDialogueOption()
-    {
-        // Only track SelectIconString (Lift Attendants, destination pickers).
-        // WHY NOT SelectString: aetheryte interactions show a SelectString menu
-        // ("Teleport/Return to inn/Housing") which produces garbage SelectedItemIndex
-        // values that pollute DialogueOptionSelected and confuse the inference engine
-        // into treating aethernet hops as NPC dialogue travel. SelectString is still
-        // handled for engine PLAYBACK in DalamudInteractor.SelectStringOption.
-        var ptr = _services.GameGui.GetAddonByName("SelectIconString");
-
-        bool menuIsOpen = !ptr.IsNull && ptr.IsReady;
-        int? selectedIdx = null;
-
-        // Capture the NPC from live TargetManager when SelectIconString first opens.
-        // WHY: before.LastNpcInteracted is unreliable (may be a shard or stale NPC).
-        // Reading TargetManager at the moment the dialog opens mirrors the aethernet
-        // pattern and requires no pre-targeting from the author.
-        if (menuIsOpen && !_dialogueIconStringWasOpen)
-        {
-            _dialogueIconStringWasOpen = true;
-            // FFXIV may clear the hard target when SelectIconString opens, so try multiple sources.
-            // Priority: hard target → previous target → aggregator LastNpcInteracted (250 ms lag but reliable).
-            var liveTarget = _services.TargetManager.Target
-                          ?? _services.TargetManager.PreviousTarget;
-            if (liveTarget is { ObjectKind: Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
-                                          or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc })
-            {
-                var p = liveTarget.Position;
-                _aggregator.OnDialogueNpcCaptured(new QuestForge.Schema.NpcLocation(
-                    NpcId: liveTarget.BaseId,
-                    Zone: (int)_services.ClientState.TerritoryType,
-                    Position: new QuestForge.Schema.Position3(p.X, p.Y, p.Z)));
-            }
-            else
-            {
-                // Final fallback: aggregator state from the most recent PollTargetNpc heartbeat.
-                var cur = _aggregator.Current;
-                if (cur.LastNpcInteracted.HasValue && cur.LastNpcPosition.HasValue)
-                    _aggregator.OnDialogueNpcCaptured(new QuestForge.Schema.NpcLocation(
-                        NpcId: cur.LastNpcInteracted.Value.Value,
-                        Zone: (int)cur.Zone.Value,
-                        Position: new QuestForge.Schema.Position3(
-                            cur.LastNpcPosition.Value.X,
-                            cur.LastNpcPosition.Value.Y,
-                            cur.LastNpcPosition.Value.Z)));
-            }
-
-            // Emit trace for the captured NPC (whichever path set it).
-            var captured = _aggregator.Current.DialogueNpcSource;
-            if (captured != null)
-                WriteObservationDeduped("DialogueNpcCaptured", captured.NpcId,
-                    new { zone = captured.Zone, x = captured.Position.X, y = captured.Position.Y, z = captured.Position.Z });
-        }
-        else if (!menuIsOpen)
-        {
-            _dialogueIconStringWasOpen = false;
-        }
-
-        if (menuIsOpen)
-        {
-            // Walk the addon's node list to find the AtkComponentList (node type 0x3F6 = 1014? or 1010).
-            // WHY node traversal: SelectIconString is a plain AtkUnitBase with no typed fields after it,
-            // so reading at a fixed addon offset (like TelepotTown's 0x238) walks past the struct end
-            // and causes an access violation. Node traversal is safe for any addon.
-            var addon = (FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase*)ptr.Address;
-            for (var i = 0; i < addon->UldManager.NodeListCount; i++)
-            {
-                var node = addon->UldManager.NodeList[i];
-                if (node == null) continue;
-                // AtkComponentList = node type 1010 (0x3F2); AtkComponentTreeList = 1022 (0x3FE)
-                if ((ushort)node->Type != 1010 && (ushort)node->Type != 1022) continue;
-                var compNode = (FFXIVClientStructs.FFXIV.Component.GUI.AtkComponentNode*)node;
-                if (compNode->Component == null) continue;
-                // AtkComponentList.SelectedItemIndex is at component offset 0x134
-                var raw = *(int*)((nint)compNode->Component + 0x134);
-                if (raw >= 0)
-                    selectedIdx = raw;
-                break;
-            }
-        }
-
-        // Detect when the poller fires OnDialogueOptionSelected (menu just closed with a selection).
-        var prevOpt = _aggregator.Current.DialogueOptionSelected;
-        _dialoguePoller.Tick(menuIsOpen, selectedIdx);
-        var newOpt = _aggregator.Current.DialogueOptionSelected;
-        if (newOpt.HasValue && newOpt != prevOpt)
-        {
-            var npcSrc = _aggregator.Current.DialogueNpcSource;
-            WriteObservationDeduped("DialogueOptionSelected",
-                npcSrc?.NpcId ?? 0u,
-                newOpt.Value);
-        }
-    }
-
-    // Built once on first TelepotTown open; maps AethernetName display string → Aetheryte sheet RowId.
-    private Dictionary<string, uint>? _aethernetNameToId;
-
-    private Dictionary<string, uint> GetAethernetNameMap()
-    {
-        if (_aethernetNameToId != null) return _aethernetNameToId;
-        _aethernetNameToId = new Dictionary<string, uint>(StringComparer.Ordinal);
-        var sheet = _services.DataManager.GetExcelSheet<Aetheryte>();
-        if (sheet == null) return _aethernetNameToId;
-        foreach (var row in sheet)
-        {
-            // Include both sub-shards (IsAetheryte=false) AND master aetheryte crystals
-            // (IsAetheryte=true, e.g. "Limsa Lominsa Aetheryte Plaza") since the master
-            // crystal IS a valid arrival destination in the city aethernet network.
-            if (row.AethernetGroup == 0) continue;
-            var name = row.AethernetName.ValueNullable?.Name.ExtractText();
-            if (!string.IsNullOrEmpty(name))
-                _aethernetNameToId.TryAdd(name, row.RowId);
-        }
-        return _aethernetNameToId;
     }
 
     // WHY: Lumina Quest sheet has 5000+ rows. A linear scan per NPC retarget would
@@ -750,26 +348,13 @@ public sealed class AuthoringHost : IDisposable
         return new WorldPosition(p.X, p.Y, p.Z);
     }
 
-    private static QuestId ToPublicQuestId(ushort id) => new((uint)id | 0x10000u);
-
     private static readonly JsonSerializerOptions _jsonOpts = new() { IncludeFields = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-
-    private void WriteObservationDeduped(string method, object argument, object value)
-    {
-        if (_authoringRunId is null) return;
-        try
-        {
-            var argEl = JsonSerializer.SerializeToElement(argument, _jsonOpts);
-            var valEl = JsonSerializer.SerializeToElement(value, _jsonOpts);
-            _traceSession.WriteObservation(method, argEl, valEl, _authoringRunId, DateTimeOffset.UtcNow);
-        }
-        catch { /* trace write failure must not affect authoring */ }
-    }
 
     public void Dispose()
     {
         _services.ClientState.TerritoryChanged -= OnTerritoryChanged;
         _services.Framework.Update -= OnFrameworkUpdate;
+        _uiObserver.Dispose();
         if (_authoringRunId is not null)
             _traceSession.Write(new RunEndEvent(_authoringRunId, "disposed", DateTimeOffset.UtcNow));
         // TraceSession lifecycle (OnExitAuthoring / Dispose) is managed by Plugin.cs.

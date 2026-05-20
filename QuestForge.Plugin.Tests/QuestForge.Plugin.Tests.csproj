@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    RED PHASE: This test project references only Dalamud-free assemblies.
+
+    The tests USE QuestForge.Plugin.Tracing.UIObserver / IAddonProbe / IGameProbe
+    which do NOT exist yet. This causes CS0246 / CS0234 compiler errors — the
+    expected RED-phase failure. The Builder must:
+
+      1. Create QuestForge.Plugin.Tracing.UIObserver, IAddonProbe, IGameProbe in
+         QuestForge.Plugin (net10.0-windows7.0 / Dalamud.NET.Sdk).
+
+      2. Add this test project as a reference to QuestForge.Plugin OR extract the
+         tracing types into a separate QuestForge.Plugin.Tracing class library that
+         does NOT depend on ECommons / Dalamud lifecycle types.
+
+         Recommended: create QuestForge.Plugin.Tracing.csproj with Microsoft.NET.Sdk,
+         net10.0 target, containing only UIObserver / IAddonProbe / IGameProbe.
+         Update this .csproj to reference that project instead of QuestForge.Plugin.
+
+    The builder chooses the structuring. Until then all tests fail because the
+    namespace QuestForge.Plugin.Tracing is unresolved.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- Allow build to produce errors (missing types) not warnings-as-errors -->
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Dalamud-free projects — restore cleanly without dalamud.dev feed -->
+    <ProjectReference Include="..\QuestForge.Engine\QuestForge.Engine.csproj" />
+    <ProjectReference Include="..\QuestForge.Adapters\QuestForge.Adapters.csproj" />
+    <ProjectReference Include="..\QuestForge.Adapters.Fakes\QuestForge.Adapters.Fakes.csproj" />
+    <!--
+      TODO (Builder): Uncomment the appropriate project reference once UIObserver is created.
+      Option A — if UIObserver is extracted to a separate Dalamud-free project:
+    -->
+        <ProjectReference Include="..\QuestForge.Plugin.Tracing\QuestForge.Plugin.Tracing.csproj" />
+    <!--
+      Option B — if the types stay in QuestForge.Plugin (requires fixing the TFM/feed issue):
+        <ProjectReference Include="..\QuestForge.Plugin\QuestForge.Plugin.csproj" />
+    -->
+    <PackageReference Include="xunit.v3" Version="2.0.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.*">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+  </ItemGroup>
+</Project>

@@ -154,6 +154,7 @@ public sealed class EngineHost : IDisposable
         _runId          = runId;
         _currentQuestId = new QuestId(quest.Id);
         _timing.Reseed(StableHash(runId));
+        _traceSession.OnQuestRunStart(quest.Id);
         _traceSession.Write(new RunStartEvent(runId, quest.Id, quest.Id, DateTimeOffset.UtcNow));
 
         IGameStateProvider gs = new RecordingGameStateProvider(
@@ -276,12 +277,14 @@ public sealed class EngineHost : IDisposable
                 // can register before the SelectYesno confirmation opens.
                 var sip = _services.GameGui.GetAddonByName("SelectIconString");
                 var ssp = _services.GameGui.GetAddonByName("SelectString");
+                var syn = _services.GameGui.GetAddonByName("SelectYesno");
                 var choiceDispatched = DialogueChoiceDispatcher.TryDispatch(
                     i.Origin,
                     !sip.IsNull && sip.IsReady,
                     !ssp.IsNull && ssp.IsReady,
                     ref _dialogueChoiceProgress,
-                    _interactor, ct);
+                    _interactor, ct,
+                    selectYesnoOpen: !syn.IsNull && syn.IsReady);
                 if (!choiceDispatched)
                     await _interactor.AdvanceDialogue(ct);
                 await _interactor.AcceptQuest(_currentQuestId, ct);
@@ -405,8 +408,9 @@ public sealed class EngineHost : IDisposable
         _engine      = null;
         _recordingQs = null;
         _runId       = null;
+        _traceSession.OnQuestRunEnd();
         RestoreCutsceneSkip();
-        // TraceSession file lifecycle is managed by Plugin.cs; do not close here.
+        // TraceSession file lifecycle for non-QuestRun modes is managed by Plugin.cs.
     }
 
     public void Dispose() => EndRun();
