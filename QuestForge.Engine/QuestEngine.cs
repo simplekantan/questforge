@@ -1,4 +1,7 @@
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using QuestForge.Adapters;
 using QuestForge.Adapters.Combat;
@@ -68,8 +71,145 @@ public sealed class QuestEngine
     }
 
     public void StartQuest(QuestDefinition quest)
+        => StartQuest(quest, fragments: null);
+
+    public void StartQuest(
+        QuestDefinition quest,
+        IReadOnlyDictionary<string, FragmentDefinition>? fragments = null)
     {
-        _quest = quest ?? throw new ArgumentNullException(nameof(quest));
+        if (quest is null) throw new ArgumentNullException(nameof(quest));
+
+        // Track per-Ref usage counts for scoped ID generation across the whole quest.
+        var usageCount = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        var rewrittenSequences = quest.Sequences.Select(seq => new QuestSequence
+        {
+            Sequence = seq.Sequence,
+            SkipIf = seq.SkipIf,
+            Steps = ExpandSteps(seq.Steps, fragments, usageCount).ToArray()
+        }).ToArray();
+
+        _quest = quest with { Sequences = rewrittenSequences };
+    }
+
+    // -------------------------------------------------------------------------
+    // Fragment expansion helpers
+    // -------------------------------------------------------------------------
+
+    private static IEnumerable<Step> ExpandSteps(
+        Step[] steps,
+        IReadOnlyDictionary<string, FragmentDefinition>? fragments,
+        Dictionary<string, int> usageCount)
+    {
+        foreach (var step in steps)
+        {
+            if (step is not FragmentStep fragmentStep)
+            {
+                yield return step;
+                continue;
+            }
+
+            // Error: no fragments dict but quest contains a FragmentStep
+            if (fragments is null)
+                throw new InvalidOperationException(
+                    $"Quest contains FragmentStep '{fragmentStep.Id}' (Ref='{fragmentStep.Ref}') " +
+                    "but no fragment dictionary was provided to StartQuest.");
+
+            // Error: referenced fragment not found
+            if (!fragments.TryGetValue(fragmentStep.Ref, out var fragmentDef))
+                throw new InvalidOperationException(
+                    $"FragmentStep '{fragmentStep.Id}' references unknown fragment '{fragmentStep.Ref}'.");
+
+            // Error: nested FragmentStep inside a fragment
+            foreach (var innerStep in fragmentDef.Steps)
+            {
+                if (innerStep is FragmentStep nestedFrag)
+                    throw new InvalidOperationException(
+                        $"Fragment '{fragmentDef.FragmentId}' contains a nested FragmentStep " +
+                        $"('{nestedFrag.Id}', Ref='{nestedFrag.Ref}'). Nested fragments are not supported.");
+            }
+
+            // Validate required parameters
+            foreach (var param in fragmentDef.Parameters)
+            {
+                if (!param.Required) continue;
+                if (fragmentStep.Params is null || !fragmentStep.Params.ContainsKey(param.Name))
+                    throw new ArgumentException(
+                        $"FragmentStep '{fragmentStep.Id}' is missing required parameter '{param.Name}' " +
+                        $"declared by fragment '{fragmentDef.FragmentId}'.");
+            }
+
+            // Determine scope prefix (first use: "refId:", subsequent: "refId#N:")
+            if (!usageCount.TryGetValue(fragmentStep.Id, out var count))
+                count = 0;
+            count++;
+            usageCount[fragmentStep.Id] = count;
+            var scopePrefix = count == 1 ? $"{fragmentStep.Id}:" : $"{fragmentStep.Id}#{count}:";
+
+            // Expand each inner step
+            foreach (var innerStep in fragmentDef.Steps)
+            {
+                var scopedId   = $"{scopePrefix}{innerStep.Id}";
+                var substituted = SubstituteExpect(innerStep.Expect, fragmentStep.Params);
+                yield return CloneStepWith(innerStep, scopedId, substituted);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Substitutes <c>${name}</c> tokens in a <see cref="PredicateExpect"/> predicate string.
+    /// Returns the original <paramref name="expect"/> unchanged when no tokens are present
+    /// or when the expect is null / not a <see cref="PredicateExpect"/>.
+    /// </summary>
+    private static ExpectValue? SubstituteExpect(
+        ExpectValue? expect,
+        IReadOnlyDictionary<string, JsonElement>? parms)
+    {
+        if (expect is not PredicateExpect pe || parms is null) return expect;
+
+        var predicate = pe.Predicate;
+        var result = Regex.Replace(predicate, @"\$\{([^}]+)\}", match =>
+        {
+            var name = match.Groups[1].Value;
+            if (!parms.TryGetValue(name, out var elem)) return match.Value; // leave unresolved token
+            return elem.ValueKind switch
+            {
+                JsonValueKind.String => elem.GetString() ?? string.Empty,
+                JsonValueKind.Number => elem.GetRawText(),
+                _                   => elem.ToString()
+            };
+        });
+
+        if (string.Equals(result, predicate, StringComparison.Ordinal)) return expect; // unchanged
+        return new PredicateExpect { Predicate = result };
+    }
+
+    /// <summary>
+    /// Clones <paramref name="source"/> with a new <paramref name="id"/> and
+    /// optionally replaced <paramref name="expect"/>, using round-trip JSON serialization
+    /// so that all concrete step subtypes are handled without a large switch.
+    /// </summary>
+    private static Step CloneStepWith(Step source, string id, ExpectValue? expect)
+    {
+        // Serialize as the base Step type so the [JsonPolymorphic] discriminator ("type") is written.
+        var json = JsonSerializer.Serialize<Step>(source, QuestForgeJsonContext.QuestFileOptions);
+        var node = JsonNode.Parse(json)!.AsObject();
+
+        node["id"] = JsonValue.Create(id);
+
+        if (expect is null)
+        {
+            node.Remove("expect");
+        }
+        else
+        {
+            // Re-serialize the substituted ExpectValue through the registered converter.
+            var expectJson = JsonSerializer.Serialize(expect, QuestForgeJsonContext.QuestFileOptions);
+            node["expect"] = JsonNode.Parse(expectJson);
+        }
+
+        var patched = node.ToJsonString();
+        return JsonSerializer.Deserialize<Step>(patched, QuestForgeJsonContext.QuestFileOptions)!;
     }
 
     public string? CurrentRunId => _runId;
@@ -97,13 +237,13 @@ public sealed class QuestEngine
         {
             if (action is EngineAction.Done)
             {
-                // Done terminates the run — emit run.end instead of a decision event.
+                // Done terminates the run Ã¢â‚¬â€ emit run.end instead of a decision event.
                 TraceSafe(new RunEndEvent(_runId, Outcome: "done", DateTimeOffset.UtcNow));
                 _runStartEmitted = false;
             }
             else if (action is EngineAction.AwaitUser)
             {
-                // AwaitUser terminates the run — emit run.end.
+                // AwaitUser terminates the run Ã¢â‚¬â€ emit run.end.
                 // Also emit the decision so the caller knows why we stopped.
                 TraceSafe(new DecisionEvent(
                     RunId: _runId,
@@ -165,13 +305,13 @@ public sealed class QuestEngine
         if (matchingBlock.SkipIf is not null)
         {
             if (await _expectEvaluator.Evaluate(matchingBlock.SkipIf, ct))
-                return (new EngineAction.AwaitUser("sequence skipped by skipIf — engine cannot self-advance in Phase 4"), null);
+                return (new EngineAction.AwaitUser("sequence skipped by skipIf Ã¢â‚¬â€ engine cannot self-advance in Phase 4"), null);
         }
 
         // Read UiState once per tick so step dispatch arms can inspect UI without async.
         // On adapter failure: use a safe default (CutscenePlaying=false) so non-cutscene
         // steps are completely unaffected. A CutsceneStep will emit
-        // Wait("cutscene ended; awaiting sequence advance") — recoverable on the next tick.
+        // Wait("cutscene ended; awaiting sequence advance") Ã¢â‚¬â€ recoverable on the next tick.
         var uiResult = await _gameState.GetUiState(ct);
         var ui = uiResult is Result<UiState>.Success { Value: var uiValue }
             ? uiValue
@@ -265,7 +405,7 @@ public sealed class QuestEngine
                 new EngineAction.Interact(new NpcId(turnIn.Target.NpcId), Origin: step)),
 
         // TODO: replace with EngineAction.InteractObject(InteractableId) once that action type exists.
-        // Coercing InteractableId into NpcId is a shim — the in-range Interact path is not yet
+        // Coercing InteractableId into NpcId is a shim Ã¢â‚¬â€ the in-range Interact path is not yet
         // reachable from tests (only the Navigate half is exercised by B5).
         InteractObjectStep interactObj =>
             ResolveInteractOrNavigate(
