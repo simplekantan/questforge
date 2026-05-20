@@ -34,6 +34,8 @@ public sealed class QuestEngine
     private QuestDefinition? _quest;
     private string? _runId;
     private bool _runStartEmitted;
+    private readonly HashSet<string> _confirmedStepIds = new();
+    private int _lastKnownSequence = -1;
 
     public QuestEngine(
         IGameStateProvider gameState,
@@ -78,6 +80,8 @@ public sealed class QuestEngine
             throw new ArgumentException("runId must be non-empty", nameof(runId));
         _runId = runId;
         _runStartEmitted = false;
+        _confirmedStepIds.Clear();
+        _lastKnownSequence = -1;
     }
 
     public async Task<EngineAction> Tick(CancellationToken ct)
@@ -178,12 +182,33 @@ public sealed class QuestEngine
         var posResult = await _gameState.GetPlayerPosition(ct);
         var playerPos = posResult is Result<WorldPosition>.Success { Value: var p } ? p : (WorldPosition?)null;
 
+        // Detect sequence change and clear the confirmed-step cursor.
+        // Confirmations are scoped to the current sequence block - when the game advances
+        // (or rewinds) to a new sequence, prior confirmations are no longer meaningful.
+        if (_lastKnownSequence != -1 && _lastKnownSequence != currentSeq)
+            _confirmedStepIds.Clear();
+        _lastKnownSequence = currentSeq;
+
         foreach (var step in matchingBlock.Steps)
         {
-            if (step.Expect is not null && await _expectEvaluator.Evaluate(step.Expect, ct))
+            // 1. Cursor check FIRST - confirmed steps always skipped, predicate not re-evaluated.
+            //    Confirming a step means "this step was satisfied at some point this sequence";
+            //    do not re-check the predicate (the player may have moved away between ticks).
+            if (_confirmedStepIds.Contains(step.Id))
                 continue;
+
+            // 2. Expect: if true, confirm and skip. Confirmation persists until BeginRun or
+            //    sequence change clears the cursor.
+            if (step.Expect is not null && await _expectEvaluator.Evaluate(step.Expect, ct))
+            {
+                _confirmedStepIds.Add(step.Id);
+                continue;
+            }
+
+            // 3. SkipIf: skip but do NOT confirm (author logic, not a completion signal).
             if (step.SkipIf is not null && await _expectEvaluator.Evaluate(step.SkipIf, ct))
                 continue;
+
             return (ResolveActionForStep(step, ui, playerPos), step.Id);
         }
 
