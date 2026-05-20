@@ -507,17 +507,22 @@ public sealed class UIObserver : IDisposable
         if (_targetProbe is null) return;
 
         // Check aetheryte target first
-        var aetheryteId = _targetProbe.GetAetheryteTarget();
-        if (aetheryteId.HasValue)
+        var aetheryteInfo = _targetProbe.GetAetheryteTarget();
+        if (aetheryteInfo.HasValue)
         {
-            if (aetheryteId.Value != _lastTargetBaseId)
+            if (aetheryteInfo.Value.BaseId != _lastTargetBaseId)
             {
-                _lastTargetBaseId = aetheryteId.Value;
+                _lastTargetBaseId = aetheryteInfo.Value.BaseId;
                 var now   = _clock.UtcNow;
                 var runId = CurrentRunId;
-                WriteObservation("GetTarget", 0u, aetheryteId.Value, runId, now);
-                WriteObservation("AethernetShardTargeted", aetheryteId.Value, 0, runId, now);
-                _aggregator?.OnAethernetShardTargeted(new QuestForge.Adapters.Types.AetheryteId(aetheryteId.Value));
+                WriteObservation("GetTarget", 0u, aetheryteInfo.Value.BaseId, runId, now);
+                WriteObservation("AethernetShardTargeted", aetheryteInfo.Value.BaseId, 0, runId, now);
+                _aggregator?.OnAethernetShardTargeted(new QuestForge.Adapters.Types.AetheryteId(aetheryteInfo.Value.BaseId));
+                // WHY: Rule 2.5 requires LastNpcInteracted == LastAethernetShardInteracted.
+                // Without this, LastNpcInteracted stays as the previous NPC and attune inference never fires.
+                _aggregator?.OnInteraction(
+                    new QuestForge.Adapters.Types.NpcId(aetheryteInfo.Value.BaseId),
+                    new QuestForge.Adapters.Types.WorldPosition(aetheryteInfo.Value.X, aetheryteInfo.Value.Y, aetheryteInfo.Value.Z));
             }
             return;
         }

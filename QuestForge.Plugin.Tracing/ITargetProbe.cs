@@ -13,5 +13,5 @@ public interface ITargetProbe
     (uint BaseId, float X, float Y, float Z, int Zone)? GetInteractableNpcPreviousTarget();
 
     /// <summary>Current hard target if it is an Aetheryte, otherwise null.</summary>
-    uint? GetAetheryteTarget();
+    (uint BaseId, float X, float Y, float Z)? GetAetheryteTarget();
 }

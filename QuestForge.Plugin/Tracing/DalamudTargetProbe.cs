@@ -21,10 +21,12 @@ public sealed class DalamudTargetProbe : ITargetProbe
     public (uint BaseId, float X, float Y, float Z, int Zone)? GetInteractableNpcPreviousTarget()
         => AsInteractableNpc(_targetManager.PreviousTarget);
 
-    public uint? GetAetheryteTarget()
+    public (uint BaseId, float X, float Y, float Z)? GetAetheryteTarget()
     {
         var t = _targetManager.Target;
-        return t?.ObjectKind == ObjectKind.Aetheryte ? t.BaseId : null;
+        if (t?.ObjectKind != ObjectKind.Aetheryte) return null;
+        var p = t.Position;
+        return (t.BaseId, p.X, p.Y, p.Z);
     }
 
     private (uint, float, float, float, int)? AsInteractableNpc(Dalamud.Game.ClientState.Objects.Types.IGameObject? obj)
