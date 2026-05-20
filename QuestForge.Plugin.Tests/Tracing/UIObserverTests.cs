@@ -128,6 +128,8 @@ public sealed class FakeGameProbe : IGameProbe
 
     public IReadOnlyList<(uint ItemId, int Qty)> GetKeyItemSlots() =>
         _keyItems.AsReadOnly();
+
+    public (float X, float Y, float Z, int Zone)? GetPlayerPosition() => null; // tests use aggregator directly
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

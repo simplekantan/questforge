@@ -9,8 +9,15 @@ namespace QuestForge.Plugin.Tracing;
 public sealed unsafe class DalamudGameProbe : IGameProbe
 {
     private readonly IDataManager _dataManager;
+    private readonly IObjectTable _objectTable;
+    private readonly IClientState _clientState;
 
-    public DalamudGameProbe(IDataManager dataManager) => _dataManager = dataManager;
+    public DalamudGameProbe(IDataManager dataManager, IObjectTable objectTable, IClientState clientState)
+    {
+        _dataManager  = dataManager;
+        _objectTable  = objectTable;
+        _clientState  = clientState;
+    }
 
     public IReadOnlyList<(ushort QuestId, byte Seq, byte Flags)> GetNormalQuests()
     {
@@ -52,5 +59,13 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
             result.Add((slot->ItemId, (int)slot->Quantity));
         }
         return result;
+    }
+
+    public (float X, float Y, float Z, int Zone)? GetPlayerPosition()
+    {
+        var player = _objectTable.LocalPlayer;
+        if (player is null) return null;
+        var p = player.Position;
+        return (p.X, p.Y, p.Z, (int)_clientState.TerritoryType);
     }
 }

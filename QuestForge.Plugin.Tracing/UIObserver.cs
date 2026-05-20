@@ -173,6 +173,7 @@ public sealed class UIObserver : IDisposable
         if (now - _lastHeartbeatAt < HeartbeatInterval) return;
         _lastHeartbeatAt = now;
 
+        PollPlayerPosition();
         PollQuestState();
         PollAttunement();
         PollKeyItems();
@@ -181,6 +182,19 @@ public sealed class UIObserver : IDisposable
     // ─────────────────────────────────────────────────────────────────────────
     // Heartbeat pollers
     // ─────────────────────────────────────────────────────────────────────────
+
+    private void PollPlayerPosition()
+    {
+        if (_gameProbe is null) return;
+        var pos = _gameProbe.GetPlayerPosition();
+        if (pos is null) return;
+        var now   = _clock.UtcNow;
+        var runId = CurrentRunId;
+        WriteObservation("GetPlayerPosition", 0u, new { x = pos.Value.X, y = pos.Value.Y, z = pos.Value.Z }, runId, now);
+        _aggregator?.OnPlayerMoved(new QuestForge.Adapters.Types.WorldPosition(pos.Value.X, pos.Value.Y, pos.Value.Z));
+        // Also propagate zone if it differs from what we last emitted via OnZoneChanged
+        // (OnZoneChanged fires from TerritoryChanged events; this handles the initial state)
+    }
 
     private void PollQuestState()
     {

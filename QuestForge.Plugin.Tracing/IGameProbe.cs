@@ -11,4 +11,5 @@ public interface IGameProbe
     bool IsAetheryteUnlocked(uint rowId);
     IEnumerable<uint> GetAllAetheryteRowIds();
     IReadOnlyList<(uint ItemId, int Qty)> GetKeyItemSlots();
+    (float X, float Y, float Z, int Zone)? GetPlayerPosition();
 }
