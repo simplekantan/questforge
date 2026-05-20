@@ -112,6 +112,9 @@ public sealed class AuthoringHost : IDisposable
     private void EnterInspectModeCore()
     {
         Mode = AuthoringMode.Inspect;
+        // Attach aggregator so UIObserver polls update LastNpcInteracted/Position for the
+        // Interaction panel. Trace gate is closed in Inspect mode so nothing writes to disk.
+        _uiObserver.SetAggregator(_aggregator, "inspect");
         _log.Info("QuestForge Authoring: entered Inspect mode");
     }
 
