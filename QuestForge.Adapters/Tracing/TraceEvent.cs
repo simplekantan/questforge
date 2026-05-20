@@ -9,7 +9,6 @@ namespace QuestForge.Adapters.Tracing;
 [JsonDerivedType(typeof(DecisionEvent),        "decision")]
 [JsonDerivedType(typeof(ActionSubmittedEvent), "action.submitted")]
 [JsonDerivedType(typeof(ActionCompletedEvent), "action.completed")]
-[JsonDerivedType(typeof(InventoryChangedEvent), "inventory.changed")]
 [JsonDerivedType(typeof(StepRecordedEvent),    "step.recorded")]
 public abstract record TraceEvent(DateTimeOffset At)
 {

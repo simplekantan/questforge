@@ -336,18 +336,17 @@ public sealed class UIObserver : IDisposable
         if (removedIds.Count > 0)
             _aggregator?.OnKeyItemsRemoved(removedIds);
 
-        // Write InventoryChangedEvent only when actively recording
-        if (runId is not null)
-        {
-            // Compute a simple hash for the inventory state
-            var hash = ComputeKeyItemHash(currentMap);
-            _traceSession.Write(new InventoryChangedEvent(
-                RunId:   runId,
-                Gained:  gained,
-                Lost:    lost,
-                NewHash: hash,
-                At:      now));
-        }
+        var hash = ComputeKeyItemHash(currentMap);
+        var valueEl = JsonSerializer.SerializeToElement(
+            new { gained = gained.ToArray(), lost = lost.ToArray(), newHash = hash },
+            JsonOpts);
+        // Write directly (not via WriteObservation dedup cache) — inventory changes are events, not polled state.
+        _traceSession.Write(new ObservationEvent(
+            RunId:    CurrentRunId,
+            Method:   "InventoryChanged",
+            Argument: null,
+            Value:    valueEl,
+            At:       now));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
