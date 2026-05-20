@@ -169,7 +169,7 @@ public sealed class EngineHost : IDisposable
             gs, qs, _navigator, _teleporter, _interactor,
             _combat, _gear, _minigames, _dialogue, _timing,
             _traceSession, new DalamudLogger<QuestEngine>(_services.Log));
-        _engine.StartQuest(quest);
+        _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
     }
 
@@ -380,6 +380,32 @@ public sealed class EngineHost : IDisposable
         if (r.PrerequisiteIncomplete) return "missing prerequisites";
         if (r.AlreadyCompleted)       return "already completed (data inconsistency)";
         return r.Detail ?? "unavailable";
+    }
+
+    private IReadOnlyDictionary<string, FragmentDefinition> LoadFragments()
+    {
+        var dir = Path.Combine(
+            _services.PluginInterface.GetPluginConfigDirectory(),
+            "fragments");
+        if (!Directory.Exists(dir))
+            return new Dictionary<string, FragmentDefinition>();
+
+        var result = new Dictionary<string, FragmentDefinition>(StringComparer.Ordinal);
+        foreach (var file in Directory.EnumerateFiles(dir, "*.json", SearchOption.AllDirectories))
+        {
+            try
+            {
+                var def = QuestFileLoader.LoadFragment(file);
+                if (def is not null && !string.IsNullOrEmpty(def.FragmentId))
+                    result[def.FragmentId] = def;
+            }
+            catch (Exception ex)
+            {
+                _services.Log.Warning($"[LoadFragments] skipping {file}: {ex.Message}");
+            }
+        }
+        _services.Log.Debug($"[LoadFragments] loaded {result.Count} fragment(s)");
+        return result;
     }
 
     private QuestDefinition? TryLoadQuest(QuestId questId)
