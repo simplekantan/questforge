@@ -1598,11 +1598,9 @@ public sealed class UIObserverTests
     public void UO_E1_PollKeyItems_NoGameProbe_NoInventoryChangedEvent()
     {
         /*
-         * RED: Will fail until UIObserver exists.
-         *
          * CONTRACT: Given IGameProbe is null,
          *           When a tick fires,
-         *           Then no InventoryChangedEvent is written.
+         *           Then no ObservationEvent with Method="InventoryChanged" is written.
          */
 
         // Arrange
@@ -1616,7 +1614,8 @@ public sealed class UIObserverTests
         framework.Tick();
 
         // Assert
-        Assert.Empty(writer.RecordedEvents.OfType<InventoryChangedEvent>());
+        Assert.Empty(writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "InventoryChanged"));
 
         observer.Dispose();
     }
@@ -1625,16 +1624,9 @@ public sealed class UIObserverTests
     public void UO_E2_PollKeyItems_InitialItems_WritesKeyItemsObservation()
     {
         /*
-         * RED: Will fail until UIObserver exists.
-         *
          * CONTRACT: Given IGameProbe.GetKeyItemSlots() returns [(itemId=500, qty=1)],
          *           When tick 1 fires,
-         *           Then an ObservationEvent or InventoryChangedEvent indicating item 500
-         *           is written to TraceSession.
-         *
-         * BUILDER GUIDANCE: Mirror AuthoringHost.PollKeyItems — on first tick,
-         *   the previous map is empty so all current items appear as "gained".
-         *   Write an InventoryChangedEvent when the hash changes.
+         *           Then an ObservationEvent with Method="InventoryChanged" is written.
          */
 
         // Arrange
@@ -1645,8 +1637,10 @@ public sealed class UIObserverTests
         // Act
         framework.Tick();
 
-        // Assert — either an InventoryChangedEvent or a key-item observation is written
-        var changed = writer.RecordedEvents.OfType<InventoryChangedEvent>().ToList();
+        // Assert — an ObservationEvent with Method="InventoryChanged" is written
+        var changed = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "InventoryChanged")
+            .ToList();
         Assert.NotEmpty(changed);
 
         observer.Dispose();
@@ -1722,14 +1716,10 @@ public sealed class UIObserverTests
     public void UO_E5_PollKeyItems_InventoryChangedEvent_WrittenOnlyToActiveRunId()
     {
         /*
-         * RED: Will fail until UIObserver exists.
-         *
          * CONTRACT: Given aggregator is set with activeRunId="active-001",
          *           When key items change,
-         *           Then the InventoryChangedEvent.RunId == "active-001".
-         *
-         * BUILDER GUIDANCE: InventoryChangedEvent is written only when activeRunId
-         *   is non-null (mirrors _authoringRunId guard in AuthoringHost).
+         *           Then the ObservationEvent with Method="InventoryChanged" uses
+         *           RunId == "active-001" (the active run id takes precedence over passive).
          */
 
         // Arrange
@@ -1741,11 +1731,10 @@ public sealed class UIObserverTests
         framework.Tick();
 
         // Assert
-        var changed = writer.RecordedEvents.OfType<InventoryChangedEvent>().FirstOrDefault();
+        var changed = writer.RecordedEvents.OfType<ObservationEvent>()
+            .FirstOrDefault(e => e.Method == "InventoryChanged");
         if (changed != null)
             Assert.Equal("active-001", changed.RunId);
-        // Note: if InventoryChangedEvent is not written at all when no items change in the
-        // diff (first tick establishes baseline), this assertion is also correct (null check passes).
 
         observer.Dispose();
     }
@@ -2204,11 +2193,10 @@ public sealed class UIObserverTests
     public void UO_H7_Heartbeat_KeyItemPollInsideHeartbeatBlock()
     {
         /*
-         * RED: Will fail until UIObserver exists.
-         *
          * CONTRACT: Given key items change between tick 1 and tick 2 (10 ms),
          *           When tick 2 fires,
-         *           Then no InventoryChangedEvent is written on tick 2.
+         *           Then no ObservationEvent with Method="InventoryChanged" is written on tick 2
+         *           (heartbeat throttle suppresses the second tick).
          */
 
         // Arrange
@@ -2224,7 +2212,8 @@ public sealed class UIObserverTests
 
         // Assert
         var newInvEvents = writer2.RecordedEvents.Skip(countAfterFirst)
-            .OfType<InventoryChangedEvent>()
+            .OfType<ObservationEvent>()
+            .Where(e => e.Method == "InventoryChanged")
             .ToList();
         Assert.Empty(newInvEvents);
 
