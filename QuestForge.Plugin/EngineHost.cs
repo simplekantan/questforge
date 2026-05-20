@@ -154,6 +154,7 @@ public sealed class EngineHost : IDisposable
         _runId          = runId;
         _currentQuestId = new QuestId(quest.Id);
         _timing.Reseed(StableHash(runId));
+        _traceSession.OnQuestRunStart(quest.Id);
         _traceSession.Write(new RunStartEvent(runId, quest.Id, quest.Id, DateTimeOffset.UtcNow));
 
         IGameStateProvider gs = new RecordingGameStateProvider(
@@ -407,8 +408,9 @@ public sealed class EngineHost : IDisposable
         _engine      = null;
         _recordingQs = null;
         _runId       = null;
+        _traceSession.OnQuestRunEnd();
         RestoreCutsceneSkip();
-        // TraceSession file lifecycle is managed by Plugin.cs; do not close here.
+        // TraceSession file lifecycle for non-QuestRun modes is managed by Plugin.cs.
     }
 
     public void Dispose() => EndRun();

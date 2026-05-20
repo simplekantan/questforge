@@ -231,6 +231,18 @@ public sealed class AuthoringHost : IDisposable
             var stepParams = JsonSerializer.SerializeToElement(new { stepId = finalStepId, stepType = inference.StepType }, _jsonOpts);
             _traceSession.Write(new ActionSubmittedEvent(_authoringRunId, inference.StepType, stepParams, DateTimeOffset.UtcNow));
             _traceSession.Write(new ActionCompletedEvent(_authoringRunId, inference.StepType, "recorded", DateTimeOffset.UtcNow));
+
+            // Serialize the step to JSON using the quest file options and emit step.recorded
+            // so qf-trace extract-quest can reconstruct quest definitions from the trace.
+            var stepJson = JsonSerializer.SerializeToElement(
+                rawStep,
+                QuestForge.Schema.QuestForgeJsonContext.QuestFileOptions);
+            _traceSession.Write(new StepRecordedEvent(
+                RunId:          _authoringRunId,
+                StepId:         finalStepId,
+                SequenceNumber: draftStep.SequenceNumber,
+                Step:           stepJson,
+                At:             DateTimeOffset.UtcNow));
         }
         _traceSession.OnConfirmRecordStep();
 

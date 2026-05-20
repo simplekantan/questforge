@@ -193,6 +193,11 @@ This is the recording proxy pattern described in `ARCHITECTURE.md`. `AuthoringHo
 
 The recorder produces a flat Phase 7+ shape. Several fields specified in `TRACE_FORMAT.md` are not yet emitted. These matter when full replay, redaction, and tooling are built.
 
+### 6.0 `inventory.changed` → `ObservationEvent` (issue #34)
+
+`InventoryChangedEvent` is a separate event type rather than an `ObservationEvent`. The replay harness needs all game state in observation form for uniform fake-adapter reconstruction. Refactor to `WriteObservation("InventoryChanged", ...)`. Blocked on replay harness design to confirm exact observation shape needed.
+- Source: `QuestForge.Plugin/Authoring/AuthoringHost.cs`, `QuestForge.Plugin.Tracing/UIObserver.cs`
+
 | Field | Status | Impact |
 |---|---|---|
 | `seq` — monotonic per-event sequence number | Not emitted; line order is implicit | Blocks deterministic replay ordering |
