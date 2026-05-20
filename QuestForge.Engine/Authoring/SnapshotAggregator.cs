@@ -28,6 +28,7 @@ public sealed class SnapshotAggregator
     private int? _dialogueOptionSelected;
     private QuestForge.Schema.NpcLocation? _dialogueNpcSource;
     private QuestId? _foreignQuestAccepted;
+    private bool _selectYesnoConfirmed;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
     // tests inject FakeClock for deterministic CapturedAt values.
@@ -61,7 +62,8 @@ public sealed class SnapshotAggregator
         AethernetTeleportCompleted   = _aethernetTeleportCompleted,
         DialogueOptionSelected       = _dialogueOptionSelected,
         DialogueNpcSource            = _dialogueNpcSource,
-        ForeignQuestAccepted         = _foreignQuestAccepted
+        ForeignQuestAccepted         = _foreignQuestAccepted,
+        SelectYesnoConfirmed         = _selectYesnoConfirmed
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -211,10 +213,13 @@ public sealed class SnapshotAggregator
     /// Called at the end of RecordStep to consume the dialogue option and captured NPC so they
     /// do not bleed into the next recording window.
     /// </summary>
+    public void OnSelectYesnoConfirmed() => _selectYesnoConfirmed = true;
+
     public void OnDialogueOptionConsumed()
     {
         _dialogueOptionSelected = null;
         _dialogueNpcSource = null;
+        _selectYesnoConfirmed = false;
     }
 
     /// <summary>

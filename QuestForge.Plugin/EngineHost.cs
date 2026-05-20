@@ -281,7 +281,7 @@ public sealed class EngineHost : IDisposable
                     i.Origin,
                     !sip.IsNull && sip.IsReady,
                     !ssp.IsNull && ssp.IsReady,
-l                    ref _dialogueChoiceProgress,
+                    ref _dialogueChoiceProgress,
                     _interactor, ct,
                     selectYesnoOpen: !syn.IsNull && syn.IsReady);
                 if (!choiceDispatched)

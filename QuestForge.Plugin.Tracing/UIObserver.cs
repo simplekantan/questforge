@@ -496,7 +496,7 @@ public sealed class UIObserver : IDisposable
                 var now   = _clock.UtcNow;
                 var runId = CurrentRunId;
                 WriteObservation("SelectYesnoConfirmed", 0u, yesOption, runId, now);
-                _aggregator?.OnDialogueOptionSelected(yesOption);
+                _aggregator?.OnSelectYesnoConfirmed(); // distinct from OnDialogueOptionSelected (SelectIconString list choices)
             }
             _selectYesnoWasOpen = false;
         }

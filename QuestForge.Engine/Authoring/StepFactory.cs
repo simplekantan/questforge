@@ -48,7 +48,9 @@ public static class StepFactory
                 && (before?.AethernetDestinationSelected.HasValue == true
                     || (after?.LastAethernetShardInteracted is { } ds2 && ds2.Value != sourceShard!.Value.Value)));
 
-        // Build dialogue choices: override beats snapshot
+        // Build dialogue choices from snapshot signals. SelectIconString list choices and
+        // SelectYesno confirmations are tracked in separate snapshot fields so they produce
+        // the correct choice type rather than a spurious {type:"list"} for a yesno prompt.
         DialogueChoice[] dialogueChoices;
         if (dialogueChoicesOverride is { Count: > 0 })
         {
@@ -56,19 +58,18 @@ public static class StepFactory
                 .Select(i => new DialogueChoice(Type: "list", Answer: i.ToString(System.Globalization.CultureInfo.InvariantCulture)))
                 .ToArray();
         }
-        else if (after?.DialogueOptionSelected is { } idx)
-        {
-            dialogueChoices = [new DialogueChoice(Type: "list", Answer: idx.ToString(System.Globalization.CultureInfo.InvariantCulture))];
-        }
         else
         {
-            dialogueChoices = [];
+            var derived = new List<DialogueChoice>();
+            if (after?.DialogueOptionSelected is { } idx)
+                derived.Add(new DialogueChoice(Type: "list", Answer: idx.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            if (after?.SelectYesnoConfirmed == true)
+                derived.Add(new DialogueChoice(Type: "yesno", Answer: "yes"));
+            dialogueChoices = derived.ToArray();
         }
 
-        // Detect NpcDialogue travel: both the dialogue selection AND the source NPC must be
-        // captured. DialogueNpcSource is set from live TargetManager when SelectIconString opens,
-        // so no pre-targeting is required from the author.
-        var hasNpcDialogue = after?.DialogueOptionSelected.HasValue == true
+        // Detect NpcDialogue travel: source NPC captured AND at least one dialogue choice recorded.
+        var hasNpcDialogue = (after?.DialogueOptionSelected.HasValue == true || after?.SelectYesnoConfirmed == true)
             && after?.DialogueNpcSource != null;
 
         return stepType switch
