@@ -55,17 +55,14 @@ public sealed unsafe class DalamudAddonProbe : IAddonProbe
         if (addon->AtkValuesCount <= NamesBase + idx) return null;
         var nameVal = addon->AtkValues[NamesBase + idx];
         if (nameVal.Type != AtkValueType.String || nameVal.String.Value == null) return null;
-        var rawName = Marshal.PtrToStringUTF8((nint)nameVal.String.Value);
-        if (string.IsNullOrEmpty(rawName)) return null;
+        return Marshal.PtrToStringUTF8((nint)nameVal.String.Value);
+    }
 
-        // Resolve the raw display name to an Aetheryte sheet RowId name
-        // (returns the name as-is; callers use it to look up by name; the map resolves to rowId)
-        // We store the reverse map internally and expose the resolved entry.
-        var nameMap = GetAethernetNameMap();
-        // We return the raw name; the map lookup happens when the caller invokes aethernet resolution.
-        // But UIObserver stores raw destination name from GetTelepotTownDestinationName.
-        // The name IS the lookup key for the aethernet map — keep it as-is.
-        return rawName;
+    public uint? GetTelepotTownDestinationId(int idx)
+    {
+        var name = GetTelepotTownDestinationName(idx);
+        if (string.IsNullOrEmpty(name)) return null;
+        return GetAethernetNameMap().TryGetValue(name, out var rowId) ? rowId : null;
     }
 
     private Dictionary<string, uint> GetAethernetNameMap()

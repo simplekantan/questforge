@@ -10,4 +10,5 @@ public interface IAddonProbe
     bool IsAddonOpen(string addonName);
     int? GetSelectedItemIndex(string addonName);
     string? GetTelepotTownDestinationName(int idx);
+    uint?   GetTelepotTownDestinationId(int idx);   // resolves name to Aetheryte sheet RowId
 }

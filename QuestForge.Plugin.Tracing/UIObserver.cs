@@ -48,8 +48,9 @@ public sealed class UIObserver : IDisposable
     private Dictionary<uint, int> _previousKeyItemsMap = new();
 
     // ── TelepotTown (aethernet) tracking ─────────────────────────────────
-    private bool _aethernetMenuWasOpen;
-    private string? _pendingAethernetTo;  // destination name from GetTelepotTownDestinationName
+    private bool   _aethernetMenuWasOpen;
+    private uint?  _pendingAethernetFromId;
+    private uint?  _pendingAethernetToId;
 
     // ── SelectIconString (dialogue) tracking ─────────────────────────────
     private bool _dialogueIconStringWasOpen;
@@ -129,8 +130,9 @@ public sealed class UIObserver : IDisposable
     /// </summary>
     public void ResetWindowState()
     {
-        _aethernetMenuWasOpen      = false;
-        _pendingAethernetTo        = null;
+        _aethernetMenuWasOpen    = false;
+        _pendingAethernetFromId  = null;
+        _pendingAethernetToId    = null;
         _dialogueIconStringWasOpen = false;
         _pendingDialogueIdx        = null;
         _selectYesnoWasOpen        = false;
@@ -346,31 +348,38 @@ public sealed class UIObserver : IDisposable
 
         if (!menuIsOpen)
         {
-            if (_aethernetMenuWasOpen && _pendingAethernetTo is not null)
+            if (_aethernetMenuWasOpen && _pendingAethernetToId.HasValue)
             {
-                // Menu just closed after a selection — fire teleport-completed observation.
+                var toId  = _pendingAethernetToId.Value;
                 var now   = _clock.UtcNow;
                 var runId = CurrentRunId;
-                WriteObservation("AethernetTeleportCompleted", 0u, _pendingAethernetTo, runId, now);
+                WriteObservation("AethernetTeleportCompleted", toId, _pendingAethernetFromId ?? 0u, runId, now);
+                _aggregator?.OnAethernetTeleportCompleted(
+                    _pendingAethernetFromId.HasValue ? new QuestForge.Adapters.Types.AetheryteId(_pendingAethernetFromId.Value) : null,
+                    new QuestForge.Adapters.Types.AethernetId(toId));
             }
-            _aethernetMenuWasOpen = false;
-            _pendingAethernetTo   = null;
+            _aethernetMenuWasOpen    = false;
+            _pendingAethernetFromId  = null;
+            _pendingAethernetToId    = null;
             return;
         }
 
         if (!_aethernetMenuWasOpen)
         {
             _aethernetMenuWasOpen = true;
-            // Departure shard not tracked in UIObserver (no TargetManager access)
+            // Capture departure shard from live target (player is standing at the shard)
+            var aetheryteInfo = _targetProbe?.GetAetheryteTarget();
+            if (aetheryteInfo.HasValue)
+                _pendingAethernetFromId = aetheryteInfo.Value.BaseId;
         }
 
-        // Latch destination while menu is open
-        var idx = _addonProbe.GetSelectedItemIndex("TelepotTown");
-        if (idx.HasValue && idx.Value >= 0)
+        // Latch destination RowId while menu is open; guard against same-shard hop
+        var selectedIdx = _addonProbe.GetSelectedItemIndex("TelepotTown");
+        if (selectedIdx.HasValue && selectedIdx.Value >= 0)
         {
-            var destName = _addonProbe.GetTelepotTownDestinationName(idx.Value);
-            if (!string.IsNullOrEmpty(destName))
-                _pendingAethernetTo = destName;
+            var destId = _addonProbe.GetTelepotTownDestinationId(selectedIdx.Value);
+            if (destId.HasValue && destId != _pendingAethernetFromId)
+                _pendingAethernetToId = destId;
         }
     }
 

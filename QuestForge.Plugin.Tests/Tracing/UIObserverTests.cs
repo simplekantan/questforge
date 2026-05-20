@@ -68,17 +68,24 @@ public sealed class FakeAddonProbe : IAddonProbe
     private readonly HashSet<string> _openAddons = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _selectedIndices = new(StringComparer.Ordinal);
     private readonly Dictionary<int, string?> _telepotDestinations = new();
+    private readonly Dictionary<int, uint?> _telepotDestinationIds = new();
 
     public void OpenAddon(string name)          => _openAddons.Add(name);
     public void CloseAddon(string name)         => _openAddons.Remove(name);
     public void SetSelectedIndex(string addon, int idx) => _selectedIndices[addon] = idx;
-    public void SetTelepotDestination(int idx, string? name) => _telepotDestinations[idx] = name;
+    public void SetTelepotDestination(int idx, string? name, uint? rowId = null)
+    {
+        _telepotDestinations[idx] = name;
+        _telepotDestinationIds[idx] = rowId;
+    }
 
     public bool  IsAddonOpen(string addonName)         => _openAddons.Contains(addonName);
     public int?  GetSelectedItemIndex(string addonName) =>
         _selectedIndices.TryGetValue(addonName, out var v) ? v : null;
     public string? GetTelepotTownDestinationName(int idx) =>
         _telepotDestinations.TryGetValue(idx, out var v) ? v : null;
+    public uint? GetTelepotTownDestinationId(int idx) =>
+        _telepotDestinationIds.TryGetValue(idx, out var v) ? v : null;
 }
 
 // ─── FakeGameProbe ───────────────────────────────────────────────────────────
@@ -1793,7 +1800,7 @@ public sealed class UIObserverTests
         var (observer, framework, addonProbe, _, _, writer, _) = BuildFixture();
         addonProbe.OpenAddon("TelepotTown");
         addonProbe.SetSelectedIndex("TelepotTown", 0);
-        addonProbe.SetTelepotDestination(0, "Limsa Lominsa Aetheryte Plaza");
+        addonProbe.SetTelepotDestination(0, "Limsa Lominsa Aetheryte Plaza", rowId: 8u);
         framework.Tick(); // tick 1 — menu opens, destination latched
 
         addonProbe.CloseAddon("TelepotTown"); // menu closes
