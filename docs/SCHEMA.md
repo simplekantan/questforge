@@ -245,6 +245,22 @@ The engine on resume reads `questSequence(id)` and jumps to the matching sequenc
 
 Steps within a sequence execute in declared order. Each step's `expect` is checked before execution (for resume) and after execution (for completion). If `expect` is already satisfied, the engine advances to the next step.
 
+### 3.3 `type` must be the first property in every step object
+
+The quest schema uses `[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]` for step deserialization. System.Text.Json requires the discriminator property to appear **before** all other properties in the JSON object or deserialization will fail with a metadata error.
+
+**Correct:**
+```json
+{ "type": "travel", "id": "my-step", "destination": { ... } }
+```
+
+**Incorrect (will throw at load time):**
+```json
+{ "id": "my-step", "type": "travel", "destination": { ... } }
+```
+
+This applies to all step objects in quest files, fragment files, and anywhere else a `Step` is serialised.
+
 ### 3.3 Why not flat steps?
 
 This structure is borrowed from a working implementation (Questionable). Aligning with the game's own state machine has three benefits:
