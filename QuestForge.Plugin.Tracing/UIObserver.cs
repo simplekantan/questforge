@@ -447,11 +447,13 @@ public sealed class UIObserver : IDisposable
         {
             if (_dialogueIconStringWasOpen && _pendingDialogueIdx.HasValue)
             {
-                // Menu just closed with a selection
-                var idx   = _pendingDialogueIdx.Value;
-                var now   = _clock.UtcNow;
-                var runId = CurrentRunId;
-                WriteObservation("DialogueOptionSelected", 0u, idx, runId, now);
+                // Menu just closed with a selection — use captured NPC ID as argument so
+                // qf-trace extract-quest can attribute the choice without time-proximity heuristics.
+                var idx    = _pendingDialogueIdx.Value;
+                var npcId  = _aggregator?.Current.DialogueNpcSource?.NpcId ?? 0u;
+                var now    = _clock.UtcNow;
+                var runId  = CurrentRunId;
+                WriteObservation("DialogueOptionSelected", npcId, idx, runId, now);
                 _aggregator?.OnDialogueOptionSelected(idx);
             }
             _dialogueIconStringWasOpen = false;
@@ -514,11 +516,13 @@ public sealed class UIObserver : IDisposable
         {
             if (_selectYesnoWasOpen)
             {
-                // Menu just closed — hardcode yes (option 0)
+                // Menu just closed — use captured NPC ID as argument so qf-trace extract-quest
+                // can attribute the confirmation without time-proximity heuristics.
                 const int yesOption = 0;
-                var now   = _clock.UtcNow;
-                var runId = CurrentRunId;
-                WriteObservation("SelectYesnoConfirmed", 0u, yesOption, runId, now);
+                var npcId  = _aggregator?.Current.DialogueNpcSource?.NpcId ?? 0u;
+                var now    = _clock.UtcNow;
+                var runId  = CurrentRunId;
+                WriteObservation("SelectYesnoConfirmed", npcId, yesOption, runId, now);
                 _aggregator?.OnSelectYesnoConfirmed(); // distinct from OnDialogueOptionSelected (SelectIconString list choices)
             }
             _selectYesnoWasOpen = false;
