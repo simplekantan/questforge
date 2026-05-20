@@ -12,7 +12,8 @@ public static class DialogueChoiceDispatcher
         bool selectStringOpen,
         ref int progress,
         IInteractor interactor,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool selectYesnoOpen = false)
     {
         DialogueChoice[] choices = currentStep switch
         {
@@ -21,19 +22,29 @@ public static class DialogueChoiceDispatcher
             _ => Array.Empty<DialogueChoice>()
         };
         if (choices.Length == 0 || progress >= choices.Length) return false;
-        if (!selectIconStringOpen && !selectStringOpen) return false;
 
         var choice = choices[progress];
-        // "yesno" and other non-list types are handled by AdvanceDialogue's SelectYesno auto-confirm;
-        // returning false lets the caller fall through to AdvanceDialogue rather than stalling here.
-        if (choice.Type != "list") return false;
 
-        if (!int.TryParse(choice.Answer, System.Globalization.NumberStyles.Integer,
-                System.Globalization.CultureInfo.InvariantCulture, out var idx) || idx < 0)
-            return false;
+        if (choice.Type == "yesno")
+        {
+            if (!selectYesnoOpen) return false;
+            var yes = string.Equals(choice.Answer, "yes", StringComparison.OrdinalIgnoreCase);
+            interactor.ConfirmYesNoPrompt(yes, ct).GetAwaiter().GetResult();
+            progress++;
+            return true;
+        }
 
-        interactor.SelectStringOption(idx, ct).GetAwaiter().GetResult();
-        progress++;
-        return true;
+        if (choice.Type == "list")
+        {
+            if (!selectIconStringOpen && !selectStringOpen) return false;
+            if (!int.TryParse(choice.Answer, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var idx) || idx < 0)
+                return false;
+            interactor.SelectStringOption(idx, ct).GetAwaiter().GetResult();
+            progress++;
+            return true;
+        }
+
+        return false;
     }
 }

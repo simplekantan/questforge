@@ -127,9 +127,22 @@ public sealed class DalamudInteractor : IInteractor
             Result.Fail<DialogueOutcome>("notImplemented", "Phase 6 placeholder"));
 
     public Task<Result<Unit>> ConfirmYesNoPrompt(bool yes, CancellationToken ct)
-        // Not yet implemented — the target addon for this prompt (cutscene/tutorial confirm)
-        // has not been identified. SelectYesno is handled separately in AdvanceDialogue.
-        => Task.FromResult<Result<Unit>>(Result.Fail("notImplemented", "Phase 6 placeholder"));
+    {
+        var ptr = _svc.GameGui.GetAddonByName("SelectYesno");
+        if (ptr.IsNull || !ptr.IsReady)
+            return Task.FromResult<Result<Unit>>(Result.Ok());
+        if (DateTimeOffset.UtcNow - _lastAdvanceAt < AdvanceThrottle)
+            return Task.FromResult<Result<Unit>>(Result.Ok());
+        _lastAdvanceAt = DateTimeOffset.UtcNow;
+        unsafe
+        {
+            var addon  = (AtkUnitBase*)ptr.Address;
+            var values = stackalloc AtkValue[1];
+            values[0] = new AtkValue { Type = AtkValueType.Int, Int = yes ? 0 : 1 }; // 0=Yes 1=No
+            addon->FireCallback(1, values);
+        }
+        return Task.FromResult<Result<Unit>>(Result.Ok());
+    }
 
     /// <summary>
     /// Selects an option by zero-based index from SelectString or SelectIconString addons.

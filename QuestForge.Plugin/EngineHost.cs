@@ -276,12 +276,14 @@ public sealed class EngineHost : IDisposable
                 // can register before the SelectYesno confirmation opens.
                 var sip = _services.GameGui.GetAddonByName("SelectIconString");
                 var ssp = _services.GameGui.GetAddonByName("SelectString");
+                var syn = _services.GameGui.GetAddonByName("SelectYesno");
                 var choiceDispatched = DialogueChoiceDispatcher.TryDispatch(
                     i.Origin,
                     !sip.IsNull && sip.IsReady,
                     !ssp.IsNull && ssp.IsReady,
-                    ref _dialogueChoiceProgress,
-                    _interactor, ct);
+l                    ref _dialogueChoiceProgress,
+                    _interactor, ct,
+                    selectYesnoOpen: !syn.IsNull && syn.IsReady);
                 if (!choiceDispatched)
                     await _interactor.AdvanceDialogue(ct);
                 await _interactor.AcceptQuest(_currentQuestId, ct);
