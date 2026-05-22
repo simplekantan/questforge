@@ -134,10 +134,7 @@ The `ManualChain` in `SchedulerOptions` is always `[]` from the UI — there's n
 `AuthoringHost` is eagerly constructed in `Plugin.cs`. `AUTHORING.md §3` specifies lazy-loading on first `/qf inspect` or `/qf author` activation, and idle-unload after 30 minutes of no panel activity. Implement: construct `AuthoringHost` on first command; track last-active timestamp; dispose on idle timeout.
 - Source: `docs/AUTHORING.md:65–69`, `QuestForge.Plugin/Plugin.cs`
 
-### 5.5 DraftValidator E3 — full predicate parser integration
-
-`DraftValidator.cs` has a `TODO(E3)` comment. Error E3 (full predicate syntax validation) is currently stubbed as a substring function-name check (which is actually E5 did-you-mean). Wire up the Phase 2 predicate parser (`QuestForge.Predicates.PredicateParser`) to validate the full syntax, operator precedence, and type constraints.
-- Source: `QuestForge.Engine/Authoring/DraftValidator.cs:57`
+### 5.5 ✅ DraftValidator E3 — wired to PredicateParser + PredicateChecker (closed in this PR)
 
 ### 5.6 Fragment and branch authoring
 
@@ -298,7 +295,6 @@ Quest flag bits captured in traces via ambient polling (Phase 8) have no tooling
 |---|---|---|
 | `SnapshotAggregator.Current` timestamp accuracy | `QuestForge.Engine/Authoring/SnapshotAggregator.cs:26` | Uses `_clock.UtcNow` on read — 250ms staleness window acceptable, noted in reviewer comments |
 | `RecordStepModal` zero-placeholder Raw steps | `QuestForge.Plugin/UI/Authoring/RecordStepModal.cs:182` | TravelStep/AcceptStep/TurnInStep built with zero coordinates; populate from `LastNpcInteracted`/`Position` |
-| `DraftValidator` W6 — empty quest name | `QuestForge.Engine/Authoring/DraftValidator.cs` | No warning for `QuestName = ""` or `"TODO"` at export time |
 | `ExportDialog` file browser | `QuestForge.Plugin/UI/Authoring/ExportDialog.cs` | Path field is a text box; no native file-picker dialog |
 | `FileDraftStorage` — `RawJson` as nested object | `QuestForge.Adapters.Dalamud/Authoring/FileDraftStorage.cs` | Steps serialize `Raw` as an escaped JSON string rather than a nested object; readable but ugly in file editors |
 | `qf-validate` `--help` | `questforge-tools/qf-validate/Program.cs` | No `--help` flag; exits with parse error on unknown flags |

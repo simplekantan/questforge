@@ -61,6 +61,23 @@ public sealed class QuestDraft
     }
 
     /// <summary>
+    /// Test-only escape hatch: construct a draft whose internal step list is
+    /// not guarded by AddStep's uniqueness invariant. Required for E1 (duplicate
+    /// stepId) positive testing and for any future test that simulates a draft
+    /// loaded from a corrupted file.
+    /// </summary>
+    internal static QuestDraft CreateForTest(
+        QuestId questId,
+        DateTimeOffset createdAt,
+        IEnumerable<DraftStep> steps,
+        string? questName = null)
+    {
+        var draft = new QuestDraft(questId, createdAt) { QuestName = questName };
+        draft._steps.AddRange(steps);
+        return draft;
+    }
+
+    /// <summary>
     /// Convert draft to a schema-valid QuestDefinition.
     /// Throws DraftSerializationException if any step lacks a Raw value.
     /// Steps are grouped into QuestSequence objects by SequenceNumber, ascending.
