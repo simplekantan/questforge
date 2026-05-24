@@ -47,4 +47,5 @@ public class RecoverConfig
     public RecoverAction? OnAdapterError { get; init; }
     public RecoverAction? OnPostconditionFailed { get; init; }
     public RecoverAction? OnPlayerDefeated { get; init; }
+    public RecoverAction? OnResumeFail { get; init; }
 }
