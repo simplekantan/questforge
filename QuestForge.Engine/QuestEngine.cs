@@ -39,6 +39,16 @@ public sealed class QuestEngine
     private bool _runStartEmitted;
     private readonly HashSet<string> _confirmedStepIds = new();
     private int _lastKnownSequence = -1;
+    private IReadOnlyDictionary<string, FragmentDefinition>? _fragments;
+    private readonly HashSet<string> _resumePointExecutedIds = new();
+    private ActiveResumeFragment? _activeResumeFragment;
+
+    private sealed record ActiveResumeFragment(
+        string ForStepId,
+        string RequiredZone,
+        Step MainStep,
+        IReadOnlyList<Step> Steps,
+        HashSet<string> ConfirmedFragmentStepIds);
 
     public QuestEngine(
         IGameStateProvider gameState,
@@ -78,6 +88,8 @@ public sealed class QuestEngine
         IReadOnlyDictionary<string, FragmentDefinition>? fragments = null)
     {
         if (quest is null) throw new ArgumentNullException(nameof(quest));
+
+        _fragments = fragments;
 
         // Track per-Ref usage counts for scoped ID generation across the whole quest.
         var usageCount = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -222,6 +234,8 @@ public sealed class QuestEngine
         _runStartEmitted = false;
         _confirmedStepIds.Clear();
         _lastKnownSequence = -1;
+        _resumePointExecutedIds.Clear();
+        _activeResumeFragment = null;
     }
 
     public async Task<EngineAction> Tick(CancellationToken ct)
@@ -322,12 +336,35 @@ public sealed class QuestEngine
         var posResult = await _gameState.GetPlayerPosition(ct);
         var playerPos = posResult is Result<WorldPosition>.Success { Value: var p } ? p : (WorldPosition?)null;
 
+        // Read player zone once per tick for RequiredZone gating.
+        // On adapter failure: null — a null zone never satisfies a RequiredZone gate and never triggers
+        // a resume (we cannot prove the player is in the wrong zone).
+        var zoneResult = await _gameState.GetPlayerZone(ct);
+        var playerZone = zoneResult is Result<ZoneId>.Success { Value: var z } ? (ZoneId?)z : null;
+
         // Detect sequence change and clear the confirmed-step cursor.
         // Confirmations are scoped to the current sequence block - when the game advances
         // (or rewinds) to a new sequence, prior confirmations are no longer meaningful.
         if (_lastKnownSequence != -1 && _lastKnownSequence != currentSeq)
+        {
             _confirmedStepIds.Clear();
+            _resumePointExecutedIds.Clear();
+            _activeResumeFragment = null;
+        }
         _lastKnownSequence = currentSeq;
+
+        // Process any active resume sub-loop FIRST, before the main step loop.
+        if (_activeResumeFragment is { } resume)
+        {
+            var (resumeAction, resumeStepId, resumeDone) =
+                await ProcessActiveResume(resume, playerZone, ui, playerPos, ct);
+
+            if (!resumeDone)
+                return (resumeAction!, resumeStepId);
+
+            _resumePointExecutedIds.Add(resume.ForStepId);
+            _activeResumeFragment = null;
+        }
 
         foreach (var step in matchingBlock.Steps)
         {
@@ -348,6 +385,28 @@ public sealed class QuestEngine
             // 3. SkipIf: skip but do NOT confirm (author logic, not a completion signal).
             if (step.SkipIf is not null && await _expectEvaluator.Evaluate(step.SkipIf, ct))
                 continue;
+
+            // 4. Resume-point trigger: arm the resume sub-loop iff all four conditions hold:
+            //    (a) step not confirmed — guaranteed here (cursor check above)
+            //    (b) step.RequiredZone set AND player is NOT already in it
+            //    (c) step.ResumePointFragmentId is set
+            //    (d) step.Id not already in _resumePointExecutedIds
+            if (step.ResumePointFragmentId is { } fragId
+                && step.RequiredZone is { } reqZone
+                && !ZoneAlreadySatisfied(playerZone, reqZone)
+                && !_resumePointExecutedIds.Contains(step.Id))
+            {
+                var armed = ArmResumeFragment(step, fragId, reqZone);
+                var (action, stepId, done) = await ProcessActiveResume(armed, playerZone, ui, playerPos, ct);
+                if (done)
+                {
+                    _resumePointExecutedIds.Add(step.Id);
+                    _activeResumeFragment = null;
+                    return (ResolveActionForStep(step, ui, playerPos), step.Id);
+                }
+                _activeResumeFragment = armed;
+                return (action!, stepId);
+            }
 
             return (ResolveActionForStep(step, ui, playerPos), step.Id);
         }
@@ -431,6 +490,8 @@ public sealed class QuestEngine
             ? new EngineAction.Wait("cutscene playing")
             : new EngineAction.Wait("cutscene ended; awaiting sequence advance"),
 
+        AwaitUserStep au => new EngineAction.AwaitUser(au.Reason),
+
         _ => throw new NotSupportedException($"Phase 4 does not support step type {step.GetType().Name}")
     };
 
@@ -444,4 +505,70 @@ public sealed class QuestEngine
         if (playerPos.Value.DistanceTo(target) <= stopDist) return interactAction;
         return new EngineAction.Navigate(target, new NavigationOptions(StoppingDistance: stopDist));
     }
+
+    private async Task<(EngineAction? action, string? stepId, bool done)> ProcessActiveResume(
+        ActiveResumeFragment resume, ZoneId? playerZone, UiState ui, WorldPosition? playerPos,
+        CancellationToken ct)
+    {
+        if (playerZone is { } pz && ZoneMatches(pz, resume.RequiredZone))
+            return (null, null, done: true);
+
+        foreach (var fstep in resume.Steps)
+        {
+            if (resume.ConfirmedFragmentStepIds.Contains(fstep.Id))
+                continue;
+
+            if (fstep.Expect is not null && await _expectEvaluator.Evaluate(fstep.Expect, ct))
+            {
+                resume.ConfirmedFragmentStepIds.Add(fstep.Id);
+                continue;
+            }
+
+            if (fstep.SkipIf is not null && await _expectEvaluator.Evaluate(fstep.SkipIf, ct))
+                continue;
+
+            var action = ResolveActionForStep(fstep, ui, playerPos);
+
+            if (action is EngineAction.AwaitUser && resume.MainStep.Recover?.OnResumeFail is { } onFail)
+                return (MapRecoverAction(onFail, resume.MainStep), resume.MainStep.Id, done: false);
+
+            return (action, fstep.Id, done: false);
+        }
+
+        return (new EngineAction.Wait(
+            $"resume fragment '{resume.ForStepId}' exhausted but player not yet in zone {resume.RequiredZone}"),
+            null, done: false);
+    }
+
+    private static bool ZoneAlreadySatisfied(ZoneId? playerZone, string requiredZone)
+    {
+        if (!uint.TryParse(requiredZone, out var rz)) return true;
+        if (playerZone is not { } pz) return true;
+        return pz.Value == rz;
+    }
+
+    private static bool ZoneMatches(ZoneId playerZone, string requiredZone)
+        => uint.TryParse(requiredZone, out var rz) && playerZone.Value == rz;
+
+    private ActiveResumeFragment ArmResumeFragment(Step mainStep, string fragId, string reqZone)
+    {
+        if (_fragments is null || !_fragments.TryGetValue(fragId, out var def))
+            throw new InvalidOperationException(
+                $"Step '{mainStep.Id}' declares ResumePointFragmentId '{fragId}' but no such fragment " +
+                "was provided to StartQuest.");
+
+        return new ActiveResumeFragment(
+            ForStepId: mainStep.Id,
+            RequiredZone: reqZone,
+            MainStep: mainStep,
+            Steps: def.Steps,
+            ConfirmedFragmentStepIds: new HashSet<string>(StringComparer.Ordinal));
+    }
+
+    private static EngineAction MapRecoverAction(RecoverAction action, Step mainStep) => action switch
+    {
+        AwaitUserRecoverAction au => new EngineAction.AwaitUser(au.Reason),
+        AbandonRecoverAction => new EngineAction.AwaitUser($"resume abandoned for step '{mainStep.Id}'"),
+        _ => new EngineAction.AwaitUser($"resume recovery '{action.GetType().Name}' for step '{mainStep.Id}'")
+    };
 }
