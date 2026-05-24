@@ -35,6 +35,7 @@ public class Step
 {
     public string Id { get; init; } = default!;
     public string? Zone { get; init; }
+    public string? RequiredZone { get; init; }
     public ExpectValue? Expect { get; init; }
     public ExpectValue? SkipIf { get; init; }
     public float? StopDistance { get; init; }
