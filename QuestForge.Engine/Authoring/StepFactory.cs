@@ -83,19 +83,21 @@ public static class StepFactory
                 Id = stepId,
                 Expect = expectValue,
                 Zone = zoneStr,
+                RequiredZone = ZoneStr(before?.Zone.Value ?? 0u),
                 // isAethernet=false: if we fell through from the aethernet branch, the destination
                 // shard was not confirmed (same-shard = zone-gate walk, not an Aethernet hop).
                 Destination = new TravelDestination(Zone: zone, Position: ResolveTravelPosition(before, after, playerPos, false)),
                 StopDistance = 1.0f  // close enough to trigger zone-gate crossing and NPC interact
             },
-            "accept" => new AcceptStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc },
-            "turn-in" => new TurnInStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc },
-            "talk" => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc, DialogueChoices = dialogueChoices },
+            "accept" => new AcceptStep { Id = stepId, Expect = expectValue, Zone = zoneStr, RequiredZone = zoneStr, Target = npcLoc },
+            "turn-in" => new TurnInStep { Id = stepId, Expect = expectValue, Zone = zoneStr, RequiredZone = zoneStr, Target = npcLoc },
+            "talk" => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, RequiredZone = zoneStr, Target = npcLoc, DialogueChoices = dialogueChoices },
             "hand-over-item" => new HandOverItemStep
             {
                 Id = stepId,
                 Expect = expectValue,
                 Zone = zoneStr,
+                RequiredZone = zoneStr,
                 Target = npcLoc,
                 Items = itemsOverride ?? (after?.KeyItemsRemoved?.ToArray() ?? [])
             },
@@ -104,6 +106,7 @@ public static class StepFactory
                 Id = stepId,
                 Expect = expectValue,
                 Zone = zoneStr,
+                RequiredZone = zoneStr,
                 // Prefer LastAethernetShardInteracted (the shard the author physically targeted,
                 // works even when the aetheryte is already attuned). Fall back to LastAttuned
                 // for traces recorded before this field existed.
@@ -122,6 +125,7 @@ public static class StepFactory
                 Id = stepId,
                 Expect = expectValue,
                 Zone = zoneStr,
+                RequiredZone = zoneStr,
                 Target = new InteractableTarget(InteractableId: npcId, Zone: zone, Position: npcPos)
             },
             "interact-object" => new InteractObjectStep
@@ -129,9 +133,10 @@ public static class StepFactory
                 Id = stepId,
                 Expect = expectValue,
                 Zone = zoneStr,
+                RequiredZone = zoneStr,
                 Target = new InteractableTarget(InteractableId: npcId, Zone: zone, Position: npcPos)
             },
-            _ => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, Target = npcLoc, DialogueChoices = dialogueChoices }
+            _ => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, RequiredZone = zoneStr, Target = npcLoc, DialogueChoices = dialogueChoices }
         };
     }
 
@@ -166,6 +171,7 @@ public static class StepFactory
             Id = stepId,
             Expect = expectValue,
             Zone = zoneStr,
+            RequiredZone = ZoneStr(sourceZone),
             Destination = new TravelDestination(Zone: zone, Position: playerPos),
             RouteHint = new RouteHint(NpcDialogue: new NpcDialogueHint(
                 target: new NpcLocation(
@@ -251,8 +257,12 @@ public static class StepFactory
             Id = stepId,
             Expect = expectValue,
             Zone = zoneStr,
+            RequiredZone = ZoneStr(before.Zone.Value),
             Destination = new TravelDestination(Zone: zone, Position: destPos),
             RouteHint = routeHint
         };
     }
+
+    private static string? ZoneStr(uint zone) => zone > 0 ? zone.ToString() : null;
+    private static string? ZoneStr(int zone)  => zone > 0 ? zone.ToString() : null;
 }

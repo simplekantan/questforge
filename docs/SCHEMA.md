@@ -311,6 +311,7 @@ Every step has these fields:
   "id": "go-to-baderon",
   "type": "travel",
   "zone": 129,
+  "requiredZone": null,
   "expect": "questSequence(65657) >= 1",
   "skipIf": null,
   "stopDistance": null,
@@ -326,6 +327,7 @@ Every step has these fields:
 | `id` | Yes | Unique within the quest. Must match `^[a-z][a-z0-9-]*$`. Used for recovery `goto` and trace correlation. |
 | `type` | Yes | One of the values in the table above. |
 | `zone` | Optional | Zone the step occurs in. If `playerZone() != zone` on entry, engine inserts implicit travel. Inferred from `target.zone` or `destination.zone` when those fields are present. |
+| `requiredZone` | Optional | Zone the player must be in **before** this step can execute (the source/start zone). Distinct from `zone`, which is the destination/after zone used for display and grouping. Set by the authoring factory from the pre-step position; authors may edit. Reserved for cold-resume positioning (consumed by resume logic); the engine does not gate on it today. |
 | `expect` | Yes | Postcondition predicate. Doubles as resume check. |
 | `skipIf` | Optional | Skip-this-step predicate, for "this step doesn't apply" cases. Distinct from `expect`. |
 | `stopDistance` | Optional | Override default stopping distance for navigation. |
