@@ -1,3 +1,4 @@
+using QuestForge.Predicates;
 using QuestForge.Schema;
 
 namespace QuestForge.Engine.Authoring;
@@ -7,11 +8,8 @@ public sealed record DraftValidationWarning(string Code, string Message, int[]? 
 
 public sealed class DraftValidator
 {
-    private static readonly HashSet<string> KnownFunctions = new(StringComparer.Ordinal)
-    {
-        "questSequence", "questFlag", "isQuestAccepted", "isQuestComplete",
-        "playerZone", "playerNear", "inCombat", "isAttuned", "playerHasItem"
-    };
+    private static readonly HashSet<string> QuestNamePlaceholders =
+        new(StringComparer.OrdinalIgnoreCase) { "TODO" };
 
     public (IReadOnlyList<DraftValidationError> Errors, IReadOnlyList<DraftValidationWarning> Warnings) Validate(QuestDraft draft)
     {
@@ -45,25 +43,17 @@ public sealed class DraftValidator
             }
         }
 
-        // E3/E5: Predicate parse checks
+        // E3 / E5: full predicate parser + checker against Expect and SkipIf
         for (var i = 0; i < steps.Count; i++)
         {
             var step = steps[i];
             if (step.Raw is null) continue; // already flagged by E2
 
-            var predicate = ExtractPredicate(step.Raw.Expect);
-            if (predicate is not null && !HasKnownFunction(predicate))
-            {
-                // TODO(E3): wire up the Phase 2 predicate parser for full syntax validation
-                // once it is accessible from QuestForge.Engine without a Dalamud reference.
-                // Currently E3 and E5 are collapsed into a single function-name check.
-                var candidate = ExtractFunctionName(predicate);
-                var suggestion = candidate is not null ? FindClosest(candidate) : null;
-                var hint = suggestion is not null ? $" Did you mean '{suggestion}'?" : $" Known functions: {string.Join(", ", KnownFunctions)}.";
-                errors.Add(new DraftValidationError("E5",
-                    $"Step '{step.StepId}' predicate '{predicate}' references an unknown function.{hint}",
-                    [i]));
-            }
+            foreach (var pred in ExtractPredicates(step.Raw.Expect))
+                ValidatePredicate(pred, i, step.StepId, errors);
+
+            foreach (var pred in ExtractPredicates(step.Raw.SkipIf))
+                ValidatePredicate(pred, i, step.StepId, errors);
         }
 
         // E4: No accept step
@@ -139,53 +129,55 @@ public sealed class DraftValidator
         // Since our grouping is driven by actual steps, empty groups don't exist in normal operation.
         // We explicitly do NOT check for numeric gaps here.
 
+        // W6: empty / placeholder quest name
+        var name = draft.QuestName?.Trim();
+        if (string.IsNullOrEmpty(name) || QuestNamePlaceholders.Contains(name))
+        {
+            warnings.Add(new DraftValidationWarning("W6",
+                "Quest name is empty or a placeholder ('TODO'). Set QuestDraft.QuestName before export."));
+        }
+
         return (errors, warnings);
     }
 
-    private static bool HasKnownFunction(string? predicate)
+    private static void ValidatePredicate(string predicate, int stepIndex, string stepId,
+                                          List<DraftValidationError> errors)
     {
-        if (predicate is null) return true; // no predicate = no parse error
-        return KnownFunctions.Any(f => predicate.Contains(f, StringComparison.Ordinal));
-    }
+        var result = PredicateParser.Parse(predicate);
 
-    // Extracts the first function name (identifier before '(') from a predicate string.
-    private static string? ExtractFunctionName(string predicate)
-    {
-        var paren = predicate.IndexOf('(');
-        if (paren <= 0) return null;
-        var name = predicate[..paren].Trim();
-        return name.Length > 0 ? name : null;
-    }
-
-    // Returns the known function whose name shares the most leading characters with candidate.
-    // Provides a "did you mean" hint for typos like "questSequnece" → "questSequence".
-    private static string? FindClosest(string candidate)
-    {
-        var best = KnownFunctions
-            .Select(f => (name: f, score: CommonPrefixLength(candidate, f)))
-            .Where(x => x.score >= 4) // minimum overlap to be a plausible suggestion
-            .OrderByDescending(x => x.score)
-            .FirstOrDefault();
-        return best.name;
-    }
-
-    private static int CommonPrefixLength(string a, string b)
-    {
-        var len = Math.Min(a.Length, b.Length);
-        for (var i = 0; i < len; i++)
-            if (char.ToLowerInvariant(a[i]) != char.ToLowerInvariant(b[i]))
-                return i;
-        return len;
-    }
-
-    private static string? ExtractPredicate(ExpectValue? expect)
-    {
-        return expect switch
+        if (result.Errors.Count > 0)
         {
-            PredicateExpect p => p.Predicate,
-            _ => null
-        };
+            var pe = result.Errors[0];
+            var code = pe.Code == "unknown-function" ? "E5" : "E3";
+            var msg = code == "E5"
+                ? $"Step '{stepId}' predicate '{predicate}' references an unknown function. {pe.Message}{(pe.Suggestion is null ? "" : $" Did you mean '{pe.Suggestion}'?")}"
+                : $"Step '{stepId}' predicate '{predicate}' failed to parse: {pe.Message}";
+            errors.Add(new DraftValidationError(code, msg, [stepIndex]));
+            return;
+        }
+
+        if (result.Ast is not null)
+        {
+            var checkerErrors = PredicateChecker.Check(result.Ast);
+            if (checkerErrors.Count > 0)
+            {
+                var ce = checkerErrors[0];
+                var code = ce.Code == "unknown-function" ? "E5" : "E3";
+                var msg = code == "E5"
+                    ? $"Step '{stepId}' predicate '{predicate}' references an unknown function. {ce.Message}{(ce.Suggestion is null ? "" : $" Did you mean '{ce.Suggestion}'?")}"
+                    : $"Step '{stepId}' predicate '{predicate}': {ce.Message}";
+                errors.Add(new DraftValidationError(code, msg, [stepIndex]));
+            }
+        }
     }
+
+    private static IReadOnlyList<string> ExtractPredicates(ExpectValue? expect) => expect switch
+    {
+        PredicateExpect p => [p.Predicate],
+        AllExpect a       => a.All,
+        AnyExpect a       => a.Any,
+        _                 => []
+    };
 
     private static uint? GetNpcId(Step? step)
     {
