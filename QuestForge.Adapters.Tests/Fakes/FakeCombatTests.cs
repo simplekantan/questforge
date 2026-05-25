@@ -4,39 +4,61 @@ using QuestForge.Adapters.Types;
 
 namespace QuestForge.Adapters.Tests.Fakes;
 
+/// <summary>
+/// Tests for the reshaped FakeCombat (part A).
+/// Old EngageTarget / RecordedEngagements tests removed — those types are gone.
+/// New tests cover the rotation-module and targeting surfaces.
+/// FK-* tests from the GWT are in CombatFakeContractTests.cs.
+/// </summary>
 public class FakeCombatTests
 {
     [Fact]
-    public async Task Default_EngageTarget_ReturnsTargetDefeated_IsRecorded()
+    public async Task Default_IsRotationModuleAvailable_ReturnsTrue()
     {
         var combat = new FakeCombat();
-        var result = await combat.EngageTarget(new NpcId(1), CancellationToken.None);
-        Assert.Equal(CombatOutcome.TargetDefeated, result.ValueOrThrow);
-        Assert.Equal(1, combat.RecordedEngagements.Count);
+        var result = await combat.IsRotationModuleAvailable(CancellationToken.None);
+        Assert.True(result.ValueOrThrow);
     }
 
     [Fact]
-    public async Task ScriptNextCombatResult_Fled_ReturnsFlied_Consumed_SecondCallReturnsDefault()
+    public async Task SetRotationModuleAvailable_False_IsRotationModuleAvailable_ReturnsFalse()
     {
         var combat = new FakeCombat();
-        // Note: CombatOutcome does not have Fled — using Disengaged as a non-default value
-        combat.ScriptNextCombatResult(CombatOutcome.Disengaged);
-
-        var first = await combat.EngageTarget(new NpcId(1), CancellationToken.None);
-        Assert.Equal(CombatOutcome.Disengaged, first.ValueOrThrow);
-
-        var second = await combat.EngageTarget(new NpcId(1), CancellationToken.None);
-        Assert.Equal(CombatOutcome.TargetDefeated, second.ValueOrThrow);
+        combat.SetRotationModuleAvailable(false);
+        var result = await combat.IsRotationModuleAvailable(CancellationToken.None);
+        Assert.False(result.ValueOrThrow);
     }
 
     [Fact]
-    public async Task PreCancelledToken_ThrowsOperationCanceledException_NotRecorded()
+    public async Task UseAction_ReturnsExecuted()
+    {
+        var combat = new FakeCombat();
+        var result = await combat.UseAction(1u, null, CancellationToken.None);
+        Assert.Equal(UseActionOutcome.Executed, result.ValueOrThrow);
+    }
+
+    [Fact]
+    public async Task UseActionOnObject_ReturnsExecuted()
+    {
+        var combat = new FakeCombat();
+        var result = await combat.UseActionOnObject(1u, new InteractableId(1u), CancellationToken.None);
+        Assert.Equal(UseActionOutcome.Executed, result.ValueOrThrow);
+    }
+
+    [Fact]
+    public async Task IsActionUsable_ReturnsTrue()
+    {
+        var combat = new FakeCombat();
+        var result = await combat.IsActionUsable(1u, CancellationToken.None);
+        Assert.True(result.ValueOrThrow);
+    }
+
+    [Fact]
+    public async Task PreCancelledToken_SetTarget_ThrowsOperationCanceledException()
     {
         var combat = new FakeCombat();
         var ct = new CancellationToken(canceled: true);
-
         await Assert.ThrowsAsync<OperationCanceledException>(
-            () => combat.EngageTarget(new NpcId(1), ct));
-        Assert.Equal(0, combat.RecordedEngagements.Count);
+            () => combat.SetTarget(new ActorId(1), ct));
     }
 }

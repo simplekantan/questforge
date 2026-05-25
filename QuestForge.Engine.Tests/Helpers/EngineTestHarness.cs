@@ -158,6 +158,13 @@ public sealed class EngineTestHarness
                 case EngineAction.Wait:
                     break;
 
+                case EngineAction.Engage:
+                    // Combat actions are recorded but require no adapter call in the harness.
+                    // The test's wired callbacks (FakeQuestState / FakeGameStateProvider setters)
+                    // advance the fake world so the next tick can re-evaluate expect.
+                    actions.Add(action);
+                    break;
+
                 default:
                     throw new InvalidOperationException(
                         $"Unhandled EngineAction subtype: {action.GetType().Name}");

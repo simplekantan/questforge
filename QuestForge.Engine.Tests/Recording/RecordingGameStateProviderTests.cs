@@ -468,6 +468,9 @@ file sealed class FailureGameStateProvider : IGameStateProvider
 
     public Task<Result<AethernetId?>> GetLastAethernetDestination(CancellationToken ct) =>
         Task.FromResult<Result<AethernetId?>>(Result.Fail<AethernetId?>(_reason));
+
+    public Task<Result<IReadOnlyList<HostileActor>>> GetHostileActors(float radius, CancellationToken ct) =>
+        Task.FromResult<Result<IReadOnlyList<HostileActor>>>(Result.Fail<IReadOnlyList<HostileActor>>(_reason));
 }
 
 /// <summary>

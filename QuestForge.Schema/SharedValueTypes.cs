@@ -117,8 +117,6 @@ public class ActionTarget
 /// <summary>Target for interact-object and pickup-item steps.</summary>
 public record InteractableTarget(uint InteractableId, int Zone, Position3 Position);
 
-/// <summary>Target for combat steps.</summary>
-public record CombatTarget(
-    string Kind,        // "nearestHostile" | "specificNpc" | "wave"
-    float? Radius = null,
-    uint? NpcId = null);
+// CombatTarget (was: nearestHostile / specificNpc / wave) — retired in part A.
+// Combat step completion is now modelled via Step.Expect + CombatStep.KillEnemyDataIds + CombatSpawn.
+// No schema-version bump — early dev, no existing authored quests used this type.

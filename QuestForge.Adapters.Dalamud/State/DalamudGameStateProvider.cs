@@ -329,6 +329,15 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         // Phase 7 placeholder: real TelepotTown hook implementation deferred
         => Task.FromResult<Result<AethernetId?>>(Result.Ok((AethernetId?)null));
 
+    /// <summary>
+    /// Part A stub — real IObjectTable scan deferred to part B (needs ClientStructs + actor filter).
+    /// Returns empty so the plugin compiles; CombatController will receive an empty list
+    /// and emit Engage(step, null) until part B lands.
+    /// </summary>
+    public Task<Result<IReadOnlyList<HostileActor>>> GetHostileActors(float radius, CancellationToken ct)
+        => Task.FromResult<Result<IReadOnlyList<HostileActor>>>(
+            Result.Ok<IReadOnlyList<HostileActor>>(Array.Empty<HostileActor>())); // IPC wiring in part B
+
     public Task<Result<TravelCapability>> GetTravelCapability(ZoneId destination, CancellationToken ct)
     {
         // CanFly: PlayerState.CanFly is set by the game on zone load and accounts for Aether Current unlocks.

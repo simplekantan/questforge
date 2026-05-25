@@ -131,15 +131,19 @@ public class RoundTripTests
     [Fact]
     public void CombatStep_RoundTrips()
     {
+        // CombatTarget retired in part A. CombatStep now uses KillEnemyDataIds + Spawn + Location.
         var step = new CombatStep
         {
             Id = "fight-bandits",
-            Target = new CombatTarget("nearestHostile", 20f),
-            Expect = new PredicateExpect { Predicate = "not playerInCombat()" }
+            KillEnemyDataIds = [100u, 200u],
+            Spawn = CombatSpawn.AutoOnEnterArea,
+            Expect = new PredicateExpect { Predicate = "questVariable(66104, 0) >= 3" }
         };
 
         var result = RoundTrip(step);
-        Assert.Equal("nearestHostile", result.Target.Kind);
+        Assert.Equal("fight-bandits", result.Id);
+        Assert.Equal(2, result.KillEnemyDataIds.Length);
+        Assert.Equal(CombatSpawn.AutoOnEnterArea, result.Spawn);
     }
 
     [Fact]
