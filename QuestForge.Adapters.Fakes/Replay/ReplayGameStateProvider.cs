@@ -197,6 +197,18 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
         return Task.FromResult(Materialize<TravelCapability>(obs.Value));
     }
 
+    // ----- Hostile actors (combat-only, step-gated) -----
+
+    /// <summary>
+    /// Not recorded in existing traces — combat steps are never active in pre-part-A fixtures.
+    /// Returns empty without scanning to prevent starvation (mirrors GetLastAethernetDestination
+    /// and IsAcceptableNow no-cascade pattern). Part B will record and replay this once
+    /// combat fixtures exist.
+    /// </summary>
+    public Task<Result<IReadOnlyList<HostileActor>>> GetHostileActors(float radius, CancellationToken ct)
+        => Task.FromResult<Result<IReadOnlyList<HostileActor>>>(
+            Result.Ok<IReadOnlyList<HostileActor>>(Array.Empty<HostileActor>()));
+
     // ----- Aethernet -----
 
     public Task<Result<AethernetId?>> GetLastAethernetDestination(CancellationToken ct)

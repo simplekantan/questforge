@@ -23,6 +23,8 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     private InstanceKind _instanceKind = InstanceKind.None;
     private NewGamePlusState _ngpState = new(false, null, false);
     private readonly List<NpcReference> _npcs = [];
+    private readonly List<HostileActor> _hostileActors = [];
+    private (string Reason, string? Detail)? _hostileActorsFailure;
     private readonly List<InteractableReference> _interactables = [];
     private readonly Dictionary<InteractableId, bool> _interactableActive = new();
     private readonly HashSet<AetheryteId> _attunedAetherytes = [];
@@ -69,6 +71,18 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     public void AddNpc(NpcReference npc)    { lock (_lock) _npcs.Add(npc); }
     public void RemoveNpc(NpcId id)         { lock (_lock) _npcs.RemoveAll(n => n.Id == id); }
     public void ClearNpcs()                 { lock (_lock) _npcs.Clear(); }
+
+    public void AddHostileActor(HostileActor actor)
+        { lock (_lock) _hostileActors.Add(actor); }
+
+    public void ClearHostileActors()
+        { lock (_lock) _hostileActors.Clear(); }
+
+    public void SetHostileActorsFailure(string reason, string? detail = null)
+        { lock (_lock) _hostileActorsFailure = (reason, detail); }
+
+    public void ClearHostileActorsFailure()
+        { lock (_lock) _hostileActorsFailure = null; }
 
     public void AddInteractable(InteractableReference interactable)
     {
@@ -222,6 +236,22 @@ public sealed class FakeGameStateProvider : IGameStateProvider
         {
             IReadOnlyList<NpcReference> nearby = _npcs.Where(n => n.DistanceToPlayer <= radius).ToArray();
             return Task.FromResult<Result<IReadOnlyList<NpcReference>>>(Result.Ok(nearby));
+        }
+    }
+
+    public Task<Result<IReadOnlyList<HostileActor>>> GetHostileActors(float radius, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        Record(nameof(GetHostileActors));
+        lock (_lock)
+        {
+            if (_hostileActorsFailure is { } f)
+                return Task.FromResult<Result<IReadOnlyList<HostileActor>>>(
+                    Result.Fail<IReadOnlyList<HostileActor>>(f.Reason, f.Detail));
+            IReadOnlyList<HostileActor> nearby = _hostileActors
+                .Where(a => a.DistanceToPlayer <= radius)
+                .ToArray();
+            return Task.FromResult<Result<IReadOnlyList<HostileActor>>>(Result.Ok(nearby));
         }
     }
 

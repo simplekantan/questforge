@@ -1,5 +1,6 @@
 using QuestForge.Adapters.Movement;
 using QuestForge.Adapters.Types;
+using QuestForge.Engine.Combat;
 using QuestForge.Schema;
 
 namespace QuestForge.Engine;
@@ -15,4 +16,10 @@ public abstract record EngineAction
     public sealed record Wait(string Reason, Step? Origin = null) : EngineAction;
     public sealed record AwaitUser(string Reason) : EngineAction;
     public sealed record Done : EngineAction;
+
+    /// <summary>
+    /// Emitted while a CombatStep is the active step and expect is unmet.
+    /// Target is the actor the CombatController selected this tick (null = nothing to attack).
+    /// </summary>
+    public sealed record Engage(CombatStep Step, KillTarget? Target) : EngineAction;
 }

@@ -6,58 +6,78 @@ namespace QuestForge.Adapters.Fakes.Combat;
 
 public sealed class FakeCombat : ICombat
 {
-    // One-shot scripted result — consumed after one engagement call, then reverts to default.
-    private CombatOutcome? _nextCombatResult;
-    private bool _combatPluginAvailable = true;
+    private bool _rotationModuleAvailable = true;
 
-    public record EngagementCall(NpcId? Target, float? Radius, DateTimeOffset At) : AdapterCall(At);
-    public CallLog<EngagementCall> RecordedEngagements { get; } = new();
+    // ---- Call logs ----
 
-    // ----- Scripting -----
-    public void ScriptNextCombatResult(CombatOutcome outcome) => _nextCombatResult = outcome;
-    public void SetCombatPluginAvailable(bool available) => _combatPluginAvailable = available;
+    public record TargetCall(ActorId? Target, bool IsClear, DateTimeOffset At) : AdapterCall(At);
+    public record RotationCall(string Method, DateTimeOffset At) : AdapterCall(At);
 
-    // ----- Reset -----
+    /// <summary>All SetTarget / ClearTarget calls in order.</summary>
+    public CallLog<TargetCall>   RecordedTargets  { get; } = new();
+
+    /// <summary>All StartRotation / StopRotation calls in order.</summary>
+    public CallLog<RotationCall> RecordedRotation { get; } = new();
+
+    // ---- Scripting ----
+
+    public void SetRotationModuleAvailable(bool available)
+        => _rotationModuleAvailable = available;
+
+    // ---- Reset ----
+
     public void Reset()
     {
-        RecordedEngagements.Clear();
-        _nextCombatResult = null;
+        RecordedTargets.Clear();
+        RecordedRotation.Clear();
     }
 
-    // ----- ICombat implementation -----
+    // ---- ICombat — rotation module ----
 
-    public Task<Result<CombatOutcome>> EngageTarget(NpcId target, CancellationToken ct)
+    public Task<Result<bool>> IsRotationModuleAvailable(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        RecordedEngagements.Add(new EngagementCall(target, null, DateTimeOffset.UtcNow));
-        return Task.FromResult<Result<CombatOutcome>>(Result.Ok(ConsumeResult()));
+        return Task.FromResult<Result<bool>>(Result.Ok(_rotationModuleAvailable));
     }
 
-    public Task<Result<CombatOutcome>> EngageNearestHostile(float radius, CancellationToken ct)
+    public Task<Result<RotationModuleInfo>> GetRotationModule(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        RecordedEngagements.Add(new EngagementCall(null, radius, DateTimeOffset.UtcNow));
-        return Task.FromResult<Result<CombatOutcome>>(Result.Ok(ConsumeResult()));
+        return Task.FromResult<Result<RotationModuleInfo>>(
+            Result.Ok(new RotationModuleInfo("FakeCombat", "0.0.0", LeaseHeld: false)));
     }
 
-    public Task<Result<Unit>> Disengage(CancellationToken ct)
+    public Task<Result<Unit>> StartRotation(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        RecordedRotation.Add(new RotationCall(nameof(StartRotation), DateTimeOffset.UtcNow));
         return Task.FromResult<Result<Unit>>(Result.Ok());
     }
 
-    public Task<Result<bool>> IsCombatPluginAvailable(CancellationToken ct)
+    public Task<Result<Unit>> StopRotation(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        return Task.FromResult<Result<bool>>(Result.Ok(_combatPluginAvailable));
+        RecordedRotation.Add(new RotationCall(nameof(StopRotation), DateTimeOffset.UtcNow));
+        return Task.FromResult<Result<Unit>>(Result.Ok());
     }
 
-    public Task<Result<CombatPluginInfo>> GetActiveCombatPlugin(CancellationToken ct)
+    // ---- ICombat — targeting ----
+
+    public Task<Result<Unit>> SetTarget(ActorId target, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var info = new CombatPluginInfo("FakeCombat", "0.0.0", true, true);
-        return Task.FromResult<Result<CombatPluginInfo>>(Result.Ok(info));
+        RecordedTargets.Add(new TargetCall(target, IsClear: false, DateTimeOffset.UtcNow));
+        return Task.FromResult<Result<Unit>>(Result.Ok());
     }
+
+    public Task<Result<Unit>> ClearTarget(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        RecordedTargets.Add(new TargetCall(null, IsClear: true, DateTimeOffset.UtcNow));
+        return Task.FromResult<Result<Unit>>(Result.Ok());
+    }
+
+    // ---- ICombat — direct action use (use-action step type, unchanged) ----
 
     public Task<Result<UseActionOutcome>> UseAction(uint actionId, NpcId? target, CancellationToken ct)
     {
@@ -75,16 +95,5 @@ public sealed class FakeCombat : ICombat
     {
         ct.ThrowIfCancellationRequested();
         return Task.FromResult<Result<bool>>(Result.Ok(true));
-    }
-
-    private CombatOutcome ConsumeResult()
-    {
-        if (_nextCombatResult.HasValue)
-        {
-            var outcome = _nextCombatResult.Value;
-            _nextCombatResult = null;
-            return outcome;
-        }
-        return CombatOutcome.TargetDefeated;
     }
 }

@@ -24,7 +24,8 @@ public interface IGameStateProvider
     Task<Result<NewGamePlusState>> GetNewGamePlusState(CancellationToken ct);
 
     // World/NPC state
-    Task<Result<IReadOnlyList<NpcReference>>> GetNearbyNpcs(float radius, CancellationToken ct);
+    Task<Result<IReadOnlyList<NpcReference>>>    GetNearbyNpcs(float radius, CancellationToken ct);
+    Task<Result<IReadOnlyList<HostileActor>>>    GetHostileActors(float radius, CancellationToken ct);
     Task<Result<NpcReference?>> FindNpc(NpcId npc, CancellationToken ct);
     Task<Result<IReadOnlyList<InteractableReference>>> GetNearbyInteractables(float radius, CancellationToken ct);
     Task<Result<InteractableReference?>> FindInteractable(InteractableId obj, CancellationToken ct);

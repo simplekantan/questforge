@@ -13,6 +13,7 @@ using QuestForge.Adapters.State;
 using QuestForge.Adapters.Timing;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
+using QuestForge.Engine.Combat;
 using QuestForge.Engine.Predicates;
 using QuestForge.Schema;
 
@@ -33,6 +34,9 @@ public sealed class QuestEngine
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly ExpectEvaluator _expectEvaluator;
+
+    /// <summary>Exposed for test inspection (EX-reset-on-advance). Internal to the engine assembly.</summary>
+    internal readonly CombatController _combatController;
 
     private QuestDefinition? _quest;
     private string? _runId;
@@ -77,7 +81,8 @@ public sealed class QuestEngine
         _trace = trace ?? throw new ArgumentNullException(nameof(trace));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-        _expectEvaluator = new ExpectEvaluator(new PredicateEvaluator(gameState, questState));
+        _expectEvaluator    = new ExpectEvaluator(new PredicateEvaluator(gameState, questState));
+        _combatController   = new CombatController(gameState, combat);
     }
 
     public void StartQuest(QuestDefinition quest)
@@ -360,6 +365,7 @@ public sealed class QuestEngine
             _confirmedStepIds.Clear();
             _resumePointExecutedIds.Clear();
             _activeResumeFragment = null;
+            _combatController.Reset();
         }
         _lastKnownSequence = currentSeq;
 
@@ -389,6 +395,10 @@ public sealed class QuestEngine
             if (step.Expect is not null && await _expectEvaluator.Evaluate(step.Expect, ct))
             {
                 _confirmedStepIds.Add(step.Id);
+                // If the confirmed step was a CombatStep, reset the controller so the next
+                // combat step starts with clean state.
+                if (step is CombatStep)
+                    _combatController.Reset();
                 continue;
             }
 
@@ -416,6 +426,27 @@ public sealed class QuestEngine
                 }
                 _activeResumeFragment = armed;
                 return (action!, stepId);
+            }
+
+            // 5. CombatStep async arm — step-gated so GetHostileActors is NEVER called on the
+            //    common per-tick path, preventing fixture-starvation for non-combat steps (D6).
+            if (step is CombatStep combatStep)
+            {
+                // Navigate-first leg: if Location is set and player is out of range, navigate there.
+                // Controller is NOT consulted this tick (no GetHostileActors read).
+                if (combatStep.Location is not null)
+                {
+                    var navigateAction = ResolveInteractOrNavigate(
+                        step, combatStep.Location.Position, playerPos,
+                        // Stand-in interact — will be replaced if in-range (irrelevant, overridden below):
+                        new EngineAction.Wait("combat-navigate-sentinel"));
+                    if (navigateAction is EngineAction.Navigate nav)
+                        return (nav, step.Id);
+                }
+
+                // Engage leg: call controller for target selection.
+                var decision = await _combatController.Decide(combatStep, ct);
+                return (new EngineAction.Engage(combatStep, decision.Target), step.Id);
             }
 
             return (ResolveActionForStep(step, ui, playerPos), step.Id);

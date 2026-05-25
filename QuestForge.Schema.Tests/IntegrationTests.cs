@@ -84,7 +84,7 @@ public class IntegrationTests
                             [
                                 new BranchCase(
                                     "playerLevel() >= 15",
-                                    [new CombatStep { Id = "fight-enemy", Target = new CombatTarget("nearestHostile", 20f), Expect = new PredicateExpect { Predicate = "not playerInCombat()" } }]
+                                    [new CombatStep { Id = "fight-enemy", KillEnemyDataIds = [100u], Spawn = CombatSpawn.AutoOnEnterArea, Expect = new PredicateExpect { Predicate = "questVariable(65657, 0) >= 1" } }]
                                 ),
                                 new BranchCase(
                                     "default",

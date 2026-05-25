@@ -87,7 +87,40 @@ public class TurnInStep : Step
 
 public class CombatStep : Step
 {
-    public CombatTarget Target { get; init; } = default!;
+    /// <summary>
+    /// Set of BNpc base data-ids to defeat.
+    /// Empty + <see cref="CombatSpawn.AutoOnEnterArea"/> means "all hostiles in the arena".
+    /// </summary>
+    public uint[] KillEnemyDataIds { get; init; } = [];
+
+    /// <summary>
+    /// v1 spawn type.
+    /// autoOnEnterArea: a fixed set already present on arena entry.
+    /// overworldEnemies: kill N of possibly-many free-roaming mobs.
+    /// </summary>
+    public CombatSpawn Spawn { get; init; } = CombatSpawn.AutoOnEnterArea;
+
+    /// <summary>
+    /// Coarse "get to the arena" navigation — mirrors AttunementStep.Location.
+    /// When present and the player is beyond StopDistance, the engine emits Navigate first.
+    /// </summary>
+    public NpcLocation? Location { get; init; }
+
+    // Completion is the inherited Step.Expect (questVariable/questFlag/questSequence). REQUIRED
+    // for combat in practice; the validator warns when absent.
+}
+
+/// <summary>
+/// Describes how/when enemies spawn for a combat step.
+/// Serialised as camelCase via JsonStringEnumConverter.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<CombatSpawn>))]
+public enum CombatSpawn
+{
+    [System.Text.Json.Serialization.JsonStringEnumMemberName("autoOnEnterArea")]
+    AutoOnEnterArea,
+    [System.Text.Json.Serialization.JsonStringEnumMemberName("overworldEnemies")]
+    OverworldEnemies
 }
 
 public class DutyStep : Step

@@ -3,27 +3,38 @@ using QuestForge.Adapters.Types;
 
 namespace QuestForge.Adapters.Dalamud.Combat;
 
-// Phase 6 placeholder — quest 66130 never enters combat.
-// WrathCombo IPC wiring deferred to a later phase.
+/// <summary>
+/// Part A stub — reshapes to the new ICombat surface.
+/// All rotation-module and targeting methods return stubs until WrathCombo IPC is wired in part B.
+/// </summary>
 public sealed class WrathComboAdapter : ICombat
 {
     public WrathComboAdapter(PluginServices svc) { }
 
-    public Task<Result<bool>> IsCombatPluginAvailable(CancellationToken ct)
+    // ---- rotation module (stubs — IPC wiring in part B) ----
+
+    public Task<Result<bool>> IsRotationModuleAvailable(CancellationToken ct)
         => Task.FromResult<Result<bool>>(Result.Ok(false));
 
-    public Task<Result<CombatPluginInfo>> GetActiveCombatPlugin(CancellationToken ct)
-        => Task.FromResult<Result<CombatPluginInfo>>(
-            Result.Fail<CombatPluginInfo>("noCombatPlugin", "WrathCombo IPC not wired in Phase 6"));
+    public Task<Result<RotationModuleInfo>> GetRotationModule(CancellationToken ct)
+        => Task.FromResult<Result<RotationModuleInfo>>(
+            Result.Fail<RotationModuleInfo>("notAvailable", "WrathCombo IPC not wired in part A"));
 
-    public Task<Result<CombatOutcome>> EngageTarget(NpcId target, CancellationToken ct)
-        => Task.FromResult<Result<CombatOutcome>>(Result.Ok(CombatOutcome.NoCombatPlugin));
+    public Task<Result<Unit>> StartRotation(CancellationToken ct)
+        => Task.FromResult<Result<Unit>>(Result.Ok()); // IPC wiring in part B
 
-    public Task<Result<CombatOutcome>> EngageNearestHostile(float radius, CancellationToken ct)
-        => Task.FromResult<Result<CombatOutcome>>(Result.Ok(CombatOutcome.NoCombatPlugin));
+    public Task<Result<Unit>> StopRotation(CancellationToken ct)
+        => Task.FromResult<Result<Unit>>(Result.Ok()); // IPC wiring in part B
 
-    public Task<Result<Unit>> Disengage(CancellationToken ct)
-        => Task.FromResult<Result<Unit>>(Result.Ok());
+    // ---- targeting (stubs — TargetManager writes in part B) ----
+
+    public Task<Result<Unit>> SetTarget(ActorId target, CancellationToken ct)
+        => Task.FromResult<Result<Unit>>(Result.Ok()); // IPC wiring in part B
+
+    public Task<Result<Unit>> ClearTarget(CancellationToken ct)
+        => Task.FromResult<Result<Unit>>(Result.Ok()); // IPC wiring in part B
+
+    // ---- direct action use (use-action step type — unchanged) ----
 
     public Task<Result<UseActionOutcome>> UseAction(uint actionId, NpcId? target, CancellationToken ct)
         => Task.FromResult<Result<UseActionOutcome>>(Result.Ok(UseActionOutcome.Failed));

@@ -14,6 +14,7 @@ namespace QuestForge.Schema;
 [JsonSerializable(typeof(AcceptStep))]
 [JsonSerializable(typeof(TurnInStep))]
 [JsonSerializable(typeof(CombatStep))]
+[JsonSerializable(typeof(CombatSpawn))]
 [JsonSerializable(typeof(DutyStep))]
 [JsonSerializable(typeof(CutsceneStep))]
 [JsonSerializable(typeof(SayChatMessageStep))]
