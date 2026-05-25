@@ -1,6 +1,17 @@
+using QuestForge.Adapters.Combat;
+using QuestForge.Adapters.Fakes.Combat;
+using QuestForge.Adapters.Fakes.Gear;
+using QuestForge.Adapters.Fakes.Interaction;
+using QuestForge.Adapters.Fakes.Minigames;
 using QuestForge.Adapters.Fakes.Movement;
 using QuestForge.Adapters.Fakes.State;
+using QuestForge.Adapters.Fakes.Timing;
+using QuestForge.Adapters.Gear;
+using QuestForge.Adapters.Interaction;
+using QuestForge.Adapters.Minigames;
+using QuestForge.Adapters.Movement;
 using QuestForge.Adapters.State;
+using QuestForge.Adapters.Timing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine;
 
@@ -19,7 +30,7 @@ namespace QuestForge.Engine.Tests.Replay;
 /// 3. Navigate(travel-to-momodi) emitted → set position to Momodi → predicate will flip next tick
 /// 4. Interact(talk-to-momodi) emitted  → set isComplete=true → Done on next tick
 /// </summary>
-internal sealed class SimpleLinearAcceptanceState
+internal sealed class SimpleLinearAcceptanceState : IFixtureState
 {
     private static readonly QuestId Quest66130 = new(66130);
     private static readonly WorldPosition WymondPos = new(35.56f, 4.0f, -151.18f);
@@ -31,10 +42,23 @@ internal sealed class SimpleLinearAcceptanceState
     public FakeGameStateProvider GameState { get; } = new();
     public FakeQuestState QuestState { get; } = new();
     public FakeNavigator Navigator { get; }
+    public ITeleporter Teleporter { get; }
+    public IInteractor Interactor { get; }
+    public ICombat Combat { get; } = new FakeCombat();
+    public IGearManager Gear { get; } = new FakeGearManager();
+    public IMinigameSkipper Minigames { get; } = new FakeMinigameSkipper();
+    public IDialogueResolver Dialogue { get; } = new FakeDialogueResolver();
+    public ITimingProfile Timing { get; } = new FakeTimingProfile();
+
+    IGameStateProvider IFixtureState.GameState => GameState;
+    IQuestState IFixtureState.QuestState => QuestState;
+    INavigator IFixtureState.Navigator => Navigator;
 
     public SimpleLinearAcceptanceState()
     {
-        Navigator = new FakeNavigator(GameState);
+        Navigator  = new FakeNavigator(GameState);
+        Teleporter = new FakeTeleporter(GameState);
+        Interactor = new FakeInteractor(GameState, QuestState);
 
         // Initial state: zone 182, away from Wymond, quest not started
         GameState.SetZone(new ZoneId(182));
@@ -42,6 +66,8 @@ internal sealed class SimpleLinearAcceptanceState
         QuestState.SetQuestSequence(Quest66130, 0);
         QuestState.SetQuestStatus(Quest66130, QuestStatus.Available);
     }
+
+    public void OnTransitionRecorded(EngineAction action, int tick) { }
 
     public void OnTick(EngineAction action, int tick)
     {

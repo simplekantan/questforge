@@ -13,72 +13,85 @@ namespace QuestForge.Adapters.Fakes.Replay;
 /// </summary>
 public sealed class ReplayGameStateProvider : IGameStateProvider
 {
-    private readonly ObservationScanner _scanner;
+    private readonly ObservationScanner? _legacyScanner;
+    private readonly SegmentedObservationScanner? _segmentedScanner;
 
     public ReplayGameStateProvider(IReadOnlyList<ObservationEvent> observations)
     {
-        _scanner = new ObservationScanner(observations);
+        _legacyScanner = new ObservationScanner(observations);
+    }
+
+    public ReplayGameStateProvider(SegmentedObservationScanner scanner)
+    {
+        _segmentedScanner = scanner;
+    }
+
+    private ObservationEvent ScanNext(string method, object? argument)
+    {
+        if (_segmentedScanner is not null)
+            return _segmentedScanner.Next(method, argument);
+        return _legacyScanner!.Next(method, argument);
     }
 
     // ----- Player state -----
 
     public Task<Result<PlayerStateSnapshot>> GetPlayerState(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetPlayerState), null);
+        var obs = ScanNext(nameof(GetPlayerState), null);
         return Task.FromResult(Materialize<PlayerStateSnapshot>(obs.Value));
     }
 
     public Task<Result<WorldPosition>> GetPlayerPosition(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetPlayerPosition), null);
+        var obs = ScanNext(nameof(GetPlayerPosition), null);
         return Task.FromResult(Materialize<WorldPosition>(obs.Value));
     }
 
     public Task<Result<ZoneId>> GetPlayerZone(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetPlayerZone), null);
+        var obs = ScanNext(nameof(GetPlayerZone), null);
         return Task.FromResult(Materialize<ZoneId>(obs.Value));
     }
 
     public Task<Result<bool>> IsPlayerInCombat(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(IsPlayerInCombat), null);
+        var obs = ScanNext(nameof(IsPlayerInCombat), null);
         return Task.FromResult(Materialize<bool>(obs.Value));
     }
 
     public Task<Result<MountState>> GetMountState(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetMountState), null);
+        var obs = ScanNext(nameof(GetMountState), null);
         return Task.FromResult(Materialize<MountState>(obs.Value));
     }
 
     public Task<Result<bool>> IsPlayerDiving(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(IsPlayerDiving), null);
+        var obs = ScanNext(nameof(IsPlayerDiving), null);
         return Task.FromResult(Materialize<bool>(obs.Value));
     }
 
     public Task<Result<bool>> IsPlayerCasting(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(IsPlayerCasting), null);
+        var obs = ScanNext(nameof(IsPlayerCasting), null);
         return Task.FromResult(Materialize<bool>(obs.Value));
     }
 
     public Task<Result<bool>> IsPlayerDead(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(IsPlayerDead), null);
+        var obs = ScanNext(nameof(IsPlayerDead), null);
         return Task.FromResult(Materialize<bool>(obs.Value));
     }
 
     public Task<Result<JobId>> GetCurrentJob(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetCurrentJob), null);
+        var obs = ScanNext(nameof(GetCurrentJob), null);
         return Task.FromResult(Materialize<JobId>(obs.Value));
     }
 
     public Task<Result<int>> GetJobLevel(JobId job, CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetJobLevel), job);
+        var obs = ScanNext(nameof(GetJobLevel), job);
         return Task.FromResult(Materialize<int>(obs.Value));
     }
 
@@ -86,13 +99,13 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
 
     public Task<Result<InstanceKind>> GetCurrentInstanceKind(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetCurrentInstanceKind), null);
+        var obs = ScanNext(nameof(GetCurrentInstanceKind), null);
         return Task.FromResult(Materialize<InstanceKind>(obs.Value));
     }
 
     public Task<Result<DutyAvailability>> GetDutyAvailability(DutyId duty, CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetDutyAvailability), duty);
+        var obs = ScanNext(nameof(GetDutyAvailability), duty);
         return Task.FromResult(Materialize<DutyAvailability>(obs.Value));
     }
 
@@ -100,7 +113,7 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
 
     public Task<Result<NewGamePlusState>> GetNewGamePlusState(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetNewGamePlusState), null);
+        var obs = ScanNext(nameof(GetNewGamePlusState), null);
         return Task.FromResult(Materialize<NewGamePlusState>(obs.Value));
     }
 
@@ -108,43 +121,43 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
 
     public Task<Result<IReadOnlyList<NpcReference>>> GetNearbyNpcs(float radius, CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetNearbyNpcs), radius);
+        var obs = ScanNext(nameof(GetNearbyNpcs), radius);
         return Task.FromResult(Materialize<IReadOnlyList<NpcReference>>(obs.Value));
     }
 
     public Task<Result<NpcReference?>> FindNpc(NpcId npc, CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(FindNpc), npc);
+        var obs = ScanNext(nameof(FindNpc), npc);
         return Task.FromResult(Materialize<NpcReference?>(obs.Value));
     }
 
     public Task<Result<IReadOnlyList<InteractableReference>>> GetNearbyInteractables(float radius, CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetNearbyInteractables), radius);
+        var obs = ScanNext(nameof(GetNearbyInteractables), radius);
         return Task.FromResult(Materialize<IReadOnlyList<InteractableReference>>(obs.Value));
     }
 
     public Task<Result<InteractableReference?>> FindInteractable(InteractableId obj, CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(FindInteractable), obj);
+        var obs = ScanNext(nameof(FindInteractable), obj);
         return Task.FromResult(Materialize<InteractableReference?>(obs.Value));
     }
 
     public Task<Result<bool>> IsInteractableActive(InteractableId obj, CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(IsInteractableActive), obj);
+        var obs = ScanNext(nameof(IsInteractableActive), obj);
         return Task.FromResult(Materialize<bool>(obs.Value));
     }
 
     public Task<Result<bool>> IsAetheryteAttuned(AetheryteId aetheryte, CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(IsAetheryteAttuned), aetheryte);
+        var obs = ScanNext(nameof(IsAetheryteAttuned), aetheryte);
         return Task.FromResult(Materialize<bool>(obs.Value));
     }
 
     public Task<Result<IReadOnlyList<AetheryteId>>> GetAttunedAetherytes(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetAttunedAetherytes), null);
+        var obs = ScanNext(nameof(GetAttunedAetherytes), null);
         return Task.FromResult(Materialize<IReadOnlyList<AetheryteId>>(obs.Value));
     }
 
@@ -152,7 +165,7 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
 
     public Task<Result<UiState>> GetUiState(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetUiState), null);
+        var obs = ScanNext(nameof(GetUiState), null);
         return Task.FromResult(Materialize<UiState>(obs.Value));
     }
 
@@ -160,19 +173,19 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
 
     public Task<Result<int>> GetFreeInventorySlots(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetFreeInventorySlots), null);
+        var obs = ScanNext(nameof(GetFreeInventorySlots), null);
         return Task.FromResult(Materialize<int>(obs.Value));
     }
 
     public Task<Result<int>> GetItemCount(ItemId item, CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetItemCount), item);
+        var obs = ScanNext(nameof(GetItemCount), item);
         return Task.FromResult(Materialize<int>(obs.Value));
     }
 
     public Task<Result<long>> GetGil(CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetGil), null);
+        var obs = ScanNext(nameof(GetGil), null);
         return Task.FromResult(Materialize<long>(obs.Value));
     }
 
@@ -180,7 +193,7 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
 
     public Task<Result<TravelCapability>> GetTravelCapability(ZoneId destination, CancellationToken ct)
     {
-        var obs = _scanner.Next(nameof(GetTravelCapability), destination);
+        var obs = ScanNext(nameof(GetTravelCapability), destination);
         return Task.FromResult(Materialize<TravelCapability>(obs.Value));
     }
 
