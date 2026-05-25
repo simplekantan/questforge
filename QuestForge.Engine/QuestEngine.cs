@@ -342,6 +342,16 @@ public sealed class QuestEngine
         var zoneResult = await _gameState.GetPlayerZone(ct);
         var playerZone = zoneResult is Result<ZoneId>.Success { Value: var z } ? (ZoneId?)z : null;
 
+        // Read the active quest's work variables (V0–V5) once per tick.
+        // WHY (no consumer yet): this read exists purely so the recording proxy
+        // (RecordingQuestState) captures a GetQuestVariables observation — it dedups and
+        // emits one ONLY when the bytes change, so going-forward traces carry variable
+        // changes. It is also anticipatory: the imminent questVariable(...) predicate will
+        // read variables through this same IQuestState path. The result is intentionally
+        // DISCARDED — it must never influence the engine's decision this tick. Fail-open
+        // like the sibling reads (no branch, no throw).
+        _ = await _questState.GetQuestVariables(questId, ct);
+
         // Detect sequence change and clear the confirmed-step cursor.
         // Confirmations are scoped to the current sequence block - when the game advances
         // (or rewinds) to a new sequence, prior confirmations are no longer meaningful.

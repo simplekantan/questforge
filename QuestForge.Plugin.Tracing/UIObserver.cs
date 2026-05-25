@@ -241,8 +241,9 @@ public sealed class UIObserver : IDisposable
             _aggregator?.OnQuestVariablesUpdated(publicId, variables);
 
             // Passive trace — dedup in TraceSession suppresses unchanged values.
-            WriteObservation("GetQuestSequence", publicId.Value, (int)seq, runId, now);
-            WriteObservation("GetQuestFlags",    publicId.Value, (int)flags, runId, now);
+            WriteObservation("GetQuestSequence",  publicId.Value, (int)seq, runId, now);
+            WriteObservation("GetQuestFlags",     publicId.Value, (int)flags, runId, now);
+            WriteObservation("GetQuestVariables", publicId.Value, variables.ToList(), runId, now);
         }
 
         // Detect removed quests

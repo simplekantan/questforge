@@ -285,6 +285,7 @@ public sealed class TraceReplayFixtureStateTests
             MakeObsLine("GetUiState",        null,                   """{"value":0}"""),
             MakeObsLine("GetPlayerPosition", null,                   """{"x":44.7,"y":4.0,"z":-148.7}"""),
             MakeObsLine("GetPlayerZone",     null,                   """{"value":182}"""),
+            MakeObsLine("GetQuestVariables", """{"value":66130}""",  """[0,0,0,0,0,0]"""),
             MakeObsLine("GetQuestStatus",    """{"value":66130}""",  """0"""),
             MakeObsLine("IsQuestAvailable",  """{"value":66130}""",  """true"""),
             MakeObsLine("IsQuestAccepted",   """{"value":66130}""",  """false"""),
@@ -478,21 +479,23 @@ public sealed class TraceReplayFixtureStateTests
     // GROUP D — Starvation vs regression failure modes
     // =====================================================================
 
-    /// <summary>D1 — truncated trace → starvation → actionable Assert.Fail (not uncaught exception).</summary>
+    /// <summary>
+    /// D1 — truncated trace → starvation → xUnit skip (Xunit.Sdk.SkipException), not a fail.
+    ///
+    /// The builder changes WrapTickForStarvation from Assert.Fail(...) to Assert.Skip(...).
+    /// This test asserts the starvation path produces a Xunit.Sdk.SkipException with an
+    /// actionable message ("re-record" + the fixture filename), and that the raw
+    /// ReplayObservationStarvationException is NOT surfaced to the caller.
+    ///
+    /// RED signal (current code): WrapTickForStarvation calls Assert.Fail, which throws
+    /// Xunit.Sdk.FailException — NOT Xunit.Sdk.SkipException. Assert.IsType&lt;SkipException&gt;
+    /// below will therefore fail with "Expected type: SkipException, Actual type: FailException".
+    /// </summary>
     [Fact]
-    public async Task D1_TruncatedTrace_StarvesDuringTick_SurfacesActionableAssertFail()
+    public async Task D1_TruncatedTrace_StarvesDuringTick_SurfacesSkipNotFail()
     {
-        // Construct a TraceReplayFixtureState from a deliberately truncated trace
-        // (only GetPlayerZone present; engine will need more on tick 1).
-        // Drive the engine through WrapTickForStarvation.
-        // Assert the thrown exception contains "OBSERVATION STARVATION" and "re-record"
-        // — not an uncaught ReplayObservationStarvationException.
-        //
-        // RED: TraceReplayFixtureState, InertNavigator, InertTeleporter, InertInteractor,
-        //      and EngineFixtureTests.WrapTickForStarvation do not exist → CS0246 / CS0117.
-
+        // Given a trace with only GetPlayerZone (engine reads many more observations on first tick).
         var truncatedPath = WriteTempTrace(
-            // Only GetPlayerZone — engine reads many more things on first tick
             MakeObsLine("GetPlayerZone", null, """{"value":182}""")
         );
 
@@ -512,17 +515,121 @@ public sealed class TraceReplayFixtureStateTests
         engine.StartQuest(quest);
         engine.BeginRun("d1-run");
 
-        // WrapTickForStarvation wraps engine.Tick(ct) and converts starvation to Assert.Fail.
-        // CS0117: WrapTickForStarvation does not exist yet.
+        const string traceFileName = "truncated.trace.jsonl";
+
+        // WrapTickForStarvation must throw on starvation.
         var ex = await Assert.ThrowsAnyAsync<Exception>(
             () => EngineFixtureTests.WrapTickForStarvation(
-                engine, "truncated.trace.jsonl", CancellationToken.None));
+                engine, traceFileName, CancellationToken.None));
 
-        // The failure must be an Assert.Fail (Xunit.Sdk.XunitException or similar),
-        // not a raw ReplayObservationStarvationException.
-        Assert.IsNotType<ReplayObservationStarvationException>(ex);
-        Assert.Contains("OBSERVATION STARVATION", ex.Message, StringComparison.OrdinalIgnoreCase);
+        // RED: currently Assert.Fail throws Xunit.Sdk.FailException, not Xunit.Sdk.SkipException.
+        // After the builder's change (Fail → Skip) this assertion will pass.
+        Assert.IsType<Xunit.Sdk.SkipException>(ex);
+
+        // The skip reason must be actionable: mention "re-record" and name the fixture file.
         Assert.Contains("re-record", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(traceFileName, ex.Message, StringComparison.Ordinal);
+
+        // The raw starvation exception must NOT escape — it must be wrapped in the skip.
+        Assert.IsNotType<ReplayObservationStarvationException>(ex);
+    }
+
+    /// <summary>
+    /// D1b — starvation skip message is self-sufficient: contains "re-record needed" and
+    /// the fixture filename so CI output is actionable without looking at the stack trace.
+    ///
+    /// Complements D1 by pinning the exact phrase contract on the skip reason, independent
+    /// of whether D1's IsType assertion passes or fails.
+    ///
+    /// RED signal (current code): Assert.Fail message contains "OBSERVATION STARVATION" and
+    /// "re-record" but the thrown type is FailException. This test separately asserts the
+    /// type is SkipException, so it is also RED until the builder makes the change.
+    /// </summary>
+    [Fact]
+    public async Task D1b_StarvationSkip_MessageContainsReRecordAndFixtureName()
+    {
+        var truncatedPath = WriteTempTrace(
+            MakeObsLine("GetPlayerZone", null, """{"value":182}""")
+        );
+
+        var state = TraceReplayFixtureState.FromTraceFile(truncatedPath);
+
+        var questJson = await File.ReadAllTextAsync(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "66130.json"));
+        var quest = JsonSerializer.Deserialize<QuestForge.Schema.QuestDefinition>(
+            questJson, QuestForge.Schema.QuestForgeJsonContext.QuestFileOptions)!;
+
+        var engine = new QuestEngine(
+            state.GameState, state.QuestState,
+            state.Navigator, state.Teleporter, state.Interactor,
+            state.Combat, state.Gear, state.Minigames, state.Dialogue, state.Timing,
+            new CapturingTraceWriter(), NullLogger<QuestEngine>.Instance);
+
+        engine.StartQuest(quest);
+        engine.BeginRun("d1b-run");
+
+        const string traceFileName = "my-quest.trace.jsonl";
+
+        var ex = await Assert.ThrowsAnyAsync<Exception>(
+            () => EngineFixtureTests.WrapTickForStarvation(
+                engine, traceFileName, CancellationToken.None));
+
+        // The message must identify this as a "re-record needed" skip (not a decision regression).
+        Assert.Contains("re-record", ex.Message, StringComparison.OrdinalIgnoreCase);
+
+        // The fixture filename must appear verbatim so the developer knows which file to re-record.
+        Assert.Contains(traceFileName, ex.Message, StringComparison.Ordinal);
+
+        // RED: the type must be SkipException (not FailException) for this to be a skip, not fail.
+        Assert.IsType<Xunit.Sdk.SkipException>(ex);
+    }
+
+    /// <summary>
+    /// D4 — transition mismatch stays as Assert.Equal failure, NOT a skip.
+    ///
+    /// This pins the two-failure-mode separation (§2.4 of FIXTURE_REPLAY_HARNESS_PLAN.md):
+    /// - Observation starvation (engine reads an unrecorded (method,arg)) → Skip (re-record needed).
+    /// - Decision regression (engine emits wrong action/step for matching observations) → Fail (Assert.Equal).
+    ///
+    /// A decision regression must remain an Assert.Equal mismatch (EqualException) so it
+    /// does NOT silently skip — a regression must block CI, not defer it.
+    ///
+    /// This test asserts that simulated transition mismatches throw EqualException (or a
+    /// subtype of XunitException that is NOT SkipException), confirming the two modes are
+    /// independently handled.
+    ///
+    /// Currently PASSES (transition assertions still use Assert.Equal — the builder must not
+    /// change that path). Kept here as a guardian so any future refactor that accidentally
+    /// converts regressions to skips will be caught.
+    /// </summary>
+    [Fact]
+    public void D4_TransitionMismatch_SurfacesAsAssertEqualFailure_NotAsSkip()
+    {
+        // Simulate the transition assertion block from EngineProducesExpectedTransitions.
+        // The "actual" transition is navigate; the "expected" says interact.
+        // The resulting exception must be Xunit.Sdk.EqualException (not SkipException).
+
+        var actualTransitions   = new List<(string? StepId, string ActionType)> { ("step-1", "navigate") };
+        var expectedTransitions = new[] { new EngineFixtureTests.FixtureTransition("step-1", "interact") };
+
+        var ex = Record.Exception(() =>
+        {
+            Assert.Equal(expectedTransitions.Length, actualTransitions.Count);
+            for (var i = 0; i < expectedTransitions.Length; i++)
+            {
+                Assert.Equal(expectedTransitions[i].StepId,     actualTransitions[i].StepId);
+                Assert.Equal(expectedTransitions[i].ActionType, actualTransitions[i].ActionType);
+            }
+        });
+
+        // A transition mismatch must throw (i.e., not silently pass).
+        Assert.NotNull(ex);
+
+        // It must NOT be a skip — a regression must fail CI, not defer it.
+        Assert.IsNotType<Xunit.Sdk.SkipException>(ex);
+
+        // It must be an xUnit assertion exception (the transition was asserted, not starvation).
+        Assert.IsAssignableFrom<Xunit.Sdk.XunitException>(ex);
     }
 
     /// <summary>
@@ -558,12 +665,14 @@ public sealed class TraceReplayFixtureStateTests
             MakeObsLine("GetUiState",        null,                   """{"value":0}"""),
             MakeObsLine("GetPlayerPosition", null,                   """{"x":44.7,"y":4.0,"z":-148.7}"""),
             MakeObsLine("GetPlayerZone",     null,                   """{"value":182}"""),
+            MakeObsLine("GetQuestVariables", """{"value":66130}""",  """[0,0,0,0,0,0]"""),
             MakeObsLine("GetQuestStatus",    """{"value":66130}""",  """0"""),
             MakeObsLine("IsQuestAvailable",  """{"value":66130}""",  """true"""),
             MakeObsLine("IsQuestAccepted",   """{"value":66130}""",  """false"""),
             // Extra coverage so the engine doesn't starve on follow-up reads
             MakeObsLine("GetPlayerPosition", null,                   """{"x":44.7,"y":4.0,"z":-148.7}"""),
             MakeObsLine("GetPlayerZone",     null,                   """{"value":182}"""),
+            MakeObsLine("GetQuestVariables", """{"value":66130}""",  """[0,0,0,0,0,0]"""),
         };
 
         var tracePath = WriteTempTrace(obsLines);
