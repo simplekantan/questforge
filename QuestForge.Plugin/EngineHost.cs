@@ -52,6 +52,10 @@ public sealed class EngineHost : IDisposable
     private string? _runId;
     private QuestId _currentQuestId;
 
+    // True once the engine has emitted its own terminal run.end ("done"/"awaitUser") for the
+    // current run, so EndRun must not append a redundant "ended" run.end. Reset per BeginRun.
+    private bool _engineEmittedRunEnd;
+
     // Saved cutscene skip settings — null means not saved (no run active or settings not changed)
     private uint? _savedCutsceneSkipContents;
     private uint? _savedCutsceneSkipShip;
@@ -152,6 +156,7 @@ public sealed class EngineHost : IDisposable
 
         EnableCutsceneSkip();
         _runId          = runId;
+        _engineEmittedRunEnd = false;
         _currentQuestId = new QuestId(quest.Id);
         _timing.Reseed(StableHash(runId));
         _traceSession.OnQuestRunStart(quest.Id);
@@ -314,6 +319,7 @@ public sealed class EngineHost : IDisposable
             case EngineAction.AwaitUser au:
                 _services.Log.Warning($"QuestForge run {_runId} paused: {au.Reason}");
                 _services.ChatGui.PrintError($"QuestForge: run paused — {au.Reason}");
+                _engineEmittedRunEnd = true;  // engine already wrote the "awaitUser" run.end
                 if (_autoMode)
                 {
                     StopAutoMode();
@@ -328,6 +334,7 @@ public sealed class EngineHost : IDisposable
             case EngineAction.Done:
                 _services.Log.Info($"QuestForge run {_runId} complete");
                 _services.ChatGui.Print("QuestForge: quest complete!");
+                _engineEmittedRunEnd = true;  // engine already wrote the "done" run.end
                 EndRun();
                 break;
         }
@@ -429,7 +436,7 @@ public sealed class EngineHost : IDisposable
 
     private void EndRun()
     {
-        if (_runId is not null)
+        if (_runId is not null && !_engineEmittedRunEnd)
             _traceSession.Write(new RunEndEvent(_runId, "ended", DateTimeOffset.UtcNow));
         _engine      = null;
         _recordingQs = null;
