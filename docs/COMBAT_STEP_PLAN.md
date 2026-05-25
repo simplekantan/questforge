@@ -6,6 +6,8 @@
 
 This plan captures the research behind issue #6 and the design revisions it forces. It is deliberately broader than the one-line issue: combat is **deceptively large** because the targeting/movement/completion logic is ours, not the combat plugin's.
 
+> **Clean-room policy (important).** Questionable and WrathCombo are studied here as *behavioral* references only — to understand the problem space and sanity-check our design. We do **not** copy, port, or adapt their source code; QuestForge designs and writes its own solutions from scratch. Code-level details cited below (kill-priority weights, config option names, control flow) document *what the game/plugin requires*, not a blueprint to transcribe — our implementation must be independently derived. The one legitimate exception is *calling* WrathCombo's published IPC API (an integration surface, like any plugin dependency); that is normal interop, and we still write our own adapter against it.
+
 ---
 
 ## 1. Problem statement
