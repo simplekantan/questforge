@@ -239,4 +239,24 @@ public sealed class DalamudQuestState : IQuestState
     public Task<Result<IReadOnlyList<QuestReward>>> GetAvailableQuestRewards(CancellationToken ct)
         => Task.FromResult<Result<IReadOnlyList<QuestReward>>>(
             Result.Ok<IReadOnlyList<QuestReward>>(Array.Empty<QuestReward>()));
+
+    public Task<Result<IReadOnlyList<byte>>> GetQuestVariables(QuestId quest, CancellationToken ct)
+    {
+        unsafe
+        {
+            var qm = QuestManager.Instance();
+            if (qm == null)
+                return Task.FromResult<Result<IReadOnlyList<byte>>>(
+                    Result.Fail<IReadOnlyList<byte>>("questManagerNull", "QuestManager instance unavailable"));
+
+            var q = qm->GetQuestById(ToInternal(quest));
+            if (q == null)
+                return Task.FromResult<Result<IReadOnlyList<byte>>>(Result.Ok<IReadOnlyList<byte>>(new byte[6]));
+
+            var span = q->Variables;
+            var bytes = new byte[6];
+            for (var i = 0; i < 6; i++) bytes[i] = span[i];
+            return Task.FromResult<Result<IReadOnlyList<byte>>>(Result.Ok<IReadOnlyList<byte>>(bytes));
+        }
+    }
 }

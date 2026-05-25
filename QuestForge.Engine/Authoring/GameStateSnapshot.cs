@@ -73,4 +73,10 @@ public sealed record GameStateSnapshot(
     // so StepFactory emits {type:"yesno"} rather than a spurious {type:"list"} choice.
     // Cleared alongside DialogueOptionSelected by OnDialogueOptionConsumed.
     public bool SelectYesnoConfirmed { get; init; }
+
+    // Non-positional: does not affect existing constructor call sites.
+    // The six quest work bytes (V0–V5) of the ActiveQuest, captured in Author mode.
+    // Null when no variables have been observed (e.g. Inspect mode, or before the first
+    // heartbeat poll). Always length 6 when non-null.
+    public IReadOnlyList<byte>? QuestVariables { get; init; }
 }

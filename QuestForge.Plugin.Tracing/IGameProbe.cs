@@ -7,7 +7,7 @@ namespace QuestForge.Plugin.Tracing;
 /// </summary>
 public interface IGameProbe
 {
-    IReadOnlyList<(ushort QuestId, byte Seq, byte Flags)> GetNormalQuests();
+    IReadOnlyList<(ushort QuestId, byte Seq, byte Flags, IReadOnlyList<byte> Variables)> GetNormalQuests();
     bool IsAetheryteUnlocked(uint rowId);
     IEnumerable<uint> GetAllAetheryteRowIds();
     IReadOnlyList<(uint ItemId, int Qty)> GetKeyItemSlots();

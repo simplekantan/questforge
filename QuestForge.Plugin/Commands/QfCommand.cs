@@ -456,6 +456,25 @@ internal sealed class QfCommand : IDisposable
                 .Concat(c2.MIN ? ["MIN"] : []).Concat(c2.BTN ? ["BTN"] : []).Concat(c2.FSH ? ["FSH"] : []) : []))}]"
             : "jobs=[no restriction]";
         _log.Info($"[debug quest] [{rawId}] {name}\n  classJobCat={classJobCatId}  level={level}  genre={genreId}  journalCat={journalCatId}\n  prereqs=[{prereqs}]  issuer={row.IssuerStart.RowId}\n  {jobsLine}");
+
+        var ct = CancellationToken.None;
+        var varsResult = _host.QuestState.GetQuestVariables(new QuestId(rawId), ct).GetAwaiter().GetResult();
+        if (varsResult is Result<IReadOnlyList<byte>>.Success { Value: var vars } && vars.Count == 6)
+        {
+            var parts = new string[6];
+            for (var i = 0; i < 6; i++)
+            {
+                var b = vars[i];
+                parts[i] = b == 0 ? $"V{i}=0" : $"V{i}=0x{b:X2}(H:{b >> 4} L:{b & 0x0F})";
+            }
+            var line = $"  variables: {string.Join("  ", parts)}";
+            _chat.Print(line);
+            _log.Info($"[debug quest] {line}");
+        }
+        else
+        {
+            _chat.Print("  variables: (quest not accepted — no work bytes)");
+        }
     }
 
     private void HandleTest(string[] args)
