@@ -21,6 +21,7 @@ using QuestForge.Adapters.Timing;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine;
+using QuestForge.Engine.Combat;
 using QuestForge.Engine.Scheduling;
 using QuestForge.Plugin.Logging;
 using QuestForge.Schema;
@@ -47,6 +48,10 @@ public sealed class EngineHost : IDisposable
     // Per-step dialogue choice progress: reset when the source step changes across ticks.
     private string? _lastInteractStepId;
     private int _dialogueChoiceProgress;
+    private readonly RotationLeaseLatch _leaseLatch = new();
+    // The RecordingCombat-wrapped combat for the active run, so the lease latch's
+    // StartRotation/StopRotation acts are captured in the trace alongside SetTarget/ClearTarget.
+    private ICombat? _recordingCombat;
     private QuestEngine? _engine;
     private RecordingQuestState? _recordingQs;
     private string? _runId;
@@ -169,10 +174,12 @@ public sealed class EngineHost : IDisposable
         IQuestState qs = recordingQs;
         // Always hold the reference — TraceSession gate controls whether observations reach disk.
         _recordingQs = recordingQs;
+        _recordingCombat = new RecordingCombat(
+            _combat, _traceSession, () => _runId, skipIfNoRunId: true);
 
         _engine = new QuestEngine(
             gs, qs, _navigator, _teleporter, _interactor,
-            _combat, _gear, _minigames, _dialogue, _timing,
+            _recordingCombat, _gear, _minigames, _dialogue, _timing,
             _traceSession, new DalamudLogger<QuestEngine>(_services.Log));
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
@@ -218,8 +225,17 @@ public sealed class EngineHost : IDisposable
 
     private async Task DispatchAction(EngineAction action, CancellationToken ct)
     {
+        await _leaseLatch.OnAction(action, _recordingCombat ?? _combat, ct);
+
         switch (action)
         {
+            case EngineAction.Engage:
+                // Targeting and lease lifecycle are handled by CombatController and the latch above.
+                // Advance dialogue / skip cutscenes in case a cutscene fires during combat.
+                TryCutsceneSkipConfirm();
+                await _interactor.AdvanceDialogue(ct);
+                break;
+
             case EngineAction.UseAethernet ua:
                 // Throttle: the engine fires UseAethernet every tick while playerZone() fails
                 // (loading screen takes several ticks). Without this, Lifestream receives
@@ -436,10 +452,12 @@ public sealed class EngineHost : IDisposable
 
     private void EndRun()
     {
+        _leaseLatch.Release(_recordingCombat ?? _combat, CancellationToken.None).GetAwaiter().GetResult();
         if (_runId is not null && !_engineEmittedRunEnd)
             _traceSession.Write(new RunEndEvent(_runId, "ended", DateTimeOffset.UtcNow));
         _engine      = null;
         _recordingQs = null;
+        _recordingCombat = null;
         _runId       = null;
         _traceSession.OnQuestRunEnd();
         RestoreCutsceneSkip();

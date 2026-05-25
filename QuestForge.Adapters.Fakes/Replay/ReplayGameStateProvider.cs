@@ -200,14 +200,16 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
     // ----- Hostile actors (combat-only, step-gated) -----
 
     /// <summary>
-    /// Not recorded in existing traces — combat steps are never active in pre-part-A fixtures.
-    /// Returns empty without scanning to prevent starvation (mirrors GetLastAethernetDestination
-    /// and IsAcceptableNow no-cascade pattern). Part B will record and replay this once
-    /// combat fixtures exist.
+    /// Combat-specific read — now scans the recorded observation (part B flip).
+    /// Step-gated: only called when the active step is a CombatStep, so non-combat fixtures
+    /// are never asked for a (GetHostileActors, *) observation (no starvation per §A7).
+    /// Mirrors GetNearbyNpcs exactly.
     /// </summary>
     public Task<Result<IReadOnlyList<HostileActor>>> GetHostileActors(float radius, CancellationToken ct)
-        => Task.FromResult<Result<IReadOnlyList<HostileActor>>>(
-            Result.Ok<IReadOnlyList<HostileActor>>(Array.Empty<HostileActor>()));
+    {
+        var obs = ScanNext(nameof(GetHostileActors), radius);
+        return Task.FromResult(Materialize<IReadOnlyList<HostileActor>>(obs.Value));
+    }
 
     // ----- Aethernet -----
 

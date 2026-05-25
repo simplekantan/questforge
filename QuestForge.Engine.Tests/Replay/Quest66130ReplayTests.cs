@@ -268,6 +268,7 @@ public sealed class EngineFixtureTests
         EngineAction.Wait      _ => "wait",
         EngineAction.AwaitUser _ => "awaitUser",
         EngineAction.Done      _ => "done",
+        EngineAction.Engage    _ => "engage",
         _                        => action.GetType().Name.ToLowerInvariant()
     };
 }
