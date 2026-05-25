@@ -374,7 +374,7 @@ public sealed class CombatFixtureTests
         var actors = new[]
         {
             MakeHostile(1, 100, dist: 10f, isTargetingPlayer: false), // lower priority
-            MakeHostile(2, 100, dist: 15f, isTargetingPlayer: true),  // +150 (IsTargetingPlayer) → higher priority
+            MakeHostile(2, 100, dist: 15f, isTargetingPlayer: true),  // score 1000+10=1010 (kill-set + aggro) → higher priority
         };
 
         var traceLines = BuildCombatTrace("run-fx-det", QuestId, CombatStepId, actors);
