@@ -144,7 +144,7 @@ Shows the current target (NPC or interactable), available quests from the target
 > - `/qf quest <name>` — searches Lumina by name, returns up to 10 results with quest ID, level, and availability status. Best for general lookup.
 > - `/qf debug offered-quest` — when the JournalAccept window is open (NPC is actively offering a quest), reads AtkValue[261] to identify the exact quest ID being offered *without* accepting it. Useful for class-specific quests where accepting determines which variant you get (e.g. "Close to Home" for GLA vs MRD vs CNJ). The JournalAccept AtkValue[261] stores the raw Lumina RowId without the `0x10000` flag; the command adds this automatically to return the full public quest ID.
 
-Dialogue prompt and answer strings are shown with click-to-copy. Full sheet-reference browsing is deferred — see `BACKLOG.md §4.2`.
+Dialogue prompt and answer strings are shown with click-to-copy. Full sheet-reference browsing is deferred — see issue #11.
 
 ### 4.4 Allowlisted UI addons
 
@@ -384,7 +384,7 @@ The command prints the public quest ID and name to both chat and the Dalamud log
 
 ### Finding dialogue sheet references
 
-The `InteractionPanel` (§4.3) shows the most recently observed dialogue prompt and answer strings. Full sheet-reference browsing is deferred — see `BACKLOG.md §4.2`.
+The `InteractionPanel` (§4.3) shows the most recently observed dialogue prompt and answer strings. Full sheet-reference browsing is deferred — see issue #11.
 
 ### 8.1 Quest dialogue browser (planned)
 
