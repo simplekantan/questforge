@@ -175,17 +175,16 @@ public sealed class RecordingGameStateProvider : IGameStateProvider
     }
 
     /// <summary>
-    /// Combat-specific read — NOT recorded in traces in part A.
-    /// Recording the GetHostileActors observation is deferred to part B alongside the Dalamud impl
-    /// that actually performs the object-table scan. Omitting Record here mirrors the
-    /// IsAcceptableNow no-cascade pattern: the read delegates through without touching the trace,
-    /// so existing fixtures (which have no combat steps) are never asked for a
-    /// (GetHostileActors, *) observation and cannot starve.
+    /// Combat-specific read — recorded in traces (part B flip).
+    /// Step-gated: only called inside CombatController.Decide when the active step is a CombatStep,
+    /// so non-combat fixtures are never asked for a (GetHostileActors, *) observation (no starvation).
+    /// The existing Record&lt;T&gt; value-change dedup applies.
     /// </summary>
     public async Task<Result<IReadOnlyList<HostileActor>>> GetHostileActors(float radius, CancellationToken ct)
     {
-        // Delegate through — no Record() call. Trace capture is deferred to part B.
-        return await _inner.GetHostileActors(radius, ct);
+        var result = await _inner.GetHostileActors(radius, ct);
+        Record(nameof(GetHostileActors), radius, result);
+        return result;
     }
 
     public async Task<Result<NpcReference?>> FindNpc(NpcId npc, CancellationToken ct)
