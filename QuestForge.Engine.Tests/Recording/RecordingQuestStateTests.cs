@@ -241,6 +241,129 @@ public sealed class RecordingQuestStateTests
     }
 
     // -------------------------------------------------------------------------
+    // Group REC — IsAcceptableNow emits NO observation (no-starvation guard)
+    // -------------------------------------------------------------------------
+
+    // REC1: no ObservationEvent with Method=="IsAcceptableNow" is written
+    [Fact]
+    public async Task IsAcceptableNow_WritesZeroObservationEvents()
+    {
+        /*
+         * RED: Will fail until RecordingQuestState.IsAcceptableNow is implemented
+         *      as a silent delegate-through with no Record() call.
+         *
+         * CONTRACT (§3.1): The recording proxy must never emit an ObservationEvent
+         *   for IsAcceptableNow. This is the critical no-starvation guard: every
+         *   pre-existing fixture lacks this observation, so emitting it would throw
+         *   ReplayObservationStarvationException during replay.
+         */
+
+        // Arrange
+        var inner = new FakeQuestState();
+        inner.SetQuestStatus(new QuestId(66130), QuestStatus.Available);
+        var trace = new FakeTraceWriter();
+        var proxy = BuildProxy(inner, trace, () => "run-rec1");
+
+        // Act
+        await proxy.IsAcceptableNow(new QuestId(66130), CancellationToken.None);
+
+        // Assert — zero ObservationEvents with Method=="IsAcceptableNow"
+        var count = trace.RecordedEvents
+            .OfType<ObservationEvent>()
+            .Count(e => e.Method == "IsAcceptableNow");
+        Assert.Equal(0, count);
+    }
+
+    // REC2: pass-through value — Ok(true) and Failure both forwarded unchanged
+    [Fact]
+    public async Task IsAcceptableNow_AvailableInner_PassesThroughOkTrue()
+    {
+        /*
+         * CONTRACT: Given inner scripted Ok(true) for IsAcceptableNow,
+         *           proxy returns Ok(true).
+         */
+
+        var inner = new FakeQuestState();
+        inner.SetQuestStatus(new QuestId(66130), QuestStatus.Available);
+        // Default mirrors availability → Ok(true)
+        var trace = new FakeTraceWriter();
+        var proxy = BuildProxy(inner, trace, () => "run-rec2a");
+
+        var result = await proxy.IsAcceptableNow(new QuestId(66130), CancellationToken.None);
+
+        var success = Assert.IsType<Result<bool>.Success>(result);
+        Assert.True(success.Value);
+    }
+
+    [Fact]
+    public async Task IsAcceptableNow_FailureInner_PassesThroughFailure()
+    {
+        /*
+         * CONTRACT: Given inner scripted to Failure for IsAcceptableNow,
+         *           proxy returns the same Failure (not swallowed).
+         */
+
+        var inner = new FakeQuestState();
+        inner.SetIsAcceptableNowFail(new QuestId(66130), "gcRead", "PlayerState null");
+        var trace = new FakeTraceWriter();
+        var proxy = BuildProxy(inner, trace, () => "run-rec2b");
+
+        var result = await proxy.IsAcceptableNow(new QuestId(66130), CancellationToken.None);
+
+        var failure = Assert.IsType<Result<bool>.Failure>(result);
+        Assert.Equal("gcRead", failure.Reason);
+        Assert.Equal("PlayerState null", failure.Detail);
+    }
+
+    // REC3: inner called exactly once — no double-call
+    [Fact]
+    public async Task IsAcceptableNow_InnerCalledExactlyOnce()
+    {
+        /*
+         * CONTRACT: One proxy call → FakeQuestState.RecordedReads count for
+         *   "IsAcceptableNow" is exactly 1.
+         */
+
+        var inner = new FakeQuestState();
+        inner.SetQuestStatus(new QuestId(66130), QuestStatus.Available);
+        var trace = new FakeTraceWriter();
+        var proxy = BuildProxy(inner, trace, () => "run-rec3");
+
+        await proxy.IsAcceptableNow(new QuestId(66130), CancellationToken.None);
+
+        var acceptableNowReads = inner.RecordedReads.Snapshot()
+            .Count(r => r.Method == "IsAcceptableNow");
+        Assert.Equal(1, acceptableNowReads);
+    }
+
+    // REC4: other methods still emit — one IsAcceptableNow + one IsQuestComplete → exactly 1 ObservationEvent total
+    [Fact]
+    public async Task IsAcceptableNow_PlusIsQuestComplete_YieldsExactlyOneObservationEvent()
+    {
+        /*
+         * CONTRACT: Adding the silent IsAcceptableNow method must not disturb the emit
+         *   path for other methods. One IsAcceptableNow + one IsQuestComplete yields
+         *   exactly one ObservationEvent total (only IsQuestComplete emits).
+         */
+
+        var inner = new FakeQuestState();
+        inner.SetQuestStatus(new QuestId(66130), QuestStatus.Available);
+        var trace = new FakeTraceWriter();
+        var proxy = BuildProxy(inner, trace, () => "run-rec4");
+
+        await proxy.IsAcceptableNow(new QuestId(66130), CancellationToken.None);
+        await proxy.IsQuestComplete(new QuestId(66130), CancellationToken.None);
+
+        // Count all ObservationEvents
+        var totalObservations = trace.RecordedEvents.OfType<ObservationEvent>().Count();
+        Assert.Equal(1, totalObservations);
+
+        // And confirm it is the IsQuestComplete one
+        var evt = trace.RecordedEvents.OfType<ObservationEvent>().Single();
+        Assert.Equal("IsQuestComplete", evt.Method);
+    }
+
+    // -------------------------------------------------------------------------
     // GetAcceptedQuests — Value is JSON array
     // -------------------------------------------------------------------------
 
@@ -315,4 +438,7 @@ file sealed class FailingQuestState : IQuestState
 
     public Task<Result<IReadOnlyList<byte>>> GetQuestVariables(QuestId quest, CancellationToken ct) =>
         Task.FromResult<Result<IReadOnlyList<byte>>>(Result.Fail<IReadOnlyList<byte>>(_reason));
+
+    public Task<Result<bool>> IsAcceptableNow(QuestId quest, CancellationToken ct) =>
+        Task.FromResult<Result<bool>>(Result.Fail<bool>(_reason));
 }

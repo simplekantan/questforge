@@ -579,4 +579,7 @@ file sealed class FailingVariablesQuestState : IQuestState
     /// <summary>Always returns Failure — simulates an adapter failure.</summary>
     public Task<Result<IReadOnlyList<byte>>> GetQuestVariables(QuestId quest, CancellationToken ct) =>
         Task.FromResult<Result<IReadOnlyList<byte>>>(Result.Fail<IReadOnlyList<byte>>("adapter failure: variables unavailable"));
+
+    public Task<Result<bool>> IsAcceptableNow(QuestId quest, CancellationToken ct) =>
+        _inner.IsAcceptableNow(quest, ct);
 }
