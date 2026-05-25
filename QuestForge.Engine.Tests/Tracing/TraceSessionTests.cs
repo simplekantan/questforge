@@ -1172,4 +1172,374 @@ public sealed class TraceSessionTests
         public void Write(TraceEvent evt) =>
             throw new InvalidOperationException("Simulated inner writer failure");
     }
+
+    // =========================================================================
+    // Debounce helpers
+    // =========================================================================
+
+    private static DecisionEvent MakeDecision(
+        string stepId,
+        string actionType = "navigate",
+        string runId = "run-001") =>
+        new DecisionEvent(runId, stepId, actionType, _now);
+
+    private static string FormatEvents(FakeTraceWriter w) =>
+        string.Join("; ", w.RecordedEvents.Select(e => $"[{e.Type}]"));
+
+    // =========================================================================
+    // Group A — decision debounce
+    // (RED: A1-A8 fail because debounce is not yet implemented)
+    // =========================================================================
+
+    [Fact]
+    public void A1_ConsecutiveIdenticalDecisions_CollapseToOne()
+    {
+        // A1: three consecutive identical DecisionEvent(run, "travel-to-x", "navigate")
+        //     → inner writer receives exactly ONE decision.
+
+        // Arrange
+        var (factory, getWriter) = MakeCaptureFactory();
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, factory);
+        session.OnQuestRunStart(66130u);
+
+        // Act
+        session.Write(MakeDecision("travel-to-x"));
+        session.Write(MakeDecision("travel-to-x"));
+        session.Write(MakeDecision("travel-to-x"));
+
+        // Assert
+        var inner = getWriter()!;
+        Assert.Equal(1, inner.Count);
+        Assert.IsType<DecisionEvent>(inner.RecordedEvents[0]);
+    }
+
+    [Fact]
+    public void A2_DifferentStepId_BothWritten()
+    {
+        // A2: decision(run,"a","navigate") then decision(run,"b","navigate")
+        //     → BOTH written (different stepId = new transition).
+
+        // Arrange
+        var (factory, getWriter) = MakeCaptureFactory();
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, factory);
+        session.OnQuestRunStart(66130u);
+
+        // Act
+        session.Write(MakeDecision("a", "navigate"));
+        session.Write(MakeDecision("b", "navigate"));
+
+        // Assert
+        var inner = getWriter()!;
+        Assert.Equal(2, inner.Count);
+    }
+
+    [Fact]
+    public void A3_SameStepIdDifferentActionType_BothWritten()
+    {
+        // A3: decision(run,"a","navigate") then decision(run,"a","interact")
+        //     → BOTH written (same stepId but different actionType = new transition).
+
+        // Arrange
+        var (factory, getWriter) = MakeCaptureFactory();
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, factory);
+        session.OnQuestRunStart(66130u);
+
+        // Act
+        session.Write(MakeDecision("a", "navigate"));
+        session.Write(MakeDecision("a", "interact"));
+
+        // Assert
+        var inner = getWriter()!;
+        Assert.Equal(2, inner.Count);
+    }
+
+    [Fact]
+    public void A4_RecurringTransitionAfterDifferentOne_ThreeDecisionsWritten()
+    {
+        // A4: navigate(a) → interact(a) → navigate(a)
+        //     → THREE decisions written (debounce, not full dedup; recurring nav(a)
+        //     is not suppressed because interact(a) came between).
+
+        // Arrange
+        var (factory, getWriter) = MakeCaptureFactory();
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, factory);
+        session.OnQuestRunStart(66130u);
+
+        // Act
+        session.Write(MakeDecision("a", "navigate"));
+        session.Write(MakeDecision("a", "interact"));
+        session.Write(MakeDecision("a", "navigate")); // recurring — must NOT be suppressed
+
+        // Assert
+        var inner = getWriter()!;
+        Assert.Equal(3, inner.Count);
+    }
+
+    [Fact]
+    public void A5_NonDecisionEventBetweenIdenticalDecisions_DoesNotResetDebounce()
+    {
+        // A5: decision(run,"a","navigate"), then ObservationEvent, then
+        //     decision(run,"a","navigate") → exactly ONE decision (and the observation)
+        //     written. The interleaved non-decision event must NOT reset the debounce.
+
+        // Arrange
+        var (factory, getWriter) = MakeCaptureFactory();
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, factory);
+        session.OnQuestRunStart(66130u);
+
+        // Act
+        session.Write(MakeDecision("a", "navigate"));
+        session.Write(MakeObservation());                  // non-decision between identical decisions
+        session.Write(MakeDecision("a", "navigate"));      // should be suppressed
+
+        // Assert
+        var inner = getWriter()!;
+        var decisions = inner.RecordedEvents.OfType<DecisionEvent>().ToList();
+        var observations = inner.RecordedEvents.OfType<ObservationEvent>().ToList();
+        Assert.Single(decisions);
+        Assert.Single(observations);
+        Assert.Equal(2, inner.Count); // 1 decision + 1 observation
+    }
+
+    [Fact]
+    public void A6_NonDecisionEventsPassThroughUnchanged()
+    {
+        // A6: Write a RunStartEvent, ObservationEvent, RunEndEvent
+        //     → all three reach the inner writer (debounce never touches non-decisions).
+
+        // Arrange
+        var (factory, getWriter) = MakeCaptureFactory();
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, factory);
+        session.OnQuestRunStart(66130u);
+
+        // Act
+        session.Write(MakeRunStart());
+        session.Write(MakeObservation());
+        session.Write(MakeRunEnd()); // RunEndEvent bypasses gate — verify it is not filtered by debounce
+
+        // Assert
+        var inner = getWriter()!;
+        Assert.Equal(3, inner.Count);
+        Assert.IsType<RunStartEvent>(inner.RecordedEvents[0]);
+        Assert.IsType<ObservationEvent>(inner.RecordedEvents[1]);
+        Assert.IsType<RunEndEvent>(inner.RecordedEvents[2]);
+    }
+
+    [Fact]
+    public void A7_FileReopenClearsDebounce()
+    {
+        // A7: QuestRun mode — OnQuestRunStart; decision(run,"a","navigate");
+        //     OnQuestRunEnd; OnQuestRunStart again (new file);
+        //     decision(run,"a","navigate") → the new file's writer received the decision
+        //     (file reopen clears debounce — not suppressed across files).
+
+        // Arrange: factory that accumulates all per-file writers in a list
+        var writerList = new List<FakeTraceWriter>();
+        ITraceWriter Factory(string _) { var fw = new FakeTraceWriter(); writerList.Add(fw); return fw; }
+
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, Factory);
+
+        // First file
+        session.OnQuestRunStart(66130u);
+        session.Write(MakeDecision("a", "navigate"));
+        session.OnQuestRunEnd();
+
+        // Act: second file — same decision key
+        session.OnQuestRunStart(66130u);
+        session.Write(MakeDecision("a", "navigate")); // must NOT be suppressed — new file cleared debounce
+
+        // Assert
+        Assert.Equal(2, writerList.Count);
+        Assert.Equal(1, writerList[0].Count); // first file had one decision
+        Assert.Equal(1, writerList[1].Count); // second file also wrote the decision (debounce cleared)
+    }
+
+    [Fact]
+    public void A8_DifferentRunIdInAlwaysMode_BothWritten()
+    {
+        // A8: Always mode (single file) — decision("run1","a","navigate") then
+        //     decision("run2","a","navigate") → BOTH written (key includes RunId).
+
+        // Arrange
+        var (factory, getWriter) = MakeCaptureFactory();
+        using var session = new TraceSession(TraceMode.Always, _tracesDir, factory);
+        session.OnPluginStart();
+
+        // Act
+        session.Write(MakeDecision("a", "navigate", runId: "run1"));
+        session.Write(MakeDecision("a", "navigate", runId: "run2")); // different RunId = new key
+
+        // Assert
+        var inner = getWriter()!;
+        Assert.Equal(2, inner.Count);
+    }
+
+    [Fact]
+    public void A9_ConsecutiveNullStepIdDecisions_CollapseToOne()
+    {
+        // A9: two consecutive DecisionEvent with StepId == null and same actionType
+        //     → exactly ONE written. Pins the `StepId ?? ""` coalesce so a null-stepId
+        //     (terminal/cross-step) decision is debounced like any other.
+
+        // Arrange
+        var (factory, getWriter) = MakeCaptureFactory();
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, factory);
+        session.OnQuestRunStart(66130u);
+
+        // Act
+        session.Write(new DecisionEvent("run-001", null, "navigate", _now));
+        session.Write(new DecisionEvent("run-001", null, "navigate", _now)); // suppressed
+
+        // Assert
+        var inner = getWriter()!;
+        Assert.Equal(1, inner.Count);
+        Assert.IsType<DecisionEvent>(inner.RecordedEvents[0]);
+    }
+
+    [Fact]
+    public void A10_NullStepIdAndEmptyStepId_TreatedAsSameKey()
+    {
+        // A10: decision(null stepId) then decision("" stepId), same runId/actionType
+        //      → exactly ONE written. The `?? ""` coalesce makes null and "" collapse to
+        //      the same key; pins that against future key refactors.
+
+        // Arrange
+        var (factory, getWriter) = MakeCaptureFactory();
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, factory);
+        session.OnQuestRunStart(66130u);
+
+        // Act
+        session.Write(new DecisionEvent("run-001", null, "navigate", _now));
+        session.Write(new DecisionEvent("run-001", "", "navigate", _now)); // same key as null
+
+        // Assert
+        var inner = getWriter()!;
+        Assert.Equal(1, inner.Count);
+    }
+
+    // =========================================================================
+    // Group B — run.start dedup
+    // (RED: B1-B3 fail because run.start dedup is not yet implemented)
+    // =========================================================================
+
+    [Fact]
+    public void B1_DuplicateRunStartSameRunId_OnlyOneWritten()
+    {
+        // B1: two RunStartEvent with same RunId → exactly ONE written.
+
+        // Arrange
+        var (factory, getWriter) = MakeCaptureFactory();
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, factory);
+        session.OnQuestRunStart(66130u);
+
+        // Act
+        session.Write(MakeRunStart("run-001"));
+        session.Write(MakeRunStart("run-001")); // duplicate — must be suppressed
+
+        // Assert
+        var inner = getWriter()!;
+        var runStarts = inner.RecordedEvents.OfType<RunStartEvent>().ToList();
+        Assert.Single(runStarts);
+    }
+
+    [Fact]
+    public void B2_RunStartDifferentRunIds_BothWritten()
+    {
+        // B2: two RunStartEvent with different RunIds → BOTH written.
+
+        // Arrange
+        var (factory, getWriter) = MakeCaptureFactory();
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, factory);
+        session.OnQuestRunStart(66130u);
+
+        // Act
+        session.Write(MakeRunStart("run-001"));
+        session.Write(MakeRunStart("run-002")); // different RunId = not a duplicate
+
+        // Assert
+        var inner = getWriter()!;
+        var runStarts = inner.RecordedEvents.OfType<RunStartEvent>().ToList();
+        Assert.Equal(2, runStarts.Count);
+    }
+
+    [Fact]
+    public void B3_RunStartDedupClearedOnFileReopen()
+    {
+        // B3: run.start(r1), close file, reopen, run.start(r1)
+        //     → reopened file received it (dedup cleared on file open).
+
+        // Arrange
+        var writerList = new List<FakeTraceWriter>();
+        ITraceWriter Factory(string _) { var fw = new FakeTraceWriter(); writerList.Add(fw); return fw; }
+
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, Factory);
+
+        // First file
+        session.OnQuestRunStart(66130u);
+        session.Write(MakeRunStart("run-001"));
+        session.OnQuestRunEnd();
+
+        // Act: reopen file and write same RunId again
+        session.OnQuestRunStart(66130u);
+        session.Write(MakeRunStart("run-001")); // must NOT be suppressed — new file cleared dedup
+
+        // Assert
+        Assert.Equal(2, writerList.Count);
+        Assert.Equal(1, writerList[0].Count); // first file wrote one run.start
+        Assert.Equal(1, writerList[1].Count); // second file also wrote it (dedup cleared)
+    }
+
+    // =========================================================================
+    // Group C — consumer-safety regression (should PASS even before implementation)
+    // =========================================================================
+
+    [Fact]
+    public void C1_ObservationDedup_StillSuppressesUnchangedRepeatedValue()
+    {
+        // C1: existing WriteObservation dedup behavior is unchanged.
+        // Regression guard: two identical WriteObservation calls → only one ObservationEvent
+        // reaches the inner writer. This test exercises the pre-existing dedup and must
+        // pass even now (no debounce implementation needed).
+
+        // Arrange
+        var (factory, getWriter) = MakeCaptureFactory();
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, factory);
+        session.OnQuestRunStart(66130u);
+        var arg   = System.Text.Json.JsonSerializer.SerializeToElement((object?)null);
+        var value = System.Text.Json.JsonSerializer.SerializeToElement(182);
+
+        // Act
+        session.WriteObservation("GetPlayerZone", arg, value, "run-001", _now);
+        session.WriteObservation("GetPlayerZone", arg, value, "run-001", _now); // unchanged — must suppress
+
+        // Assert
+        var inner = getWriter()!;
+        var observations = inner.RecordedEvents.OfType<ObservationEvent>().ToList();
+        Assert.Single(observations);
+    }
+
+    // C2: EngineFixtureTests unaffected — CapturingTraceWriter bypasses TraceSession
+    // entirely, so the terminal-detection loop sees every per-tick decision. This is
+    // verified by running: dotnet test QuestForge.Engine.Tests --filter EngineFixture
+    // No unit test is added here because it would duplicate that integration check.
+
+    [Fact]
+    public void C3_DecisionWithNoFileOpen_DroppedWithoutException()
+    {
+        // C3: a decision written while no file is open (gate closed) is dropped —
+        // same as today. The debounce guard must NOT change drop behavior.
+        // (The debounce guard runs only after the existing file-open and gate checks.)
+
+        // Arrange: session constructed but lifecycle never called — no file open
+        var (factory, getWriter) = MakeCaptureFactory();
+        using var session = new TraceSession(TraceMode.QuestRun, _tracesDir, factory);
+        // Intentionally do NOT call OnQuestRunStart — no file open, gate closed.
+
+        // Act
+        var ex = Record.Exception(() => session.Write(MakeDecision("a", "navigate")));
+
+        // Assert
+        Assert.Null(ex);                // must not throw
+        Assert.Null(getWriter());       // factory never invoked — no file was created
+    }
 }

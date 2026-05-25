@@ -26,6 +26,11 @@ public sealed class TraceSession : ITraceWriter, IDisposable
     // ── dedup cache: key=(method, argRawText), value=valueRawText ───────────
     private readonly Dictionary<(string, string), string> _dedup = new();
 
+    // ── decision debounce: last DecisionEvent key written to the current file ─
+    private (string RunId, string StepId, string ActionType)? _lastDecision;
+    // ── run.start dedup: last RunStartEvent RunId written to the current file ─
+    private string? _lastRunStart;
+
     // ────────────────────────────────────────────────────────────────────────
     // Construction
     // ────────────────────────────────────────────────────────────────────────
@@ -133,6 +138,18 @@ public sealed class TraceSession : ITraceWriter, IDisposable
 
             // RunEndEvent bypasses the gate; all others require it open.
             if (evt is not RunEndEvent && !_isWriteGateOpen) return;
+
+            if (evt is DecisionEvent d)
+            {
+                var key = (d.RunId, d.StepId ?? "", d.ActionType);
+                if (_lastDecision == key) return;
+                _lastDecision = key;
+            }
+            else if (evt is RunStartEvent rs)
+            {
+                if (_lastRunStart == rs.RunId) return;
+                _lastRunStart = rs.RunId;
+            }
 
             try
             {
@@ -384,7 +401,11 @@ public sealed class TraceSession : ITraceWriter, IDisposable
             _isWriteGateOpen = true;
 
             if (clearDedup)
+            {
                 _dedup.Clear();
+                _lastDecision = null;
+                _lastRunStart = null;
+            }
         }
         catch (Exception ex)
         {
