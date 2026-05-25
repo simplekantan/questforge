@@ -67,6 +67,8 @@ internal sealed class SimpleLinearAcceptanceState : IFixtureState
         QuestState.SetQuestStatus(Quest66130, QuestStatus.Available);
     }
 
+    public void OnTransitionRecorded(EngineAction action, int tick) { }
+
     public void OnTick(EngineAction action, int tick)
     {
         switch (_phase)

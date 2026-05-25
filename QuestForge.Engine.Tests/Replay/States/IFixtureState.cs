@@ -31,4 +31,10 @@ internal interface IFixtureState
     /// Scripted states mutate their fakes here; the trace-replay state is a no-op.
     /// </summary>
     void OnTick(EngineAction action, int tick);
+
+    /// <summary>
+    /// Called by the harness exactly once per new distinct (stepId, actionType) transition.
+    /// Trace-replay states advance the segment cursor here; scripted states are no-ops.
+    /// </summary>
+    void OnTransitionRecorded(EngineAction action, int tick);
 }

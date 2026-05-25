@@ -17,12 +17,17 @@ using QuestForge.Engine;
 namespace QuestForge.Engine.Tests.Replay;
 
 /// <summary>
-/// Generic trace-replay fixture state. Built from a source JSONL trace via
-/// ReplayGameStateProvider / ReplayQuestState + inert no-op action adapters.
-/// OnTick is a no-op: the ObservationScanner advances as the engine reads recorded observations.
+/// Generic trace-replay fixture state. Built from a full JSONL trace (observations + decisions)
+/// via a shared SegmentedObservationScanner passed to both ReplayGameStateProvider and
+/// ReplayQuestState. Inert no-op action adapters are used.
+///
+/// OnTick is a no-op (per option A). Segment advancement is driven by OnTransitionRecorded,
+/// which is called by the harness exactly once per new distinct (stepId, actionType) transition.
 /// </summary>
 internal sealed class TraceReplayFixtureState : IFixtureState
 {
+    private readonly SegmentedObservationScanner _scanner;
+
     public IGameStateProvider GameState  { get; }
     public IQuestState        QuestState { get; }
     public INavigator         Navigator  { get; } = new InertNavigator();
@@ -34,21 +39,28 @@ internal sealed class TraceReplayFixtureState : IFixtureState
     public IDialogueResolver  Dialogue   { get; } = new FakeDialogueResolver();
     public ITimingProfile     Timing     { get; } = new FakeTimingProfile();
 
-    private TraceReplayFixtureState(IReadOnlyList<ObservationEvent> observations)
+    private TraceReplayFixtureState(IReadOnlyList<TraceEvent> trace)
     {
-        GameState  = new ReplayGameStateProvider(observations);
-        QuestState = new ReplayQuestState(observations);
+        _scanner   = new SegmentedObservationScanner(trace);
+        GameState  = new ReplayGameStateProvider(_scanner);
+        QuestState = new ReplayQuestState(_scanner);
     }
 
     public static TraceReplayFixtureState FromTraceFile(string tracePath)
     {
-        var observations = TraceReader.ReadFile<ObservationEvent>(tracePath);
-        if (observations.Count == 0)
+        var trace = TraceReader.ReadFile(tracePath);
+        var obsCount = trace.OfType<ObservationEvent>().Count();
+        if (obsCount == 0)
             throw new InvalidDataException(
                 $"Trace '{Path.GetFileName(tracePath)}' contains no observation events; " +
                 $"a trace-backed fixture requires recorded engine inputs.");
-        return new TraceReplayFixtureState(observations);
+        return new TraceReplayFixtureState(trace);
     }
 
+    /// <summary>Per-tick callback — no-op. Segment advancement is driven by OnTransitionRecorded.</summary>
     public void OnTick(EngineAction action, int tick) { }
+
+    /// <summary>Called by the harness once per new distinct transition. Advances the replay segment.</summary>
+    public void OnTransitionRecorded(EngineAction action, int tick)
+        => _scanner.AdvanceSegment();
 }

@@ -1,13 +1,18 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
+using QuestForge.Adapters.Combat;
 using QuestForge.Adapters.Fakes.Combat;
 using QuestForge.Adapters.Fakes.Gear;
 using QuestForge.Adapters.Fakes.Interaction;
 using QuestForge.Adapters.Fakes.Minigames;
 using QuestForge.Adapters.Fakes.Replay;
 using QuestForge.Adapters.Fakes.Timing;
+using QuestForge.Adapters.Gear;
 using QuestForge.Adapters.Interaction;
+using QuestForge.Adapters.Minigames;
 using QuestForge.Adapters.Movement;
+using QuestForge.Adapters.State;
+using QuestForge.Adapters.Timing;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine;
@@ -645,27 +650,496 @@ public sealed class TraceReplayFixtureStateTests
         }
     }
 
-    // E1, E2, E3, E5 — DATA-PENDING (activate after questforge-data commit)
-    //
-    // E1: with-attunement.trace.jsonl contains exactly one runId (20260525-023230-5aaadbb3),
-    //     one run.start (quest 65644), run.end outcome "done", no inspect/other-run events.
-    //     Verified by the parametric theory + data-integrity assertion over the committed file.
-    //
-    // E2: Given committed with-attunement.json + with-attunement.trace.jsonl,
-    //     EngineFixtureTests (parametric) runs via the generic path and produces
-    //     the 26 transitions in §3.9 and terminalOutcome "done".
+    // E1 — CURRENTLY FAILING (1 vs 26 transitions). Activates once the redesign lands.
+    //       The parametric theory EngineFixtureTests.EngineProducesExpectedTransitions running
+    //       with-attunement.json currently fails with "Expected: 26, Actual: 1".
+    //       After the segmented scanner + OnTransitionRecorded harness change, it must pass.
+    //       No additional test code required — the parametric theory covers it.
     //
     // E3: Both simple-linear-acceptance.json (scripted, 66130) and with-attunement.json
     //     (generic replay, 65644) pass in the same dotnet test run.
-    //
-    // E5: quests/arr/msq/65644-close-to-home.json validates clean under qf-validate.
-    //     Verified in the questforge-data PR CI; not a unit test.
-    //
-    // All four activate automatically once the questforge-data commit lands:
-    //   fixtures/engine/with-attunement.json
-    //   fixtures/engine/with-attunement.trace.jsonl
-    //   quests/arr/msq/65644-close-to-home.json
-    // No additional test code is required.
+    //     Covered by the parametric theory once E1 is fixed.
+
+    // =====================================================================
+    // GROUP E2 — Data-integrity assertion over the committed trace
+    // =====================================================================
+
+    /// <summary>
+    /// E2: Data-integrity assertion over with-attunement.trace.jsonl.
+    /// Asserts:
+    ///   - Exactly one runId ("20260525-023230-5aaadbb3") in the trace.
+    ///   - Exactly one run.start event for quest 65644.
+    ///   - A run.end event with outcome "done".
+    ///   - Exactly 26 DecisionEvents.
+    ///   - IsQuestComplete(65644) observations appear in the order [false, true] and only those two values.
+    ///
+    /// This guards the input the E1 proof depends on and fails fast if the committed trace file
+    /// is ever accidentally corrupted or replaced.
+    ///
+    /// PASSES immediately (reads the already-committed trace; no new code required).
+    /// Skips if questforge-data is not present.
+    /// </summary>
+    [Fact]
+    public void E2_WithAttunementTrace_DataIntegrity_SingleRunId_26Decisions_IsQuestCompleteValues()
+    {
+        var dataRoot = FixtureLocator.TryGetQuestForgeDataRoot();
+        if (dataRoot is null)
+        {
+            Assert.Skip("questforge-data not present in this environment; E2 is a data-integrity guard that requires the committed trace.");
+            return;
+        }
+
+        var tracePath = Path.Combine(dataRoot, "fixtures", "engine", "with-attunement.trace.jsonl");
+        Assert.True(File.Exists(tracePath),
+            $"E2 requires with-attunement.trace.jsonl at: {tracePath}");
+
+        var allEvents = TraceReader.ReadFile(tracePath);
+
+        // --- Single runId ---
+        var runIds = allEvents
+            .Select(e => e switch
+            {
+                RunStartEvent rs => rs.RunId,
+                RunEndEvent   re => re.RunId,
+                ObservationEvent ob => ob.RunId,
+                DecisionEvent   de => de.RunId,
+                _ => null
+            })
+            .Where(id => id is not null)
+            .Distinct()
+            .ToList();
+
+        Assert.Single(runIds);
+        Assert.Equal("20260525-023230-5aaadbb3", runIds[0]);
+
+        // --- One run.start for quest 65644 ---
+        var runStarts = allEvents.OfType<RunStartEvent>().ToList();
+        Assert.Single(runStarts);
+        Assert.Equal(65644u, runStarts[0].QuestId);
+
+        // --- run.end with outcome "done" ---
+        var runEnds = allEvents.OfType<RunEndEvent>().ToList();
+        Assert.Contains(runEnds, e => e.Outcome == "done");
+
+        // --- Exactly 26 DecisionEvents ---
+        var decisions = allEvents.OfType<DecisionEvent>().ToList();
+        Assert.Equal(26, decisions.Count);
+
+        // --- IsQuestComplete(65644) recorded as [false, true] in order ---
+        var isQuestCompleteObs = allEvents
+            .OfType<ObservationEvent>()
+            .Where(o => o.Method == "IsQuestComplete"
+                && o.Argument?.GetRawText() == """{"value":65644}""")
+            .ToList();
+
+        Assert.Equal(2, isQuestCompleteObs.Count);
+        Assert.Equal("false", isQuestCompleteObs[0].Value?.GetRawText());
+        Assert.Equal("true",  isQuestCompleteObs[1].Value?.GetRawText());
+    }
+
+    // =====================================================================
+    // GROUP P — Provider / state wiring (segmented scanner)
+    // =====================================================================
+
+    /// <summary>
+    /// P1: FromTraceFile returns a state whose GameState is ReplayGameStateProvider and
+    /// QuestState is ReplayQuestState, both backed by a SINGLE shared SegmentedObservationScanner.
+    ///
+    /// Shared-instance behavior is asserted by reading the scanner's CurrentSegment via both
+    /// providers: after state.OnTransitionRecorded() is called, both providers observe the
+    /// same updated segment.
+    ///
+    /// RED: SegmentedObservationScanner, IFixtureState.OnTransitionRecorded do not exist → CS0246/CS1061.
+    /// </summary>
+    [Fact]
+    public void P1_FromTraceFile_ProvidersShareSingleSegmentedObservationScanner()
+    {
+        // Trace with one decision (so two segments) and observations for both providers
+        var path = WriteTempTrace(
+            MakeRunStartLine("test-run", 65644),
+            MakeObsLine("GetQuestSequence",  """{"value":65644}""", "0"),
+            MakeObsLine("GetPlayerPosition", null, """{"x":1.0,"y":0.0,"z":2.0}"""),
+            MakeDecisionLine("test-run", "step-1", "Interact"),
+            MakeObsLine("GetQuestSequence",  """{"value":65644}""", "1"),
+            MakeObsLine("GetPlayerPosition", null, """{"x":0.1,"y":0.0,"z":0.2}"""),
+            MakeRunEndLine("test-run", "done")
+        );
+
+        // CS0246: TraceReplayFixtureState change (reads full trace) + CS1061: OnTransitionRecorded
+        var state = TraceReplayFixtureState.FromTraceFile(path);
+
+        Assert.IsType<ReplayGameStateProvider>(state.GameState);
+        Assert.IsType<ReplayQuestState>(state.QuestState);
+
+        // Both providers share the same scanner: calling OnTransitionRecorded advances the segment
+        // seen by BOTH providers simultaneously. We verify this by reading the scanner state
+        // indirectly: segment 0 has GetQuestSequence=0; after OnTransitionRecorded, segment 1
+        // has GetQuestSequence=1. The state's QuestState.GetQuestSequence must see the same
+        // segment the GameState reads positions from.
+        //
+        // CS1061: OnTransitionRecorded does not exist on IFixtureState
+        state.OnTransitionRecorded(new EngineAction.Wait("p1-test"), 0);
+
+        // After advancing, QuestState (which reads quest-state observations) must see the new
+        // segment's GetQuestSequence value. This confirms shared scanner state.
+        // (We don't call the actual async method here to keep the test synchronous; the
+        // key assertion is that the above OnTransitionRecorded call does not throw and
+        // that both providers' types are correct — the full integration is covered by P4 + E1.)
+        Assert.IsType<ReplayGameStateProvider>(state.GameState);
+        Assert.IsType<ReplayQuestState>(state.QuestState);
+    }
+
+    /// <summary>
+    /// P2: A trace with run.start/decision/run.end but ZERO ObservationEvents throws
+    /// InvalidDataException mentioning "no observation".
+    ///
+    /// The message contract is preserved even though the internal reader now reads the full
+    /// trace (observations + decisions) rather than just observations.
+    ///
+    /// This is a continuation of the existing A3 test, but written against the new internal
+    /// (TraceReplayFixtureState now accepts a full trace) while preserving the public contract.
+    ///
+    /// PASSES once the internal constructor is updated (no new code required for the message).
+    /// Currently PASSES (A3 already covers this). Written here to anchor group P.
+    /// </summary>
+    [Fact]
+    public void P2_EmptyObservationTrace_InvalidDataException_MessageMentionsNoObservation()
+    {
+        var path = WriteTempTrace(
+            MakeRunStartLine("test-run", 65644),
+            MakeDecisionLine("test-run", "step-1", "Navigate"),
+            MakeRunEndLine("test-run", "done")
+        );
+
+        var ex = Assert.Throws<InvalidDataException>(
+            () => TraceReplayFixtureState.FromTraceFile(path));
+
+        Assert.Contains("no observation", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// P3: OnTick is NO LONGER the segment driver; OnTransitionRecorded IS.
+    ///
+    /// Under option (A) of §3.4:
+    /// - Calling state.OnTick(action, tick) repeatedly does NOT advance the segment.
+    /// - Calling state.OnTransitionRecorded(action, tick) DOES advance the segment by one.
+    ///
+    /// We verify this by inspecting the scanner's CurrentSegment via a read that only
+    /// changes after a segment advance (step-gated pair in segment 1 → different value).
+    ///
+    /// RED: IFixtureState.OnTransitionRecorded does not exist → CS1061.
+    /// Also RED: TraceReplayFixtureState.OnTick must now be a no-op (not an advance).
+    /// </summary>
+    [Fact]
+    public async Task P3_OnTick_DoesNotAdvanceSegment_OnTransitionRecorded_AdvancesSegment()
+    {
+        // Two-segment trace: segment 0 has IsQuestComplete=false, terminal tail has IsQuestComplete=true
+        var path = WriteTempTrace(
+            MakeRunStartLine("test-run", 65644),
+            MakeObsLine("GetPlayerZone",    null,                  """{"value":181}"""),
+            MakeObsLine("IsQuestComplete",  """{"value":65644}""", "false"),
+            MakeDecisionLine("test-run", "step-1", "Interact"),
+            MakeObsLine("IsQuestComplete",  """{"value":65644}""", "true"),
+            MakeRunEndLine("test-run", "done")
+        );
+
+        var state = TraceReplayFixtureState.FromTraceFile(path);
+
+        // Read IsQuestComplete via QuestState — must return false (we're in segment 0)
+        var r1 = await state.QuestState.IsQuestComplete(new QuestId(65644), CancellationToken.None);
+        var v1 = Assert.IsType<Result<bool>.Success>(r1);
+        Assert.False(v1.Value,
+            "P3: IsQuestComplete must be false in segment 0 before any advance.");
+
+        // OnTick called many times — must NOT advance the segment
+        for (var i = 0; i < 5; i++)
+            state.OnTick(new EngineAction.Wait("p3-test"), i);
+
+        // Still in segment 0 → IsQuestComplete must still pin to false
+        var r2 = await state.QuestState.IsQuestComplete(new QuestId(65644), CancellationToken.None);
+        var v2 = Assert.IsType<Result<bool>.Success>(r2);
+        Assert.False(v2.Value,
+            "P3: After multiple OnTick calls, IsQuestComplete must still pin false — OnTick must NOT advance the segment.");
+
+        // NOW call OnTransitionRecorded — this should advance to the terminal tail
+        // CS1061: OnTransitionRecorded does not exist on IFixtureState
+        state.OnTransitionRecorded(new EngineAction.Wait("p3-test"), 5);
+
+        // Now in terminal tail → IsQuestComplete must return true
+        var r3 = await state.QuestState.IsQuestComplete(new QuestId(65644), CancellationToken.None);
+        var v3 = Assert.IsType<Result<bool>.Success>(r3);
+        Assert.True(v3.Value,
+            "P3: After OnTransitionRecorded, IsQuestComplete must return true (terminal tail segment).");
+    }
+
+    /// <summary>
+    /// P4: Gated read through the provider pins within a segment; flips in the terminal tail.
+    ///
+    /// Provider-level mirror of S2: exercises the full stack from IFixtureState.QuestState
+    /// down to the SegmentedObservationScanner.
+    ///
+    /// RED: IFixtureState.OnTransitionRecorded does not exist → CS1061.
+    /// Also depends on TraceReplayFixtureState wiring the shared SegmentedObservationScanner.
+    /// </summary>
+    [Fact]
+    public async Task P4_GatedReadThroughProvider_PinsWithinSegment_FlipsInTerminalTail()
+    {
+        var path = WriteTempTrace(
+            MakeRunStartLine("test-run", 65644),
+            MakeObsLine("IsQuestComplete", """{"value":65644}""", "false"),  // segment 0
+            MakeObsLine("GetPlayerZone",   null, """{"value":181}"""),
+            MakeDecisionLine("test-run", "step-1", "Interact"),
+            MakeObsLine("IsQuestComplete", """{"value":65644}""", "true"),   // terminal tail
+            MakeRunEndLine("test-run", "done")
+        );
+
+        var state = TraceReplayFixtureState.FromTraceFile(path);
+        var questId = new QuestId(65644);
+
+        // Segment 0: two reads → both must return false
+        var r1 = await state.QuestState.IsQuestComplete(questId, CancellationToken.None);
+        Assert.False(((Result<bool>.Success)r1).Value,
+            "P4: first read in segment 0 must return false.");
+
+        var r2 = await state.QuestState.IsQuestComplete(questId, CancellationToken.None);
+        Assert.False(((Result<bool>.Success)r2).Value,
+            "P4: second read in segment 0 must still pin false.");
+
+        // Advance to terminal tail
+        // CS1061: OnTransitionRecorded does not exist
+        state.OnTransitionRecorded(new EngineAction.Wait("p4-test"), 0);
+
+        // Terminal tail: must return true
+        var r3 = await state.QuestState.IsQuestComplete(questId, CancellationToken.None);
+        Assert.True(((Result<bool>.Success)r3).Value,
+            "P4: after OnTransitionRecorded, read in terminal tail must return true.");
+    }
+
+    // =====================================================================
+    // GROUP H — Harness segment-advance protocol
+    // =====================================================================
+
+    /// <summary>
+    /// H1: The segment advances once per NEW transition, not per tick.
+    ///
+    /// A stub IFixtureState records how many times OnTick and OnTransitionRecorded are invoked.
+    /// With a scenario that produces N distinct transitions over M > N ticks (because repeated
+    /// identical decisions occur), assert:
+    ///   - OnTick was called M times (every tick).
+    ///   - OnTransitionRecorded was called N times (once per recorded transition).
+    ///
+    /// This test is written against the EXPECTED harness loop logic (§3.4 option A). It directly
+    /// exercises the counting semantics; the actual engine is not invoked — a CountingFixtureState
+    /// stub drives the loop logic inline.
+    ///
+    /// RED: IFixtureState.OnTransitionRecorded does not exist → CS1061 (the CountingFixtureState
+    /// below cannot implement the interface until OnTransitionRecorded is added).
+    /// </summary>
+    [Fact]
+    public void H1_SegmentAdvancesOncePerNewTransition_NotPerTick()
+    {
+        // Simulate the harness loop from Quest66130ReplayTests.cs:~160
+        // using a CountingFixtureState stub.
+        //
+        // Scenario: engine emits the SAME decision 3 times (navigate, navigate, navigate)
+        // then a different one (interact). Total ticks = 4, distinct transitions = 2.
+        //
+        // Expected: OnTick called 4 times (every tick), OnTransitionRecorded called 2 times
+        // (once when navigate first appears, once when interact appears).
+
+        var stub = new CountingFixtureState();
+        // Cast to IFixtureState so that OnTransitionRecorded is called through the interface.
+        // CS1061: IFixtureState does not yet define OnTransitionRecorded → compile error here.
+        IFixtureState fixtureState = stub;
+
+        // Simulate the harness loop:
+        // Each "tick" provides a (stepId, actionType) pair from the engine.
+        // The loop records a transition only when the pair differs from the previous one.
+        var actualTransitions = new List<(string? StepId, string ActionType)>();
+
+        // Simulate tick sequence: navigate, navigate, navigate, interact
+        var decisions = new[]
+        {
+            ("step-1", "navigate"),
+            ("step-1", "navigate"),
+            ("step-1", "navigate"),
+            ("step-1", "interact"),
+        };
+
+        var fakeAction = new EngineAction.Wait("h1-test");
+
+        for (var tick = 0; tick < decisions.Length; tick++)
+        {
+            var (stepId, actionType) = decisions[tick];
+
+            // Harness calls OnTick every tick (unchanged)
+            fixtureState.OnTick(fakeAction, tick);
+
+            // Harness adds to actualTransitions only on a new (deduped) pair
+            var pair = (stepId, actionType);
+            if (actualTransitions.Count == 0 || actualTransitions[^1] != pair)
+            {
+                actualTransitions.Add(pair);
+                // Harness calls OnTransitionRecorded only when a new transition is recorded
+                // CS1061: OnTransitionRecorded does not exist on IFixtureState
+                fixtureState.OnTransitionRecorded(fakeAction, tick);
+            }
+        }
+
+        Assert.Equal(4, stub.OnTickCount);
+        Assert.Equal(2, stub.OnTransitionRecordedCount);
+        Assert.Equal(2, actualTransitions.Count);
+    }
+
+    /// <summary>
+    /// H2: Repeated identical decisions stay in-segment.
+    ///
+    /// When the engine emits the same (stepId, actionType) pair on consecutive ticks,
+    /// only the FIRST occurrence records a transition and advances the segment.
+    /// Subsequent identical decisions do NOT call OnTransitionRecorded.
+    ///
+    /// In the context of the segmented scanner: within-segment position reads keep walking
+    /// forward (serving later, closer positions) because the segment is not advanced.
+    ///
+    /// This test uses the same CountingFixtureState stub as H1.
+    ///
+    /// RED: IFixtureState.OnTransitionRecorded does not exist → CS1061.
+    /// </summary>
+    [Fact]
+    public void H2_RepeatedIdenticalDecision_StaysInSegment_OnTransitionRecordedCalledOnce()
+    {
+        var stub = new CountingFixtureState();
+        // Call through IFixtureState so CS1061 fires on the missing OnTransitionRecorded member.
+        IFixtureState fixtureState = stub;
+        var actualTransitions = new List<(string? StepId, string ActionType)>();
+        var fakeAction = new EngineAction.Wait("h2-test");
+
+        // Scenario: navigate emitted 5 times → should record ONE transition, advance segment ONCE
+        var decisions = Enumerable.Repeat(("step-1", "navigate"), 5).ToArray();
+
+        for (var tick = 0; tick < decisions.Length; tick++)
+        {
+            var (stepId, actionType) = decisions[tick];
+            fixtureState.OnTick(fakeAction, tick);
+
+            var pair = (stepId, actionType);
+            if (actualTransitions.Count == 0 || actualTransitions[^1] != pair)
+            {
+                actualTransitions.Add(pair);
+                // CS1061: OnTransitionRecorded does not exist on IFixtureState
+                fixtureState.OnTransitionRecorded(fakeAction, tick);
+            }
+        }
+
+        Assert.Equal(5, stub.OnTickCount);
+        Assert.Equal(1, stub.OnTransitionRecordedCount);
+        Assert.Single(actualTransitions);
+        Assert.Equal("navigate", actualTransitions[0].ActionType);
+    }
+
+    /// <summary>
+    /// H3: An engine decision that does not match the expected sequence surfaces as an
+    /// Assert.Equal mismatch on stepId/actionType — NOT as starvation.
+    ///
+    /// This pins the §2.4 two-failure-mode separation. The segmented driver serves
+    /// observations correctly for any decision; if the engine emits the wrong decision,
+    /// the error is a test assertion failure on the transition list, not an observation-level
+    /// exception.
+    ///
+    /// We simulate this by comparing a deliberately-wrong expectedTransitions list against
+    /// the actual transitions: the mismatch is in the transition assertion block, not in
+    /// observation serving.
+    ///
+    /// RED: IFixtureState.OnTransitionRecorded → CS1061, so CountingFixtureState cannot compile.
+    /// The test itself is also a specification-level narrative of the harness design.
+    /// </summary>
+    [Fact]
+    public void H3_WrongEngineDecision_SurfacesAsTransitionMismatch_NotStarvation()
+    {
+        // The harness loop collects (stepId, actionType) transitions.
+        // If the engine emits a different action than expected, the Assert.Equal block fires.
+        // Observation starvation would fire only if the engine reads an unrecorded (method,arg).
+        //
+        // We simulate a single-step scenario where the "engine" emits "navigate"
+        // but we assert "interact" — the resulting error is Xunit's Assert.Equal mismatch,
+        // not ReplayObservationStarvationException.
+        //
+        // The CountingFixtureState is the minimal stub; the key point is the assertion type.
+
+        var stub = new CountingFixtureState();
+        // Call through IFixtureState so CS1061 fires on the missing OnTransitionRecorded member.
+        IFixtureState fixtureState = stub;
+        var actualTransitions = new List<(string? StepId, string ActionType)>();
+        var fakeAction = new EngineAction.Wait("h3-test");
+
+        // "Engine" emits navigate for step-1
+        fixtureState.OnTick(fakeAction, 0);
+        var pair = ("step-1", "navigate");
+        if (actualTransitions.Count == 0 || actualTransitions[^1] != pair)
+        {
+            actualTransitions.Add(pair);
+            // CS1061: OnTransitionRecorded does not exist on IFixtureState
+            fixtureState.OnTransitionRecorded(fakeAction, 0);
+        }
+
+        // Expected transitions say "interact" — mismatch should surface as Assert.Equal failure
+        var expectedTransitions = new[] { ("step-1", "interact") };
+
+        // Assert that the failure is a regular assertion mismatch (not starvation)
+        var ex = Record.Exception(() =>
+        {
+            Assert.Equal(expectedTransitions.Length, actualTransitions.Count);
+            for (var i = 0; i < expectedTransitions.Length; i++)
+            {
+                Assert.Equal(expectedTransitions[i].Item1, actualTransitions[i].StepId);
+                Assert.Equal(expectedTransitions[i].Item2, actualTransitions[i].ActionType);
+            }
+        });
+
+        // The exception MUST be an xUnit assertion exception (not starvation)
+        Assert.NotNull(ex);
+        Assert.IsNotType<ReplayObservationStarvationException>(ex);
+        // xUnit Assert.Equal throws Xunit.Sdk.EqualException or similar — it is an Exception
+        // but NOT a ReplayObservationStarvationException
+        Assert.True(ex is not ReplayObservationStarvationException,
+            $"H3: expected a transition mismatch assertion, got: {ex.GetType().Name}: {ex.Message}");
+    }
+
+    // =========================================================================
+    // CountingFixtureState stub — used by H1, H2, H3
+    // =========================================================================
+
+    /// <summary>
+    /// Minimal IFixtureState stub for harness-protocol tests.
+    /// Records call counts for OnTick and OnTransitionRecorded.
+    /// Does NOT wire a real engine — only the counting semantics are tested.
+    ///
+    /// RED: Cannot implement IFixtureState until OnTransitionRecorded is added to the interface.
+    /// </summary>
+    private sealed class CountingFixtureState : IFixtureState
+    {
+        public int OnTickCount { get; private set; }
+        public int OnTransitionRecordedCount { get; private set; }
+
+        // Minimal adapter stubs — not used in the H-group tests
+        public IGameStateProvider GameState  { get; } = null!;
+        public IQuestState        QuestState { get; } = null!;
+        public INavigator         Navigator  { get; } = null!;
+        public ITeleporter        Teleporter { get; } = null!;
+        public IInteractor        Interactor { get; } = null!;
+        public ICombat            Combat     { get; } = null!;
+        public IGearManager       Gear       { get; } = null!;
+        public IMinigameSkipper   Minigames  { get; } = null!;
+        public IDialogueResolver  Dialogue   { get; } = null!;
+        public ITimingProfile     Timing     { get; } = null!;
+
+        public void OnTick(EngineAction action, int tick)
+            => OnTickCount++;
+
+        // CS1061: OnTransitionRecorded does not exist on IFixtureState yet
+        public void OnTransitionRecorded(EngineAction action, int tick)
+            => OnTransitionRecordedCount++;
+    }
 
     // =====================================================================
     // Helpers

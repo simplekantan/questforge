@@ -157,11 +157,14 @@ public sealed class EngineFixtureTests
 
             if (newDecision is null) break; // terminal action reached
 
-            state.OnTick(action, tick); // advance state machine
+            state.OnTick(action, tick); // advance state machine every tick
 
             var pair = (newDecision.StepId, ActionTypeString(action));
             if (actualTransitions.Count == 0 || actualTransitions[^1] != pair)
+            {
                 actualTransitions.Add(pair);
+                state.OnTransitionRecorded(action, tick); // advance segment once per new transition
+            }
 
             if (actualTransitions.Count > fixture.ExpectedTransitions.Length + SafetyOverrunCount)
                 break; // safety: more transitions than expected — will fail assertion below
