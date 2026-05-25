@@ -192,4 +192,7 @@ file sealed class FailingQuestState : IQuestState
 
     public Task<Result<IReadOnlyList<byte>>> GetQuestVariables(QuestId quest, CancellationToken ct)
         => Task.FromResult<Result<IReadOnlyList<byte>>>(Result.Fail<IReadOnlyList<byte>>("adapter-broken"));
+
+    public Task<Result<bool>> IsAcceptableNow(QuestId quest, CancellationToken ct)
+        => Task.FromResult<Result<bool>>(Result.Fail<bool>("adapter-broken"));
 }

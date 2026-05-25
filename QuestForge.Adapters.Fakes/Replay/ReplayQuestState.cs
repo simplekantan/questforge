@@ -99,6 +99,11 @@ public sealed class ReplayQuestState : IQuestState
         return Task.FromResult(Materialize<IReadOnlyList<byte>>(obs.Value));
     }
 
+    // Authoring-only signal; never recorded, never replayed. Do NOT ScanNext — that would starve every fixture.
+    // Return a benign default (§3.4).
+    public Task<Result<bool>> IsAcceptableNow(QuestId quest, CancellationToken ct)
+        => Task.FromResult<Result<bool>>(Result.Ok(false));
+
     private static Result<T> Materialize<T>(JsonElement? value)
         => ObservationMaterializer.Materialize<T>(value);
 }

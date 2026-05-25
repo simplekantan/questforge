@@ -148,4 +148,8 @@ public sealed class RecordingQuestState : IQuestState
         Record(nameof(GetQuestVariables), quest, result);
         return result;
     }
+
+    // Authoring-only signal: delegate through with NO Record call — must never starve replay fixtures (§3.1).
+    public Task<Result<bool>> IsAcceptableNow(QuestId quest, CancellationToken ct)
+        => _inner.IsAcceptableNow(quest, ct);
 }

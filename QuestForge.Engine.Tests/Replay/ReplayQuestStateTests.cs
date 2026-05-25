@@ -84,6 +84,74 @@ public sealed class ReplayQuestStateTests
     }
 
     // -------------------------------------------------------------------------
+    // Group REP — ReplayQuestState.IsAcceptableNow does not scan
+    // -------------------------------------------------------------------------
+
+    // REP1: returns Ok(false) without throwing ReplayObservationStarvationException
+    [Fact]
+    public async Task IsAcceptableNow_TraceHasNoIsAcceptableNowObs_ReturnsOkFalseWithoutStarvation()
+    {
+        /*
+         * RED: Will fail until ReplayQuestState.IsAcceptableNow is implemented
+         *      as Task.FromResult(Result.Ok(false)) with NO ScanNext call.
+         *
+         * CONTRACT (§3.4): A replay fixture never contains an IsAcceptableNow observation
+         *   (because the recording proxy never emits one). Calling IsAcceptableNow on
+         *   ReplayQuestState must return Ok(false) without scanning — it must NOT throw
+         *   ReplayObservationStarvationException.
+         *
+         * The trace here contains only a GetQuestSequence observation (typical fixture content).
+         */
+
+        // Arrange — trace with NO IsAcceptableNow observation
+        var argumentJson = JsonDocument.Parse("{\"value\":66130}").RootElement;
+        var valueJson = JsonDocument.Parse("0").RootElement;
+        var obs = MakeObservation("GetQuestSequence", argumentJson, valueJson);
+        var provider = new ReplayQuestState(new[] { obs });
+
+        // Act — must not throw
+        var ex = await Record.ExceptionAsync(() =>
+            provider.IsAcceptableNow(new QuestId(66130), CancellationToken.None));
+        Assert.Null(ex);
+
+        var result = await provider.IsAcceptableNow(new QuestId(66130), CancellationToken.None);
+
+        // Assert — must return Ok(false) (the safe authoring-only benign default)
+        var success = Assert.IsType<Result<bool>.Success>(result);
+        Assert.False(success.Value, "IsAcceptableNow on ReplayQuestState must return Ok(false)");
+    }
+
+    // REP2: does not consume/advance the scanner — a following IsQuestComplete still reads correctly
+    [Fact]
+    public async Task IsAcceptableNow_DoesNotConsumeScanner_FollowingIsQuestCompleteStillReads()
+    {
+        /*
+         * RED: Will fail until ReplayQuestState.IsAcceptableNow is implemented without ScanNext.
+         *
+         * CONTRACT (§3.4): IsAcceptableNow must not advance the observation scanner.
+         *   Calling it before IsQuestComplete must not consume the IsQuestComplete observation,
+         *   which must still return the correct value from the trace.
+         */
+
+        // Arrange — trace with ONE IsQuestComplete observation (no IsAcceptableNow observation)
+        var argumentJson = JsonDocument.Parse("{\"value\":66130}").RootElement;
+        var valueJson = JsonDocument.Parse("true").RootElement;
+        var obs = MakeObservation("IsQuestComplete", argumentJson, valueJson);
+        var provider = new ReplayQuestState(new[] { obs });
+
+        // Act — call IsAcceptableNow first (must not consume the IsQuestComplete obs)
+        await provider.IsAcceptableNow(new QuestId(66130), CancellationToken.None);
+
+        // Then call IsQuestComplete — it must still find its observation
+        var completeResult = await provider.IsQuestComplete(new QuestId(66130), CancellationToken.None);
+
+        // Assert — IsQuestComplete still returns the recorded value (true)
+        var success = Assert.IsType<Result<bool>.Success>(completeResult);
+        Assert.True(success.Value,
+            "IsAcceptableNow must not consume the IsQuestComplete observation in the scanner");
+    }
+
+    // -------------------------------------------------------------------------
     // Helper
     // -------------------------------------------------------------------------
 

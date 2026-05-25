@@ -475,6 +475,16 @@ internal sealed class QfCommand : IDisposable
         {
             _chat.Print("  variables: (quest not accepted — no work bytes)");
         }
+
+        var acceptableResult = _host.QuestState.IsAcceptableNow(new QuestId(rawId), ct).GetAwaiter().GetResult();
+        var acceptableLine = acceptableResult switch
+        {
+            Result<bool>.Success { Value: var v } => $"  acceptableNow: {v.ToString().ToLowerInvariant()}",
+            Result<bool>.Failure { Reason: var r } => $"  acceptableNow: (failure: {r})",
+            _ => "  acceptableNow: (unknown)"
+        };
+        _chat.Print(acceptableLine);
+        _log.Info($"[debug quest] {acceptableLine}");
     }
 
     private void HandleTest(string[] args)

@@ -8,12 +8,13 @@ using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Authoring;
 using QuestForge.Plugin.Tracing;
+using QuestForge.Plugin.Tracing.Authoring;
 using QuestForge.Schema;
 
 namespace QuestForge.Plugin.Authoring;
 
 /// <summary>Lumina-backed quest info for a single NPC target, cached by AuthoringHost.</summary>
-public sealed record NpcQuestInfo(uint QuestId, string QuestName, bool IsAvailable, bool IsComplete);
+public sealed record NpcQuestInfo(uint QuestId, string QuestName, bool IsAvailable, bool IsComplete, bool IsAcceptableNow);
 
 /// <summary>
 /// Plugin-side authoring coordinator. Delegates all polling to UIObserver, maintains
@@ -330,10 +331,16 @@ public sealed class AuthoringHost : IDisposable
             var completeResult = _questState.IsQuestComplete(publicId, ct).GetAwaiter().GetResult();
             var isComplete = completeResult is Result<bool>.Success { Value: true };
 
-            // Skip completed quests unless the setting is enabled
+            // (1) Completed-quest gate — unchanged: skip completed quests unless the setting is enabled.
             if (isComplete && !_config.ShowCompletedQuestsInAuthorPanel) continue;
 
-            results.Add(new NpcQuestInfo(publicId.Value, name, isAvailable, isComplete));
+            var acceptableResult = _questState.IsAcceptableNow(publicId, ct).GetAwaiter().GetResult();
+            var isAcceptableNow = acceptableResult is Result<bool>.Success { Value: true };
+
+            // (2) Acceptable-now gate: completed quests already passed gate (1) and skip this gate.
+            if (!isComplete && !isAcceptableNow && !_config.ShowUnacceptableQuestsInAuthorPanel) continue;
+
+            results.Add(new NpcQuestInfo(publicId.Value, name, isAvailable, isComplete, isAcceptableNow));
             if (results.Count >= 10) break;
         }
 

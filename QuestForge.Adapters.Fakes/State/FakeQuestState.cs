@@ -14,6 +14,9 @@ public sealed class FakeQuestState : IQuestState
     private readonly Dictionary<QuestId, QuestUnlockReason?> _whyUnavailable = new();
     private readonly Dictionary<QuestId, (string Reason, string? Detail)> _availabilityFailures = new();
     private readonly Dictionary<QuestId, IReadOnlyList<byte>> _variables = new();
+    // IsAcceptableNow scripting: if key absent → mirror IsQuestAvailable; if present → override (clamped to availability)
+    private readonly Dictionary<QuestId, bool> _acceptableNowOverrides = new();
+    private readonly Dictionary<QuestId, (string Reason, string? Detail)> _acceptableNowFailures = new();
 
     // ----- observable recording -----
     public record StateRead(string Method, DateTimeOffset At) : AdapterCall(At);
@@ -61,6 +64,18 @@ public sealed class FakeQuestState : IQuestState
     // Clears all scripted IsQuestAvailable failures.
     public void ClearIsQuestAvailableFail(QuestId quest) =>
         _availabilityFailures.Remove(quest);
+
+    // Scripts IsAcceptableNow to return an explicit bool (clamped to availability invariant).
+    public void SetIsAcceptableNow(QuestId quest, bool value) =>
+        _acceptableNowOverrides[quest] = value;
+
+    // Scripts IsAcceptableNow to return a Failure.
+    public void SetIsAcceptableNowFail(QuestId quest, string reason, string? detail = null) =>
+        _acceptableNowFailures[quest] = (reason, detail);
+
+    // Clears an IsAcceptableNow failure override.
+    public void ClearIsAcceptableNowFail(QuestId quest) =>
+        _acceptableNowFailures.Remove(quest);
 
     // ----- Reset -----
     public void Reset() => RecordedReads.Clear();
@@ -155,5 +170,39 @@ public sealed class FakeQuestState : IQuestState
         Record(nameof(GetQuestVariables));
         IReadOnlyList<byte> vars = _variables.TryGetValue(quest, out var v) ? v : new byte[6];
         return Task.FromResult<Result<IReadOnlyList<byte>>>(Result.Ok(vars));
+    }
+
+    public Task<Result<bool>> IsAcceptableNow(QuestId quest, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        Record(nameof(IsAcceptableNow));
+
+        // Scripted failure takes precedence.
+        if (_acceptableNowFailures.TryGetValue(quest, out var failure))
+            return Task.FromResult<Result<bool>>(Result.Fail<bool>(failure.Reason, failure.Detail));
+
+        // Get the availability result — we need to mirror it or apply the clamp.
+        // Re-use IsQuestAvailable logic inline (don't call the method — avoids double-recording).
+        Result<bool> availResult;
+        if (_availabilityFailures.TryGetValue(quest, out var availFail))
+            availResult = Result.Fail<bool>(availFail.Reason, availFail.Detail);
+        else
+        {
+            bool available = _statuses.TryGetValue(quest, out var s) && s == QuestStatus.Available;
+            availResult = Result.Ok(available);
+        }
+
+        // Propagate availability failure unchanged.
+        if (availResult is Result<bool>.Failure)
+            return Task.FromResult(availResult);
+
+        var isAvailable = ((Result<bool>.Success)availResult).Value;
+
+        // If an explicit override is set, clamp it to availability: true only if available.
+        if (_acceptableNowOverrides.TryGetValue(quest, out var explicitValue))
+            return Task.FromResult<Result<bool>>(Result.Ok(explicitValue && isAvailable));
+
+        // Default: mirror IsQuestAvailable.
+        return Task.FromResult<Result<bool>>(Result.Ok(isAvailable));
     }
 }

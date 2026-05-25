@@ -24,6 +24,12 @@ public sealed class PluginConfig
     public bool ShowCompletedQuestsInAuthorPanel { get; set; } = false;
 
     /// <summary>
+    /// When true, the Interaction panel reveals locked/future quests that are not acceptable right now
+    /// (e.g. wrong GC rank). When false (default), only quests the player can accept immediately are shown.
+    /// </summary>
+    public bool ShowUnacceptableQuestsInAuthorPanel { get; set; } = false;
+
+    /// <summary>
     /// Controls when trace files are written. Defaults to Off (no traces) for normal users.
     /// Can be changed live via the settings UI — no plugin reload required.
     /// For quest development, Authoring is the recommended mode.

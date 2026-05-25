@@ -91,24 +91,32 @@ public sealed class InteractionPanel : Window
         if (displayed == 0)
         {
             ImGui.TextUnformatted("(No quests available from this NPC.)");
+            ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(0.6f, 0.6f, 0.6f, 1f));
+            if (!_config.ShowUnacceptableQuestsInAuthorPanel)
+                ImGui.TextWrapped("Enable 'Show locked/future quests' below to reveal quests you cannot accept yet.");
             if (!_config.ShowCompletedQuestsInAuthorPanel)
-            {
-                ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(0.6f, 0.6f, 0.6f, 1f));
                 ImGui.TextWrapped("Enable 'Show completed quests' below to see all quests from this NPC.");
-                ImGui.PopStyleColor();
-            }
+            ImGui.PopStyleColor();
         }
 
         ImGui.Spacing();
         ImGui.Separator();
 
-        // Settings toggle
+        // Settings toggles
         var showCompleted = _config.ShowCompletedQuestsInAuthorPanel;
         if (ImGui.Checkbox("Show completed quests", ref showCompleted))
         {
             _config.ShowCompletedQuestsInAuthorPanel = showCompleted;
             _config.Save(_pi);
             _host.InvalidateNpcCache(); // refresh list immediately on next heartbeat
+        }
+
+        var showUnacceptable = _config.ShowUnacceptableQuestsInAuthorPanel;
+        if (ImGui.Checkbox("Show locked/future quests", ref showUnacceptable))
+        {
+            _config.ShowUnacceptableQuestsInAuthorPanel = showUnacceptable;
+            _config.Save(_pi);
+            _host.InvalidateNpcCache();
         }
 
         ImGui.Spacing();

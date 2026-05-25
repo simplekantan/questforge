@@ -1,5 +1,6 @@
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using Lumina.Excel;
 using Lumina.Excel.Sheets;
 using QuestForge.Adapters.State;
@@ -257,6 +258,42 @@ public sealed class DalamudQuestState : IQuestState
             var bytes = new byte[6];
             for (var i = 0; i < 6; i++) bytes[i] = span[i];
             return Task.FromResult<Result<IReadOnlyList<byte>>>(Result.Ok<IReadOnlyList<byte>>(bytes));
+        }
+    }
+
+    // Authoring-panel only. Evaluates IsQuestAvailable first, then the GC rank gate (§4).
+    // The exact PlayerState GC rank accessor (GetGrandCompanyRank()) and the Quest.GrandCompanyRank
+    // row→rank-number mapping are in-game-verified by the user (GAME1–GAME3).
+    public Task<Result<bool>> IsAcceptableNow(QuestId quest, CancellationToken ct)
+    {
+        unsafe
+        {
+            // Must be available first — propagate failure, return false if not available.
+            var availResult = IsQuestAvailable(quest, ct).GetAwaiter().GetResult();
+            if (availResult is Result<bool>.Failure f)
+                return Task.FromResult<Result<bool>>(Result.Fail<bool>(f.Reason, f.Detail));
+            if (availResult is not Result<bool>.Success { Value: true })
+                return Task.FromResult<Result<bool>>(Result.Ok(false));
+
+            // GC rank gate: Quest.GrandCompany == 0 means no GC requirement → gate passes.
+            var row = _questSheet.Value.GetRow(quest.Value);
+            var requiredGcId = row.GrandCompany.RowId;
+            if (requiredGcId == 0)
+                return Task.FromResult<Result<bool>>(Result.Ok(true));
+
+            var ps = PlayerState.Instance();
+            if (ps == null)
+                return Task.FromResult<Result<bool>>(
+                    Result.Fail<bool>("playerStateNull", "PlayerState instance unavailable"));
+
+            // Player's GC must match and rank must be sufficient.
+            // GrandCompany byte: 0=none, 1=Maelstrom, 2=Twin Adder, 3=Immortal Flames.
+            if (ps->GrandCompany != (byte)requiredGcId)
+                return Task.FromResult<Result<bool>>(Result.Ok(false));
+
+            var requiredRank = row.GrandCompanyRank.RowId;
+            var playerRank = (uint)ps->GetGrandCompanyRank();
+            return Task.FromResult<Result<bool>>(Result.Ok(playerRank >= requiredRank));
         }
     }
 }
