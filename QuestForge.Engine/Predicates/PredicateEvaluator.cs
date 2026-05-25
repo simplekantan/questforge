@@ -100,6 +100,7 @@ public sealed class PredicateEvaluator
         return name switch
         {
             "questSequence" => (long)(await _questState.GetQuestSequence(new QuestId((uint)(long)args[0]), ct)).ValueOrThrow,
+            "questVariable" => await EvaluateQuestVariable((long)args[0], (long)args[1], ct),
             "isQuestAccepted" => (await _questState.IsQuestAccepted(new QuestId((uint)(long)args[0]), ct)).ValueOrThrow,
             "isQuestComplete" => (await _questState.IsQuestComplete(new QuestId((uint)(long)args[0]), ct)).ValueOrThrow,
             "questFlag" => (await _questState.IsQuestFlagSet(new QuestId((uint)(long)args[0]), (int)(long)args[1], ct)).ValueOrThrow,
@@ -112,6 +113,14 @@ public sealed class PredicateEvaluator
                 (await _gameState.GetItemCount(new ItemId((uint)(long)args[0]), ct)).ValueOrThrow >= 1,
             _ => throw new UnknownStateFunctionException(name)
         };
+    }
+
+    private async Task<object> EvaluateQuestVariable(long questId, long index, CancellationToken ct)
+    {
+        var vars = (await _questState.GetQuestVariables(new QuestId((uint)questId), ct)).ValueOrThrow;
+        if (index < 0 || index >= vars.Count)
+            return 0L;
+        return (long)vars[(int)index];
     }
 
     private async Task<object> EvaluatePlayerNear(WorldPosition target, long radius, CancellationToken ct)
