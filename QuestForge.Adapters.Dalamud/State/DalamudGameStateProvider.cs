@@ -2,6 +2,7 @@ using System.Numerics;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.SubKinds;
+using Dalamud.Game.ClientState.Objects.Types;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using QuestForge.Adapters.State;
@@ -329,14 +330,60 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         // Phase 7 placeholder: real TelepotTown hook implementation deferred
         => Task.FromResult<Result<AethernetId?>>(Result.Ok((AethernetId?)null));
 
-    /// <summary>
-    /// Part A stub — real IObjectTable scan deferred to part B (needs ClientStructs + actor filter).
-    /// Returns empty so the plugin compiles; CombatController will receive an empty list
-    /// and emit Engage(step, null) until part B lands.
-    /// </summary>
-    public Task<Result<IReadOnlyList<HostileActor>>> GetHostileActors(float radius, CancellationToken ct)
-        => Task.FromResult<Result<IReadOnlyList<HostileActor>>>(
-            Result.Ok<IReadOnlyList<HostileActor>>(Array.Empty<HostileActor>())); // IPC wiring in part B
+    public unsafe Task<Result<IReadOnlyList<HostileActor>>> GetHostileActors(float radius, CancellationToken ct)
+    {
+        var local = _svc.ObjectTable.LocalPlayer;
+        var result = new List<HostileActor>();
+
+        // Build a fast set of entity ids on the player's enmity (Hater) list.
+        var haterSet = new HashSet<uint>();
+        var uiState  = UIState.Instance();
+        if (uiState != null)
+        {
+            // Hater is a FixedSizeArray32 — clamp defensively to its capacity.
+            var haterCount = uiState->Hater.HaterCount;
+            if (haterCount > 32) haterCount = 32;
+            for (var i = 0; i < haterCount; i++)
+                haterSet.Add(uiState->Hater.Haters[i].EntityId);
+        }
+
+        foreach (var obj in _svc.ObjectTable)
+        {
+            if (obj is null) continue;
+            if (obj.ObjectKind is not ObjectKind.BattleNpc) continue;
+
+            var dist = local is null
+                ? float.PositiveInfinity
+                : Vector3.Distance(local.Position, obj.Position);
+
+            if (dist > radius) continue;
+
+            // ClientStructs pointer for targetable + nameplate icon checks.
+            var goPtr = (FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)obj.Address;
+            var isTargetable = goPtr != null && goPtr->GetIsTargetable();
+            var hasQuestMarker = goPtr != null && goPtr->NamePlateIconId != 0;
+
+            var isDead             = obj is IBattleChara bc && bc.CurrentHp == 0;
+            var isTargetingPlayer  = local is not null
+                && obj is IBattleChara bcTarget
+                && bcTarget.TargetObjectId == local.GameObjectId;
+            var onEnmityList       = haterSet.Contains(obj.EntityId);
+
+            result.Add(new HostileActor(
+                Id:                new ActorId(obj.GameObjectId),
+                DataId:            obj.BaseId,
+                Position:          new WorldPosition(obj.Position.X, obj.Position.Y, obj.Position.Z),
+                DistanceToPlayer:  dist,
+                IsTargetable:      isTargetable,
+                IsDead:            isDead,
+                IsTargetingPlayer: isTargetingPlayer,
+                OnPlayerEnmityList: onEnmityList,
+                HasQuestMarker:    hasQuestMarker));
+        }
+
+        return Task.FromResult<Result<IReadOnlyList<HostileActor>>>(
+            Result.Ok<IReadOnlyList<HostileActor>>(result));
+    }
 
     public Task<Result<TravelCapability>> GetTravelCapability(ZoneId destination, CancellationToken ct)
     {

@@ -464,7 +464,11 @@ public sealed class EngineHost : IDisposable
         // TraceSession file lifecycle for non-QuestRun modes is managed by Plugin.cs.
     }
 
-    public void Dispose() => EndRun();
+    public void Dispose()
+    {
+        EndRun();
+        _combat.Dispose();
+    }
 
     // When a skippable cutscene is active, AutoCutsceneSkipper presses Escape which opens
     // a SelectString confirmation dialog. Click the first entry (Yes/skip) to confirm.
