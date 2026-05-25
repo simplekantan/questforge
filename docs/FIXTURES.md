@@ -45,7 +45,7 @@ Fixtures are **not** co-located with quest definitions. They are test infrastruc
 
 ```json
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "1.1.0",
   "description": "ARR MSQ simple linear: travel to NPC, accept quest, travel to NPC, complete",
   "initialState": "fresh",
   "capabilities": [
@@ -71,13 +71,14 @@ Fixtures are **not** co-located with quest definitions. They are test infrastruc
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `schemaVersion` | semver string | ✅ | Fixture format version. Readers reject versions they don't understand. |
+| `schemaVersion` | semver string | ✅ | Fixture format version. Readers reject versions they don't understand. Current version: `1.1.0`. `1.0.0` fixtures remain valid — the `sourceTrace` field added in `1.1.0` is optional. |
 | `description` | string | ✅ | Human-readable summary. Used in test output and `--list-tests`. |
 | `initialState` | string | ✅ | Assumed world state when the test starts. See vocabulary below. |
 | `capabilities` | string[] | ✅ | Engine capabilities exercised by this fixture. See taxonomy below. |
 | `questFile` | string | ✅ | Path to the quest definition, relative to the `questforge-data` root, forward slashes. |
 | `expectedTransitions` | object[] | ✅ | Ordered unique consecutive `(stepId, actionType)` pairs. See below. |
 | `terminalOutcome` | string | ✅ | The `run.end.outcome` value: `"done"` or `"awaitUser"`. |
+| `sourceTrace` | path string | Optional | Path to the source JSONL trace (engine inputs) for the generic replay harness, relative to `questforge-data` root, forward slashes. When omitted, the harness uses the `<name>.trace.jsonl` sibling convention. See "Trace-backed fixtures" below. Path must match filesystem case exactly (CI is Linux). |
 
 ### `initialState` vocabulary
 
@@ -149,6 +150,9 @@ Example: if the engine emits Navigate 1,847 times followed by Interact 312 times
 |---|---|---|
 | `"navigate"` | `EngineAction.Navigate` | |
 | `"interact"` | `EngineAction.Interact` | |
+| `"attune"` | `EngineAction.Attune` | `AttunementStep` dispatch — player attuning to an aetheryte crystal. |
+| `"handover"` | `EngineAction.HandOver` | `HandOverItemStep` dispatch — player handing over quest items to an NPC. |
+| `"useaethernet"` | `EngineAction.UseAethernet` | `TravelStep` with `routeHint.aethernet` — Lifestream aethernet shortcut. |
 | `"wait"` | `EngineAction.Wait` | Rarely appears in `expectedTransitions` — only when all steps in a sequence are satisfied but the game's sequence number has not yet advanced. Simple linear quests typically do not produce a Wait transition. |
 | `"awaitUser"` | `EngineAction.AwaitUser` | Terminal action; appears in `expectedTransitions` only when AwaitUser is expected as an intermediate state before Done. |
 | `"done"` | `EngineAction.Done` | Never appears in `expectedTransitions`; appears in `terminalOutcome` only. |
@@ -204,7 +208,13 @@ Each fixture type also requires a **scripted fake state machine** — test code 
 
 The state machine is responsible for advancing game state at the right moments: making `playerNear` flip to true when the engine has navigated long enough, advancing `questSequence` from 0 to 255 after the acceptance interaction, and marking `isQuestComplete` true after the completion interaction. The exact implementation is test-code detail; the fixture JSON describes only the expected outcome.
 
-**State machine dispatch:** the parametric test maps each fixture filename to its state machine class via a static dispatch table in `EngineFixtureTests.StateFactories`. When adding a new fixture type, add an entry to that table alongside the new state machine class. The test skips (rather than fails) if no state machine is registered for a given fixture file, making it safe to commit fixture files before their state machines are written.
+**State machine dispatch:** the parametric test uses a three-way dispatch:
+
+1. **Scripted path** — if a scripted state machine is registered in `EngineFixtureTests.StateFactories` for the fixture's name, it runs that machine. The existing `simple-linear-acceptance` fixture uses this path.
+2. **Generic trace-replay path** — if no scripted machine is registered but a source trace resolves (either via the `sourceTrace` field or the `<name>.trace.jsonl` sibling convention), the test constructs a `TraceReplayFixtureState` automatically. See "Trace-backed fixtures" below.
+3. **Skip** — if neither applies, the test emits `Assert.Skip` with an actionable message naming both resolution methods. This makes it safe to commit fixture files before their state machines or traces are available.
+
+When adding a new fixture for an already-exercised capability shape (e.g., a second `step:travel + step:talk` quest), commit a source trace alongside it and use the generic replay path — no hand-written state machine required.
 
 **The test loop:**
 ```
@@ -224,7 +234,51 @@ Before driving the engine, the test validates the fixture:
 
 A fixture with a typo in a step ID fails immediately with a clear message, not with a confusing "transition never appeared" failure.
 
-**Path case sensitivity:** `questFile` paths must match the actual filesystem exactly, including case. CI runs on Linux (case-sensitive); Windows developers may not notice case mismatches locally. Always use the exact casing from the `questforge-data` directory listing.
+**Path case sensitivity:** `questFile` and `sourceTrace` paths must match the actual filesystem exactly, including case. CI runs on Linux (case-sensitive); Windows developers may not notice case mismatches locally. Always use the exact casing from the `questforge-data` directory listing. The `<name>.trace.jsonl` sibling convention is derived from the fixture's own on-disk path and is always case-correct; the case risk applies only to the explicit `sourceTrace` field.
+
+---
+
+## Trace-backed fixtures (generic replay harness)
+
+A **trace-backed fixture** pairs a fixture JSON with a source `.jsonl` trace, enabling a fully generic replay path that requires no hand-written state machine.
+
+### Two-file model
+
+```
+questforge-data/fixtures/engine/
+  simple-linear-acceptance.json       # scripted fixture — no trace
+  with-attunement.json                # trace-backed fixture
+  with-attunement.trace.jsonl         # its source trace (single engine run, filtered to one runId)
+```
+
+The trace file contains the **recorded observations** (engine inputs: player position, zone, quest state) from a single real in-game run. The fixture's `expectedTransitions` contain the **recorded decisions** (engine outputs) from that same run. The harness replays the recorded inputs through the *current* engine and compares its outputs to `expectedTransitions`.
+
+### Why this is a real regression test
+
+The trace (inputs) is immutable ground truth — a recording of what the game presented to the engine. If engine logic changes so the engine produces different decisions for the same inputs, the fixture fails. This is a genuine regression test, not a round-trip of the same data.
+
+### Producing a trace-backed fixture
+
+1. Enable tracing: `/qf config trace on`
+2. Run the quest: `/qf run <questId>`
+3. Run the extractor: `qf-trace extract-fixture <session>.jsonl` — this produces both `<suggested-name>.json` and `<suggested-name>.trace.jsonl` (the trace is filtered to the engine run's runId automatically)
+4. Review the fixture JSON, write a description, and commit both files
+
+### Read-pattern maintenance
+
+The `ObservationScanner` tolerates read-count and read-order drift within known `(method, arg)` pairs via its scan-forward + last-seen fallback. An engine change that reads `GetPlayerPosition` three extra times does **not** starve — it reuses the last-seen value.
+
+Starvation occurs **only** when the engine calls a `(method, arg)` pair that **never appears at all** in the trace — i.e., the engine added a genuinely new adapter read. When that happens:
+
+1. The test fails with an explicit "OBSERVATION STARVATION" message naming the trace file and the missing `(method, arg)` pair
+2. Re-record the trace (run the quest in-game again, re-run `qf-trace extract-fixture`, re-commit both files)
+3. Do NOT modify the engine to avoid reading the new pair — understand why the read pattern changed first
+
+A re-record is a deliberate, reviewed event (same discipline as "Updating a fixture when it breaks" below).
+
+### `--with-trace` / `--no-trace` flags
+
+`qf-trace extract-fixture` defaults to co-emitting the source trace (`--with-trace` is ON by default). Use `--no-trace` to suppress the trace file when you only need the fixture JSON draft.
 
 ---
 

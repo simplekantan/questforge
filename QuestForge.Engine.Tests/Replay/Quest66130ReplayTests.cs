@@ -1,13 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging.Abstractions;
-using QuestForge.Adapters.Fakes.Combat;
-using QuestForge.Adapters.Fakes.Gear;
-using QuestForge.Adapters.Fakes.Interaction;
-using QuestForge.Adapters.Fakes.Minigames;
-using QuestForge.Adapters.Fakes.Movement;
-using QuestForge.Adapters.Fakes.State;
-using QuestForge.Adapters.Fakes.Timing;
+using QuestForge.Adapters.Fakes.Replay;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine;
@@ -28,26 +22,32 @@ public sealed class EngineFixtureTests
 {
     // ---- Fixture data type ----
 
-    private sealed record EngineFixture(
+    internal sealed record EngineFixture(
         [property: JsonPropertyName("schemaVersion")] string SchemaVersion,
         [property: JsonPropertyName("description")]   string Description,
         [property: JsonPropertyName("initialState")]  string InitialState,
         [property: JsonPropertyName("questFile")]     string QuestFile,
         [property: JsonPropertyName("expectedTransitions")] FixtureTransition[] ExpectedTransitions,
-        [property: JsonPropertyName("terminalOutcome")] string TerminalOutcome);
+        [property: JsonPropertyName("terminalOutcome")] string TerminalOutcome,
+        [property: JsonPropertyName("sourceTrace")]   string? SourceTrace = null);
 
-    private sealed record FixtureTransition(
+    internal sealed record FixtureTransition(
         [property: JsonPropertyName("stepId")]     string? StepId,
         [property: JsonPropertyName("actionType")] string ActionType);
 
     // ---- State machine dispatch ----
     // Maps fixture filename (without extension) to its scripted state builder.
-    // Add an entry here when adding a new fixture type.
+    // Scripted entries always win over the generic trace-replay path.
+    // Add an entry here only for fixtures that require a hand-scripted state machine.
 
-    private static readonly Dictionary<string, Func<SimpleLinearAcceptanceState>> StateFactories = new()
+    private static readonly Dictionary<string, Func<IFixtureState>> StateFactories = new()
     {
         ["simple-linear-acceptance"] = () => new SimpleLinearAcceptanceState(),
     };
+
+    // ---- Safety overrun constant ----
+    // The loop breaks when actualTransitions.Count > expectedTransitions.Length + SafetyOverrunCount.
+    internal const int SafetyOverrunCount = 10;
 
     // ---- Parametric theory ----
 
@@ -71,9 +71,7 @@ public sealed class EngineFixtureTests
     {
         // ---- Load fixture ----
         var fixtureJson = await File.ReadAllTextAsync(fixturePath);
-        var fixture = JsonSerializer.Deserialize<EngineFixture>(fixtureJson,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-            ?? throw new InvalidDataException($"Fixture deserialized to null: {fixturePath}");
+        var fixture = DeserializeFixtureForTest(fixtureJson);
 
         var fixtureName = Path.GetFileNameWithoutExtension(fixturePath);
 
@@ -102,21 +100,38 @@ public sealed class EngineFixtureTests
                     $"Fixture '{fixtureName}' references stepId '{t.StepId}' which does not exist in '{fixture.QuestFile}'.");
         }
 
-        // ---- Get state machine ----
-        if (!StateFactories.TryGetValue(fixtureName, out var stateFactory))
-            Assert.Skip($"No state machine registered for fixture '{fixtureName}'. Add an entry to EngineFixtureTests.StateFactories.");
+        // ---- Three-way dispatch (§3.5) ----
+        IFixtureState state;
+        string? resolvedTracePath = null;
 
-        var state = stateFactory();
+        if (StateFactories.TryGetValue(fixtureName, out var scripted))
+        {
+            state = scripted();                              // (1) scripted path — unchanged
+        }
+        else if (TryResolveSourceTrace(fixturePath, fixture.SourceTrace, dataRoot) is { } tracePath)
+        {
+            resolvedTracePath = tracePath;
+            state = TraceReplayFixtureState.FromTraceFile(tracePath);   // (2) generic replay path
+        }
+        else
+        {
+            Assert.Skip(                                     // (3) neither — skip
+                $"Fixture '{fixtureName}' has no registered scripted state machine and no source " +
+                $"trace (looked for '{fixtureName}.trace.jsonl' beside it, and a 'sourceTrace' field). " +
+                $"Add a trace to enable the generic replay harness, or register a state machine in " +
+                $"EngineFixtureTests.StateFactories.");
+            return; // unreachable after Assert.Skip; present for definite-assignment
+        }
 
-        // ---- Wire engine ----
+        // ---- Wire engine from IFixtureState ----
         var capturingTrace = new CapturingTraceWriter();
         var engine = new QuestEngine(
             state.GameState, state.QuestState,
-            state.Navigator, new FakeTeleporter(state.GameState),
-            new FakeInteractor(state.GameState, state.QuestState),
-            new FakeCombat(), new FakeGearManager(),
-            new FakeMinigameSkipper(), new FakeDialogueResolver(),
-            new FakeTimingProfile(),
+            state.Navigator, state.Teleporter,
+            state.Interactor,
+            state.Combat, state.Gear,
+            state.Minigames, state.Dialogue,
+            state.Timing,
             capturingTrace, NullLogger<QuestEngine>.Instance);
 
         engine.StartQuest(quest);
@@ -126,11 +141,12 @@ public sealed class EngineFixtureTests
         var actualTransitions = new List<(string? StepId, string ActionType)>();
         var ct = CancellationToken.None;
         const int maxTicks = 50_000;
+        var traceFileName = resolvedTracePath is not null ? Path.GetFileName(resolvedTracePath) : null;
 
         for (var tick = 0; tick < maxTicks; tick++)
         {
             var eventsBefore = capturingTrace.Events.Count;
-            var action = await engine.Tick(ct);
+            var action = await WrapTickForStarvation(engine, traceFileName ?? $"{fixtureName}.trace.jsonl", ct);
 
             // The engine emits a DecisionEvent for non-terminal actions.
             // Done emits run.end instead — exit the loop.
@@ -147,7 +163,7 @@ public sealed class EngineFixtureTests
             if (actualTransitions.Count == 0 || actualTransitions[^1] != pair)
                 actualTransitions.Add(pair);
 
-            if (actualTransitions.Count > fixture.ExpectedTransitions.Length + 10)
+            if (actualTransitions.Count > fixture.ExpectedTransitions.Length + SafetyOverrunCount)
                 break; // safety: more transitions than expected — will fail assertion below
         }
 
@@ -162,12 +178,79 @@ public sealed class EngineFixtureTests
         }
 
         // ---- Assert terminal outcome ----
-        var terminalAction = await engine.Tick(ct);
+        var terminalAction = await WrapTickForStarvation(engine, traceFileName ?? $"{fixtureName}.trace.jsonl", ct);
         switch (fixture.TerminalOutcome)
         {
             case "done":      Assert.IsType<EngineAction.Done>(terminalAction);      break;
             case "awaitUser": Assert.IsType<EngineAction.AwaitUser>(terminalAction); break;
             default: Assert.Fail($"Unknown terminalOutcome '{fixture.TerminalOutcome}' in fixture '{fixtureName}'."); break;
+        }
+    }
+
+    // ---- Internal static helpers (unit-testable from TraceReplayFixtureStateTests) ----
+
+    /// <summary>
+    /// Resolves the source trace path for a fixture.
+    /// Priority: explicit sourceTrace field (relative to dataRoot) → sibling convention.
+    /// Returns the absolute path if the file exists, or null if not found.
+    /// </summary>
+    internal static string? TryResolveSourceTrace(
+        string fixturePath,
+        string? sourceTraceField,
+        string dataRoot)
+    {
+        // (1) Explicit sourceTrace field wins
+        if (!string.IsNullOrEmpty(sourceTraceField))
+        {
+            var normalized = sourceTraceField.Replace('/', Path.DirectorySeparatorChar);
+            var explicit_ = Path.Combine(dataRoot, normalized);
+            if (File.Exists(explicit_)) return explicit_;
+            // Field present but file absent → fall through to sibling; do not fail hard
+        }
+
+        // (2) Sibling convention: <name>.trace.jsonl beside the fixture
+        var siblingDir  = Path.GetDirectoryName(fixturePath)!;
+        var fixtureStem = Path.GetFileNameWithoutExtension(fixturePath);
+        var sibling = Path.Combine(siblingDir, fixtureStem + ".trace.jsonl");
+        if (File.Exists(sibling)) return sibling;
+
+        return null;
+    }
+
+    /// <summary>
+    /// Deserializes a fixture JSON string into an EngineFixture record.
+    /// Used by unit tests that need access to the deserialized record type.
+    /// </summary>
+    internal static EngineFixture DeserializeFixtureForTest(string fixtureJson)
+        => JsonSerializer.Deserialize<EngineFixture>(fixtureJson,
+               new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+           ?? throw new InvalidDataException("Fixture JSON deserialized to null.");
+
+    /// <summary>
+    /// Wraps a single engine.Tick(ct) call so that ReplayObservationStarvationException
+    /// is translated into an actionable Assert.Fail naming "OBSERVATION STARVATION",
+    /// "re-record", and the trace filename — rather than surfacing as an opaque crash.
+    /// </summary>
+    internal static async Task<EngineAction> WrapTickForStarvation(
+        QuestEngine engine,
+        string traceFileName,
+        CancellationToken ct)
+    {
+        try
+        {
+            return await engine.Tick(ct);
+        }
+        catch (ReplayObservationStarvationException ex)
+        {
+            Assert.Fail(
+                $"Generic trace-replay: the engine read game state that the recorded trace does not contain " +
+                $"— OBSERVATION STARVATION, not a decision regression.\n" +
+                $"This means the engine's read pattern changed (e.g. a new adapter read was added) since " +
+                $"'{traceFileName}' was recorded.\n" +
+                $"FIX: re-record the trace for this fixture (run the quest in-game with tracing on, then " +
+                $"`qf-trace extract-fixture <run>.jsonl` and re-commit both files). Do NOT 'fix' the engine.\n" +
+                $"Underlying: {ex.Message}");
+            throw; // unreachable — Assert.Fail throws; present for the compiler
         }
     }
 
