@@ -107,6 +107,10 @@ public sealed class EngineHost : IDisposable
     internal IQuestState QuestState => _questStateInner;
     internal IGameStateProvider GameState => _gameStateInner;
 
+    // Exposed for /qf debug combat subcommands — raw adapters (not recording-proxy wrappers)
+    public IGameStateProvider DebugGameState => _gameStateInner;
+    public ICombat            DebugCombat    => _combat;
+
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
     public void StopRun() => EndRun();

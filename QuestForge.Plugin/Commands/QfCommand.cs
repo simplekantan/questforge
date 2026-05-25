@@ -70,7 +70,7 @@ internal sealed class QfCommand : IDisposable
         _objectTable = objectTable;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
-            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf config trace on|off"
+            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf config trace on|off"
         });
     }
 
@@ -132,6 +132,12 @@ internal sealed class QfCommand : IDisposable
                 break;
             case "debug" when parts.Length >= 3 && parts[1] == "quest":
                 HandleDebugQuest(parts[2]);
+                break;
+            case "debug" when parts.Length >= 2 && parts[1] == "hostiles":
+                HandleDebugHostiles(parts.Length >= 3 ? parts[2] : null);
+                break;
+            case "debug" when parts.Length >= 3 && parts[1] == "rotation":
+                HandleDebugRotation(parts[2]);
                 break;
             case "test" when parts.Length >= 2:
                 HandleTest(parts[1..]);
@@ -612,8 +618,141 @@ internal sealed class QfCommand : IDisposable
         _questStatePanel.IsOpen = true;
     }
 
+    private void HandleDebugHostiles(string? radiusArg)
+    {
+        var radius = 30f;
+        if (radiusArg is not null && float.TryParse(radiusArg, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            radius = parsed;
+
+        try
+        {
+            var result = _host.DebugGameState.GetHostileActors(radius, CancellationToken.None).GetAwaiter().GetResult();
+            if (result is Result<System.Collections.Generic.IReadOnlyList<HostileActor>>.Failure f)
+            {
+                _log.Warning($"[debug hostiles] failure: {f.Reason} — {f.Detail}");
+                _chat.Print($"[QF] hostiles: failure — {f.Reason}");
+                return;
+            }
+
+            var actors = ((Result<System.Collections.Generic.IReadOnlyList<HostileActor>>.Success)result).Value;
+            var header = $"[debug hostiles] radius={radius:F0} count={actors.Count}";
+            _log.Info(header);
+            _chat.Print($"[QF] {header}");
+
+            foreach (var a in actors)
+            {
+                var line = $"  ActorId={a.Id.Value} DataId(BaseId)={a.DataId} dist={a.DistanceToPlayer:F1}" +
+                           $" targetable={a.IsTargetable} dead={a.IsDead}" +
+                           $" aggroed={a.IsTargetingPlayer} enmity={a.OnPlayerEnmityList} questMark={a.HasQuestMarker}";
+                _log.Info(line);
+            }
+
+            var summary = actors.Count == 0
+                ? "(none in range)"
+                : $"nearest DataId={actors[0].DataId} dist={actors[0].DistanceToPlayer:F1}";
+            _chat.Print($"[QF] {summary} — see /xllog for full list");
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "[debug hostiles] unexpected exception");
+            _chat.PrintError($"QuestForge: debug hostiles error — {ex.Message}");
+        }
+    }
+
+    private void HandleDebugRotation(string subCmd)
+    {
+        switch (subCmd)
+        {
+            case "start":
+            {
+                try
+                {
+                    var r = _host.DebugCombat.StartRotation(CancellationToken.None).GetAwaiter().GetResult();
+                    if (r is Result<Unit>.Failure f)
+                    {
+                        _log.Warning($"[debug rotation start] failure: {f.Reason} — {f.Detail}");
+                        _chat.Print($"[QF] rotation start failed: {f.Reason}");
+                        return;
+                    }
+                    _log.Info("[debug rotation start] lease acquired, auto-rotation on");
+                    _chat.Print("[QF] rotation started — WrathCombo lease acquired");
+
+                    // Find nearest targetable, living hostile within 30y and set as target
+                    var actorsResult = _host.DebugGameState.GetHostileActors(30f, CancellationToken.None).GetAwaiter().GetResult();
+                    if (actorsResult is Result<System.Collections.Generic.IReadOnlyList<HostileActor>>.Success { Value: var actors })
+                    {
+                        HostileActor? chosen = null;
+                        foreach (var a in actors)
+                        {
+                            if (!a.IsTargetable || a.IsDead) continue;
+                            if (chosen is null || a.DistanceToPlayer < chosen.DistanceToPlayer)
+                                chosen = a;
+                        }
+
+                        if (chosen is not null)
+                        {
+                            var tr = _host.DebugCombat.SetTarget(chosen.Id, CancellationToken.None).GetAwaiter().GetResult();
+                            if (tr is Result<Unit>.Failure tf)
+                            {
+                                _log.Warning($"[debug rotation start] SetTarget failed: {tf.Reason}");
+                                _chat.Print($"[QF] SetTarget failed: {tf.Reason}");
+                            }
+                            else
+                            {
+                                var tline = $"targeted DataId={chosen.DataId} dist={chosen.DistanceToPlayer:F1} — WrathCombo should now attack";
+                                _log.Info($"[debug rotation start] {tline}");
+                                _chat.Print($"[QF] {tline}");
+                            }
+                        }
+                        else
+                        {
+                            _chat.Print("[QF] no targetable living hostile in 30y — rotation active but no target set");
+                        }
+                    }
+                    else
+                    {
+                        _chat.Print("[QF] could not scan hostiles — rotation active but no target set");
+                    }
+
+                    _chat.Print("[QF] run /qf debug rotation stop to release the lease when done");
+                }
+                catch (Exception ex)
+                {
+                    _log.Error(ex, "[debug rotation start] unexpected exception");
+                    _chat.PrintError($"QuestForge: debug rotation start error — {ex.Message}");
+                }
+                break;
+            }
+            case "stop":
+            {
+                try
+                {
+                    var r = _host.DebugCombat.StopRotation(CancellationToken.None).GetAwaiter().GetResult();
+                    if (r is Result<Unit>.Failure f)
+                    {
+                        _log.Warning($"[debug rotation stop] failure: {f.Reason} — {f.Detail}");
+                        _chat.Print($"[QF] rotation stop failed: {f.Reason}");
+                        return;
+                    }
+                    _log.Info("[debug rotation stop] lease released, auto-rotation off");
+                    _chat.Print("[QF] rotation stopped — lease released");
+                }
+                catch (Exception ex)
+                {
+                    _log.Error(ex, "[debug rotation stop] unexpected exception");
+                    _chat.PrintError($"QuestForge: debug rotation stop error — {ex.Message}");
+                }
+                break;
+            }
+            default:
+                _chat.PrintError("QuestForge: /qf debug rotation start|stop");
+                break;
+        }
+    }
+
     private void PrintUsage()
-        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf config trace on|off");
+        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf config trace on|off");
 
     public void Dispose() => _commands.RemoveHandler(Cmd);
 }
