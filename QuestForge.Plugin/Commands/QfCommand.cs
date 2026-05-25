@@ -682,17 +682,18 @@ internal sealed class QfCommand : IDisposable
                     var actorsResult = _host.DebugGameState.GetHostileActors(30f, CancellationToken.None).GetAwaiter().GetResult();
                     if (actorsResult is Result<System.Collections.Generic.IReadOnlyList<HostileActor>>.Success { Value: var actors })
                     {
-                        HostileActor? chosen = null;
-                        foreach (var a in actors)
-                        {
-                            if (!a.IsTargetable || a.IsDead) continue;
-                            if (chosen is null || a.DistanceToPlayer < chosen.DistanceToPlayer)
-                                chosen = a;
-                        }
+                        // Use the engine's real selector (empty kill-set + AutoOnEnterArea): it scores
+                        // quest-marker (+100) / aggro / enmity, so a docile quest-marked mob is chosen
+                        // over an un-marked allied NPC. Mirrors the live combat picker. For a specific
+                        // target, hard-target it first — WrathCombo (Manual) attacks your current target.
+                        var target = QuestForge.Engine.Combat.KillPriority.SelectTarget(
+                            actors,
+                            new System.Collections.Generic.HashSet<uint>(),
+                            QuestForge.Schema.CombatSpawn.AutoOnEnterArea);
 
-                        if (chosen is not null)
+                        if (target is { } kt)
                         {
-                            var tr = _host.DebugCombat.SetTarget(chosen.Id, CancellationToken.None).GetAwaiter().GetResult();
+                            var tr = _host.DebugCombat.SetTarget(kt.Id, CancellationToken.None).GetAwaiter().GetResult();
                             if (tr is Result<Unit>.Failure tf)
                             {
                                 _log.Warning($"[debug rotation start] SetTarget failed: {tf.Reason}");
@@ -700,14 +701,14 @@ internal sealed class QfCommand : IDisposable
                             }
                             else
                             {
-                                var tline = $"targeted DataId={chosen.DataId} dist={chosen.DistanceToPlayer:F1} — WrathCombo should now attack";
+                                var tline = $"targeted DataId={kt.DataId} (kill-priority pick) — WrathCombo should now attack";
                                 _log.Info($"[debug rotation start] {tline}");
                                 _chat.Print($"[QF] {tline}");
                             }
                         }
                         else
                         {
-                            _chat.Print("[QF] no targetable living hostile in 30y — rotation active but no target set");
+                            _chat.Print("[QF] no eligible target in 30y — rotation active; hard-target a mob and WrathCombo will attack it");
                         }
                     }
                     else
