@@ -344,6 +344,173 @@ public sealed class SnapshotAggregatorTests
     }
 
     // =========================================================================
+    // Issue #40 / Group U — Quest Variables (V0–V5) — SnapshotAggregator + GameStateSnapshot
+    // U1  Fresh aggregator → QuestVariables is null
+    // U2  OnQuestVariablesUpdated for the active quest → Current.QuestVariables matches
+    // U3  OnQuestVariablesUpdated for a different quest → ignored (stays null)
+    // U4  Two updates for the active quest → latest wins
+    // U5  GameStateSnapshot `with { QuestVariables = … }` round-trips without disturbing positional fields
+    // =========================================================================
+
+    [Fact]
+    public void QuestVariables_FreshAggregator_IsNull()
+    {
+        /*
+         * RED: Will fail until Builder adds _questVariables field and Current.QuestVariables to SnapshotAggregator,
+         *      and adds QuestVariables init property to GameStateSnapshot.
+         *
+         * U1 — CONTRACT: Given a fresh SnapshotAggregator(activeQuest: Q),
+         *                Then aggregator.Current.QuestVariables is null (no variables observed yet).
+         */
+
+        // Arrange
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+
+        // Assert
+        Assert.Null(aggregator.Current.QuestVariables);
+    }
+
+    [Fact]
+    public void QuestVariables_OnQuestVariablesUpdated_ActiveQuest_StoresValues()
+    {
+        /*
+         * RED: Will fail until Builder implements OnQuestVariablesUpdated and wires it into Current.
+         *
+         * U2 — CONTRACT: Given SnapshotAggregator(activeQuest: new QuestId(2054)),
+         *                When OnQuestVariablesUpdated(new QuestId(2054), new byte[]{0x10,0,0,5,0,0}),
+         *                Then Current.QuestVariables sequence-equals [0x10, 0, 0, 5, 0, 0] (count 6).
+         */
+
+        // Arrange
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+        var variables = new byte[] { 0x10, 0, 0, 5, 0, 0 };
+
+        // Act
+        aggregator.OnQuestVariablesUpdated(Quest2054, variables);
+
+        // Assert
+        var result = aggregator.Current.QuestVariables;
+        Assert.NotNull(result);
+        Assert.Equal(6, result!.Count);
+        Assert.Equal(0x10, result[0]);
+        Assert.Equal(0, result[1]);
+        Assert.Equal(0, result[2]);
+        Assert.Equal(5, result[3]);
+        Assert.Equal(0, result[4]);
+        Assert.Equal(0, result[5]);
+    }
+
+    [Fact]
+    public void QuestVariables_OnQuestVariablesUpdated_DifferentQuest_Ignored()
+    {
+        /*
+         * RED: Will fail until Builder implements OnQuestVariablesUpdated with _activeQuest == quest guard.
+         *
+         * U3 — CONTRACT: Given SnapshotAggregator(activeQuest: new QuestId(2054)),
+         *                When OnQuestVariablesUpdated(new QuestId(9999), new byte[]{1,2,3,4,5,6}),
+         *                Then Current.QuestVariables is null (the _activeQuest == quest guard rejected it).
+         *                Mirrors SnapshotAggregator_OnQuestSequenceChanged_Ignored_WhenDifferentQuest.
+         */
+
+        // Arrange
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+
+        // Act — foreign quest update
+        aggregator.OnQuestVariablesUpdated(OtherQuest, new byte[] { 1, 2, 3, 4, 5, 6 });
+
+        // Assert — active quest's variables stay null
+        Assert.Null(aggregator.Current.QuestVariables);
+    }
+
+    [Fact]
+    public void QuestVariables_TwoUpdates_LatestWins()
+    {
+        /*
+         * RED: Will fail until Builder implements OnQuestVariablesUpdated.
+         *
+         * U4 — CONTRACT: Given two sequential OnQuestVariablesUpdated calls for the active quest,
+         *                Then Current.QuestVariables reflects the second (most recent) call.
+         *                Specifically: first call [1,0,0,0,0,0] then second call [2,0,0,0,0,0]
+         *                → QuestVariables[0] == 2.
+         */
+
+        // Arrange
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+
+        // Act
+        aggregator.OnQuestVariablesUpdated(Quest2054, new byte[] { 1, 0, 0, 0, 0, 0 });
+        aggregator.OnQuestVariablesUpdated(Quest2054, new byte[] { 2, 0, 0, 0, 0, 0 });
+
+        // Assert
+        var result = aggregator.Current.QuestVariables;
+        Assert.NotNull(result);
+        Assert.Equal(2, result![0]);
+    }
+
+    [Fact]
+    public void GameStateSnapshot_QuestVariables_WithExpression_RoundTripsWithoutDisturbingPositionalFields()
+    {
+        /*
+         * RED: Will fail until Builder adds non-positional QuestVariables init property to GameStateSnapshot.
+         *
+         * U5 — CONTRACT: Given a GameStateSnapshot constructed positionally (no QuestVariables),
+         *                When `snap with { QuestVariables = new byte[]{0,0,0,0,0,9} }`,
+         *                Then result.QuestVariables[5] == 9
+         *                     and all positional fields are preserved unchanged
+         *                     (proves it is a non-positional init-only field that doesn't disturb
+         *                      the record's positional members).
+         */
+
+        // Arrange — construct using positional parameters (QuestVariables must NOT be positional)
+        var capturedAt = new DateTimeOffset(2026, 5, 25, 0, 0, 0, TimeSpan.Zero);
+        var zone = new ZoneId(182);
+        var pos = new WorldPosition(1f, 0f, 2f);
+        var snap = new GameStateSnapshot(
+            CapturedAt: capturedAt,
+            Zone: zone,
+            Position: pos,
+            ActiveQuest: Quest2054,
+            QuestSequence: 3,
+            QuestFlags: 0xDEAD_BEEFu,
+            QuestAccepted: true,
+            QuestCompleted: false,
+            LastNpcInteracted: new NpcId(100u),
+            LastNpcPosition: new WorldPosition(3f, 0f, 4f),
+            LastDialoguePrompt: "prompt",
+            LastDialogueAnswer: "answer",
+            InventoryHash: 0xABCDu,
+            LastAttuned: new AetheryteId(5));
+
+        // Baseline — no QuestVariables yet
+        Assert.Null(snap.QuestVariables);
+
+        // Act — use `with` to set QuestVariables (the non-positional init field)
+        var modified = snap with { QuestVariables = new byte[] { 0, 0, 0, 0, 0, 9 } };
+
+        // Assert — new field present
+        Assert.NotNull(modified.QuestVariables);
+        Assert.Equal(9, modified.QuestVariables![5]);
+
+        // Assert — all positional fields preserved
+        Assert.Equal(capturedAt, modified.CapturedAt);
+        Assert.Equal(zone, modified.Zone);
+        Assert.Equal(pos, modified.Position);
+        Assert.Equal(Quest2054, modified.ActiveQuest);
+        Assert.Equal(3, modified.QuestSequence);
+        Assert.Equal(0xDEAD_BEEFu, modified.QuestFlags);
+        Assert.True(modified.QuestAccepted);
+        Assert.False(modified.QuestCompleted);
+        Assert.Equal(new NpcId(100u), modified.LastNpcInteracted);
+        Assert.Equal("prompt", modified.LastDialoguePrompt);
+        Assert.Equal("answer", modified.LastDialogueAnswer);
+        Assert.Equal(0xABCDu, modified.InventoryHash);
+        Assert.Equal(new AetheryteId(5), modified.LastAttuned);
+
+        // Assert — original unmodified
+        Assert.Null(snap.QuestVariables);
+    }
+
+    // =========================================================================
     // Scenario 45 — SnapshotAggregator_OnQuestAccepted_SetsAcceptedFlag
     // =========================================================================
     [Fact]

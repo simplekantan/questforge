@@ -312,4 +312,7 @@ file sealed class FailingQuestState : IQuestState
 
     public Task<Result<IReadOnlyList<QuestReward>>> GetAvailableQuestRewards(CancellationToken ct) =>
         Task.FromResult<Result<IReadOnlyList<QuestReward>>>(Result.Fail<IReadOnlyList<QuestReward>>(_reason));
+
+    public Task<Result<IReadOnlyList<byte>>> GetQuestVariables(QuestId quest, CancellationToken ct) =>
+        Task.FromResult<Result<IReadOnlyList<byte>>>(Result.Fail<IReadOnlyList<byte>>(_reason));
 }

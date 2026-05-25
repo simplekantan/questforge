@@ -13,6 +13,7 @@ public sealed class FakeQuestState : IQuestState
     private readonly Dictionary<QuestId, IReadOnlyList<QuestReward>> _rewards = new();
     private readonly Dictionary<QuestId, QuestUnlockReason?> _whyUnavailable = new();
     private readonly Dictionary<QuestId, (string Reason, string? Detail)> _availabilityFailures = new();
+    private readonly Dictionary<QuestId, IReadOnlyList<byte>> _variables = new();
 
     // ----- observable recording -----
     public record StateRead(string Method, DateTimeOffset At) : AdapterCall(At);
@@ -33,6 +34,13 @@ public sealed class FakeQuestState : IQuestState
             _flags[quest] = current | (1u << bit);
         else
             _flags[quest] = current & ~(1u << bit);
+    }
+
+    public void SetQuestVariables(QuestId quest, params byte[] variables)
+    {
+        if (variables.Length != 6)
+            throw new ArgumentException("Quest variables must be exactly 6 bytes (V0–V5).", nameof(variables));
+        _variables[quest] = variables;
     }
 
     public void AddAcceptedQuest(QuestId quest) => _accepted.Add(quest);
@@ -139,5 +147,13 @@ public sealed class FakeQuestState : IQuestState
         Record(nameof(GetAvailableQuestRewards));
         IReadOnlyList<QuestReward> rewards = Array.Empty<QuestReward>();
         return Task.FromResult<Result<IReadOnlyList<QuestReward>>>(Result.Ok(rewards));
+    }
+
+    public Task<Result<IReadOnlyList<byte>>> GetQuestVariables(QuestId quest, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        Record(nameof(GetQuestVariables));
+        IReadOnlyList<byte> vars = _variables.TryGetValue(quest, out var v) ? v : new byte[6];
+        return Task.FromResult<Result<IReadOnlyList<byte>>>(Result.Ok(vars));
     }
 }

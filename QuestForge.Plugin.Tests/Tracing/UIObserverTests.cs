@@ -95,18 +95,18 @@ public sealed class FakeAddonProbe : IAddonProbe
 /// </summary>
 public sealed class FakeGameProbe : IGameProbe
 {
-    private readonly List<(ushort QuestId, byte Seq, byte Flags)> _quests = new();
+    private readonly List<(ushort QuestId, byte Seq, byte Flags, IReadOnlyList<byte> Variables)> _quests = new();
     private readonly HashSet<uint> _unlockedAetherytes = new();
     private readonly List<(uint ItemId, int Qty)> _keyItems = new();
 
     public void AddQuest(uint questId, byte seq, byte flags) =>
-        _quests.Add(((ushort)questId, seq, flags));
+        _quests.Add(((ushort)questId, seq, flags, new byte[6]));
 
     public void UpdateQuest(uint questId, byte seq, byte flags)
     {
         var id  = (ushort)questId;
         var idx = _quests.FindIndex(q => q.QuestId == id);
-        if (idx >= 0) _quests[idx] = (id, seq, flags);
+        if (idx >= 0) _quests[idx] = (id, seq, flags, _quests[idx].Variables);
     }
 
     public void RemoveQuest(uint questId)
@@ -119,7 +119,7 @@ public sealed class FakeGameProbe : IGameProbe
     public void AddKeyItem(uint itemId, int qty) => _keyItems.Add((itemId, qty));
     public void ClearKeyItems() => _keyItems.Clear();
 
-    public IReadOnlyList<(ushort QuestId, byte Seq, byte Flags)> GetNormalQuests() =>
+    public IReadOnlyList<(ushort QuestId, byte Seq, byte Flags, IReadOnlyList<byte> Variables)> GetNormalQuests() =>
         _quests.AsReadOnly();
 
     public bool IsAetheryteUnlocked(uint rowId) => _unlockedAetherytes.Contains(rowId);

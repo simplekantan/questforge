@@ -141,4 +141,11 @@ public sealed class RecordingQuestState : IQuestState
         Record(nameof(GetAvailableQuestRewards), null, result);
         return result;
     }
+
+    public async Task<Result<IReadOnlyList<byte>>> GetQuestVariables(QuestId quest, CancellationToken ct)
+    {
+        var result = await _inner.GetQuestVariables(quest, ct);
+        Record(nameof(GetQuestVariables), quest, result);
+        return result;
+    }
 }

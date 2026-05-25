@@ -16,7 +16,7 @@ public sealed class QuestStatePanel : Window
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new System.Numerics.Vector2(280, 160),
-            MaximumSize = new System.Numerics.Vector2(500, 400)
+            MaximumSize = new System.Numerics.Vector2(500, 460)
         };
     }
 
@@ -45,5 +45,30 @@ public sealed class QuestStatePanel : Window
         ImGui.TextUnformatted($"Quest Flags: 0x{snapshot.QuestFlags:X8}");
         ImGui.TextUnformatted($"Accepted: {snapshot.QuestAccepted}");
         ImGui.TextUnformatted($"Completed: {snapshot.QuestCompleted}");
+
+        if (snapshot.QuestVariables is { Count: 6 } vars)
+        {
+            ImGui.Separator();
+            ImGui.TextUnformatted("Variables (V0–V5):");
+            if (ImGui.BeginTable("qf-quest-variables", 6,
+                    ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchSame))
+            {
+                for (var i = 0; i < 6; i++)
+                    ImGui.TableSetupColumn($"V{i}");
+                ImGui.TableHeadersRow();
+
+                ImGui.TableNextRow();
+                for (var i = 0; i < 6; i++)
+                {
+                    ImGui.TableSetColumnIndex(i);
+                    var b = vars[i];
+                    if (b == 0)
+                        ImGui.TextUnformatted("0");
+                    else
+                        ImGui.TextUnformatted($"0x{b:X2} H:{b >> 4} L:{b & 0x0F}");
+                }
+                ImGui.EndTable();
+            }
+        }
     }
 }

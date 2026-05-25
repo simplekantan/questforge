@@ -19,15 +19,18 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
         _clientState  = clientState;
     }
 
-    public IReadOnlyList<(ushort QuestId, byte Seq, byte Flags)> GetNormalQuests()
+    public IReadOnlyList<(ushort QuestId, byte Seq, byte Flags, IReadOnlyList<byte> Variables)> GetNormalQuests()
     {
         var mgr = QuestManager.Instance();
         if (mgr == null) return [];
-        var result = new List<(ushort, byte, byte)>();
+        var result = new List<(ushort, byte, byte, IReadOnlyList<byte>)>();
         foreach (ref var slot in mgr->NormalQuests)
         {
             if (slot.QuestId == 0) continue;
-            result.Add((slot.QuestId, slot.Sequence, slot.Flags));
+            var span = slot.Variables;
+            var vars = new byte[6];
+            for (var i = 0; i < 6; i++) vars[i] = span[i];
+            result.Add((slot.QuestId, slot.Sequence, slot.Flags, vars));
         }
         return result;
     }

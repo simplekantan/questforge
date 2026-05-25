@@ -93,6 +93,12 @@ public sealed class ReplayQuestState : IQuestState
         return Task.FromResult(Materialize<IReadOnlyList<QuestReward>>(obs.Value));
     }
 
+    public Task<Result<IReadOnlyList<byte>>> GetQuestVariables(QuestId quest, CancellationToken ct)
+    {
+        var obs = ScanNext(nameof(GetQuestVariables), quest);
+        return Task.FromResult(Materialize<IReadOnlyList<byte>>(obs.Value));
+    }
+
     private static Result<T> Materialize<T>(JsonElement? value)
         => ObservationMaterializer.Materialize<T>(value);
 }

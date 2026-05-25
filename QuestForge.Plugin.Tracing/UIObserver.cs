@@ -205,7 +205,7 @@ public sealed class UIObserver : IDisposable
         var runId   = CurrentRunId;
         var seenIds = new HashSet<ushort>();
 
-        foreach (var (id, seq, flags) in quests)
+        foreach (var (id, seq, flags, variables) in quests)
         {
             if (id == 0) continue;
             seenIds.Add(id);
@@ -236,6 +236,9 @@ public sealed class UIObserver : IDisposable
                 _aggregator?.OnQuestFlagsChanged(publicId, flags);
                 WriteObservation("IsQuestAccepted", publicId.Value, true, runId, now);
             }
+
+            // Forward variables every poll — aggregator guard discards foreign quests.
+            _aggregator?.OnQuestVariablesUpdated(publicId, variables);
 
             // Passive trace — dedup in TraceSession suppresses unchanged values.
             WriteObservation("GetQuestSequence", publicId.Value, (int)seq, runId, now);

@@ -19,6 +19,9 @@ public interface IQuestState
     // Collections
     Task<Result<IReadOnlyList<QuestId>>> GetAcceptedQuests(CancellationToken ct);
 
+    // Work bytes (V0–V5)
+    Task<Result<IReadOnlyList<byte>>> GetQuestVariables(QuestId quest, CancellationToken ct);
+
     // Rewards
     Task<Result<IReadOnlyList<QuestReward>>> GetAvailableQuestRewards(CancellationToken ct);
 }

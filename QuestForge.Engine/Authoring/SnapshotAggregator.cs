@@ -29,6 +29,7 @@ public sealed class SnapshotAggregator
     private QuestForge.Schema.NpcLocation? _dialogueNpcSource;
     private QuestId? _foreignQuestAccepted;
     private bool _selectYesnoConfirmed;
+    private IReadOnlyList<byte>? _questVariables;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
     // tests inject FakeClock for deterministic CapturedAt values.
@@ -63,7 +64,8 @@ public sealed class SnapshotAggregator
         DialogueOptionSelected       = _dialogueOptionSelected,
         DialogueNpcSource            = _dialogueNpcSource,
         ForeignQuestAccepted         = _foreignQuestAccepted,
-        SelectYesnoConfirmed         = _selectYesnoConfirmed
+        SelectYesnoConfirmed         = _selectYesnoConfirmed,
+        QuestVariables               = _questVariables
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -101,6 +103,17 @@ public sealed class SnapshotAggregator
     {
         if (_activeQuest == quest)
             _questFlags = newFlags;
+    }
+
+    /// <summary>
+    /// Called when the active quest's work bytes (V0–V5) are observed.
+    /// Stores the latest values; ignored when the quest does not match the authored quest
+    /// (matches OnQuestSequenceChanged / OnQuestFlagsChanged semantics).
+    /// </summary>
+    public void OnQuestVariablesUpdated(QuestId quest, IReadOnlyList<byte> variables)
+    {
+        if (_activeQuest == quest)
+            _questVariables = variables;
     }
 
     public void OnInteraction(NpcId npc, WorldPosition npcPosition)
