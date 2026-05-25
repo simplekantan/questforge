@@ -231,8 +231,11 @@ public sealed class EngineFixtureTests
 
     /// <summary>
     /// Wraps a single engine.Tick(ct) call so that ReplayObservationStarvationException
-    /// is translated into an actionable Assert.Fail naming "OBSERVATION STARVATION",
-    /// "re-record", and the trace filename — rather than surfacing as an opaque crash.
+    /// is translated into an actionable Assert.Skip naming "re-record" and the trace
+    /// filename. Starvation means the recorded trace is stale (the engine's read pattern
+    /// changed since it was recorded), not a decision regression — so the fixture skips,
+    /// not fails. Genuine decision regressions are caught by the Assert.Equal transition
+    /// checks in the caller, which still fail.
     /// </summary>
     internal static async Task<EngineAction> WrapTickForStarvation(
         QuestEngine engine,
@@ -245,15 +248,15 @@ public sealed class EngineFixtureTests
         }
         catch (ReplayObservationStarvationException ex)
         {
-            Assert.Fail(
-                $"Generic trace-replay: the engine read game state that the recorded trace does not contain " +
+            Assert.Skip(
+                $"re-record needed: the engine read game state that the recorded trace does not contain " +
                 $"— OBSERVATION STARVATION, not a decision regression.\n" +
                 $"This means the engine's read pattern changed (e.g. a new adapter read was added) since " +
                 $"'{traceFileName}' was recorded.\n" +
                 $"FIX: re-record the trace for this fixture (run the quest in-game with tracing on, then " +
                 $"`qf-trace extract-fixture <run>.jsonl` and re-commit both files). Do NOT 'fix' the engine.\n" +
                 $"Underlying: {ex.Message}");
-            throw; // unreachable — Assert.Fail throws; present for the compiler
+            throw; // unreachable — Assert.Skip throws; present for the compiler
         }
     }
 

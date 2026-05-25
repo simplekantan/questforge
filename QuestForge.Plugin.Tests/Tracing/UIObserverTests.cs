@@ -109,6 +109,13 @@ public sealed class FakeGameProbe : IGameProbe
         if (idx >= 0) _quests[idx] = (id, seq, flags, _quests[idx].Variables);
     }
 
+    public void SetQuestVariables(uint questId, byte[] variables)
+    {
+        var id  = (ushort)questId;
+        var idx = _quests.FindIndex(q => q.QuestId == id);
+        if (idx >= 0) _quests[idx] = (_quests[idx].QuestId, _quests[idx].Seq, _quests[idx].Flags, variables);
+    }
+
     public void RemoveQuest(uint questId)
     {
         var id = (ushort)questId;
@@ -2530,6 +2537,187 @@ public sealed class UIObserverTests
         // Assert
         Assert.True(aggregator.Current.QuestAccepted,
             "Aggregator forwarding must work even when TraceSession is in Off mode (file closed)");
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UO-V: Quest variables observations (QUEST_VARIABLES_TRACE_PLAN.md §4 Group UO)
+    //
+    // RED: UIObserver.PollQuestState does not yet write GetQuestVariables observations
+    // AND FakeGameProbe has no per-quest variables setter.
+    // Both conditions make these tests fail (compile-error + assertion failure).
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void UO_V1_PollQuestState_NonZeroVariables_WritesGetQuestVariablesObservation()
+    {
+        /*
+         * RED: Will fail until:
+         *   1. FakeGameProbe.SetQuestVariables(uint questId, byte[] variables) is added
+         *      (builder adds it; the method does not exist yet → compile-error RED).
+         *   2. UIObserver.PollQuestState writes WriteObservation("GetQuestVariables", ...)
+         *      alongside the existing GetQuestSequence/GetQuestFlags writes.
+         *
+         * CONTRACT: Given FakeGameProbe returns quest 0x200 with non-zero variables
+         *           [0x10, 0x00, 0x00, 0x05, 0x00, 0x00],
+         *           When a tick fires,
+         *           Then an ObservationEvent with Method=="GetQuestVariables" is written
+         *           to the trace.
+         */
+
+        // Arrange
+        var (observer, framework, _, gameProbe, _, writer, _) = BuildFixture();
+        gameProbe.AddQuest(0x200u, 1, 0);
+        // RED compile-error: SetQuestVariables does not exist on FakeGameProbe yet.
+        gameProbe.SetQuestVariables(0x200u, new byte[] { 0x10, 0x00, 0x00, 0x05, 0x00, 0x00 });
+
+        // Act
+        framework.Tick();
+
+        // Assert
+        var varObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "GetQuestVariables")
+            .ToList();
+
+        Assert.NotEmpty(varObs);
+
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_V2_PollQuestState_VariablesObservation_ValueIsArrayAndArgumentIsQuestId()
+    {
+        /*
+         * RED: Same as UO_V1 — compile-error on SetQuestVariables + assertion failure
+         *      on UIObserver not writing the observation.
+         *
+         * CONTRACT: Given quest 0x200 with variables [0x10, 0x00, 0x00, 0x05, 0x00, 0x00],
+         *           When a tick fires,
+         *           Then the GetQuestVariables ObservationEvent:
+         *             - Value is a JSON array (NOT base64) with those six bytes.
+         *             - Argument encodes the public quest id (0x200 | 0x10000 = 0x10200).
+         *           (Mirrors GetQuestSequence arg handling: publicId.Value as the argument.)
+         */
+
+        // Arrange
+        var (observer, framework, _, gameProbe, _, writer, _) = BuildFixture();
+        gameProbe.AddQuest(0x200u, 1, 0);
+        // RED compile-error: SetQuestVariables does not exist on FakeGameProbe yet.
+        gameProbe.SetQuestVariables(0x200u, new byte[] { 0x10, 0x00, 0x00, 0x05, 0x00, 0x00 });
+
+        // Act
+        framework.Tick();
+
+        // Assert
+        var varObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .FirstOrDefault(e => e.Method == "GetQuestVariables");
+
+        Assert.NotNull(varObs);
+
+        // Value must be a JSON array, not a base64 string.
+        Assert.NotNull(varObs!.Value);
+        Assert.Equal(JsonValueKind.Array, varObs.Value!.Value.ValueKind);
+
+        // The six bytes must be present in the array.
+        var elements = varObs.Value.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
+        Assert.Equal(new byte[] { 0x10, 0x00, 0x00, 0x05, 0x00, 0x00 }, elements);
+
+        // Argument must encode the public quest id (0x200 | 0x10000 = 0x10200 = 66048 decimal).
+        Assert.NotNull(varObs.Argument);
+        var argText = varObs.Argument!.Value.GetRawText();
+        Assert.Contains("66048", argText, StringComparison.Ordinal);
+
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_V3_PollQuestState_SameVariables_SecondTickSuppressedByDedup()
+    {
+        /*
+         * RED: Same as UO_V1 — compile-error + assertion failure.
+         *
+         * CONTRACT: Given variables unchanged between tick 1 and tick 2,
+         *           When tick 2 fires (past heartbeat threshold with ResetHeartbeatState),
+         *           Then no additional GetQuestVariables observation is written
+         *           (TraceSession dedup suppresses the unchanged value).
+         *           Mirrors UO_C4 (GetQuestSequence dedup).
+         */
+
+        // Arrange
+        var (observer, framework, _, gameProbe, clock, writer, _) = BuildFixture();
+        gameProbe.AddQuest(0x200u, 1, 0);
+        // RED compile-error: SetQuestVariables does not exist on FakeGameProbe yet.
+        gameProbe.SetQuestVariables(0x200u, new byte[] { 0x01, 0x00, 0x00, 0x00, 0x00, 0x00 });
+
+        // Tick 1 — writes initial observations
+        framework.Tick();
+        var countAfterFirst = writer.RecordedEvents.Count(e =>
+            e is ObservationEvent { Method: "GetQuestVariables" });
+
+        // Advance past heartbeat threshold
+        clock.Advance(TimeSpan.FromMilliseconds(300));
+        observer.ResetHeartbeatState();
+
+        // Act — tick 2: same variables, second heartbeat
+        framework.Tick();
+
+        var countAfterSecond = writer.RecordedEvents.Count(e =>
+            e is ObservationEvent { Method: "GetQuestVariables" });
+
+        // Assert — no new observation (dedup in TraceSession)
+        Assert.Equal(countAfterFirst, countAfterSecond);
+
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_V4_PollQuestState_VariablesChanged_SecondTickWritesNewObservation()
+    {
+        /*
+         * RED: Same as UO_V1 — compile-error + assertion failure.
+         *
+         * CONTRACT: Given variables change between tick 1 and tick 2,
+         *           When tick 2 fires,
+         *           Then a SECOND GetQuestVariables observation is written with the new bytes.
+         *           Mirrors UO_C5 (GetQuestSequence change).
+         */
+
+        // Arrange
+        var (observer, framework, _, gameProbe, clock, writer, _) = BuildFixture();
+        gameProbe.AddQuest(0x200u, 1, 0);
+        // RED compile-error: SetQuestVariables does not exist on FakeGameProbe yet.
+        gameProbe.SetQuestVariables(0x200u, new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 });
+
+        // Tick 1 — writes initial all-zero variables observation
+        framework.Tick();
+        var countAfterFirst = writer.RecordedEvents.Count(e =>
+            e is ObservationEvent { Method: "GetQuestVariables" });
+
+        // Change the variables
+        // RED compile-error: SetQuestVariables does not exist on FakeGameProbe yet.
+        gameProbe.SetQuestVariables(0x200u, new byte[] { 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 });
+
+        clock.Advance(TimeSpan.FromMilliseconds(300));
+        observer.ResetHeartbeatState();
+
+        // Act — tick 2: changed variables
+        framework.Tick();
+
+        // Assert — at least 2 GetQuestVariables observations total (initial + changed)
+        var allVarObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "GetQuestVariables")
+            .ToList();
+
+        Assert.True(allVarObs.Count >= 2,
+            $"Expected >=2 GetQuestVariables observations (initial then changed), got {allVarObs.Count}. " +
+            "RED: UIObserver does not write GetQuestVariables observations yet.");
+
+        // The second observation must carry the changed bytes.
+        var secondObs = allVarObs.Last();
+        Assert.NotNull(secondObs.Value);
+        var changedElements = secondObs.Value!.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
+        Assert.Equal(new byte[] { 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 }, changedElements);
 
         observer.Dispose();
     }
