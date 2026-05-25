@@ -358,6 +358,14 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
 
             if (dist > radius) continue;
 
+            // Only true (red-nameplate) hostiles. ObjectKind.BattleNpc alone admits allied
+            // "Combatant" NPCs (e.g. city-guard patrols) whose RelationFlags are 0 — same as
+            // enemies — but whose CharacterData.IsHostile is false. IsHostile is true for
+            // passive, not-yet-aggro'd enemies, so this keeps pullable mobs while dropping
+            // allies. (Neutral/yellow quest targets, if any ever appear, are a deferred edge case.)
+            var charPtr = (FFXIVClientStructs.FFXIV.Client.Game.Character.Character*)obj.Address;
+            if (charPtr == null || !charPtr->CharacterData.IsHostile) continue;
+
             // ClientStructs pointer for targetable + nameplate icon checks.
             var goPtr = (FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)obj.Address;
             var isTargetable = goPtr != null && goPtr->GetIsTargetable();
