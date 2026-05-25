@@ -92,7 +92,7 @@ public sealed class ResumePointTests
         Target = new NpcLocation(12345u, (int)uint.Parse(requiredZone), new Position3(999f, 0f, 999f)),
         RequiredZone = requiredZone,
         ResumePointFragmentId = resumePointFragmentId,  // RED: property does not exist yet
-        Expect = new PredicateExpect { Predicate = "false" },  // never auto-confirms
+        Expect = new PredicateExpect { Predicate = "0 == 1" },  // never auto-confirms
         Recover = recover
     };
 
@@ -105,7 +105,7 @@ public sealed class ResumePointTests
         Target = new NpcLocation(12345u, (int)uint.Parse(requiredZone), new Position3(999f, 0f, 999f)),
         RequiredZone = requiredZone,
         ResumePointFragmentId = null,  // RED: property does not exist yet
-        Expect = new PredicateExpect { Predicate = "false" }
+        Expect = new PredicateExpect { Predicate = "0 == 1" }
     };
 
     /// <summary>
@@ -117,7 +117,7 @@ public sealed class ResumePointTests
         Target = new NpcLocation(12345u, 128, new Position3(999f, 0f, 999f)),
         RequiredZone = null,  // no required zone
         ResumePointFragmentId = fragmentId,  // RED: property does not exist yet
-        Expect = new PredicateExpect { Predicate = "false" }
+        Expect = new PredicateExpect { Predicate = "0 == 1" }
     };
 
     private static FragmentDefinition FragmentWithSingleTravelStep(string fragmentId, string stepId, Position3 dest) =>
@@ -829,7 +829,7 @@ public sealed class ResumePointTests
                 {
                     Id = "fragment-travel-1",
                     Destination = new TravelDestination(128, new Position3(50f, 0f, 50f)),
-                    Expect = new PredicateExpect { Predicate = "true" }  // always true → confirms immediately
+                    Expect = new PredicateExpect { Predicate = "1 == 1" }  // always true → confirms immediately
                 }
             ]
         };
@@ -890,7 +890,7 @@ public sealed class ResumePointTests
                 {
                     Id = "go",  // SAME id as the main step below
                     Destination = new TravelDestination(128, new Position3(50f, 0f, 50f)),
-                    Expect = new PredicateExpect { Predicate = "true" }  // confirms immediately
+                    Expect = new PredicateExpect { Predicate = "1 == 1" }  // confirms immediately
                 }
             ]
         };
@@ -903,7 +903,7 @@ public sealed class ResumePointTests
             Target = new NpcLocation(12345u, 128, new Position3(999f, 0f, 999f)),
             RequiredZone = "128",
             ResumePointFragmentId = "fragment-go-128",  // RED: property does not exist yet
-            Expect = new PredicateExpect { Predicate = "false" }  // never auto-confirms
+            Expect = new PredicateExpect { Predicate = "0 == 1" }  // never auto-confirms
         };
         var quest = BuildQuest(questId, mainStep);
 

@@ -99,8 +99,6 @@ public sealed class PredicateEvaluator
 
         return name switch
         {
-            "true"  => (object)true,
-            "false" => (object)false,
             "questSequence" => (long)(await _questState.GetQuestSequence(new QuestId((uint)(long)args[0]), ct)).ValueOrThrow,
             "isQuestAccepted" => (await _questState.IsQuestAccepted(new QuestId((uint)(long)args[0]), ct)).ValueOrThrow,
             "isQuestComplete" => (await _questState.IsQuestComplete(new QuestId((uint)(long)args[0]), ct)).ValueOrThrow,
