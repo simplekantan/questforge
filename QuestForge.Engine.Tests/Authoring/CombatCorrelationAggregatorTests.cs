@@ -6,22 +6,34 @@ using Xunit;
 namespace QuestForge.Engine.Tests.Authoring;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Slice A: SnapshotAggregator nibble-level bidirectional correlation tests.
-// Rewrites GWT-L1..L8 (byte, backward-only) → GWT-L1'..L9' (nibble, symmetric).
+// Slice A: SnapshotAggregator target-based span correlation tests.
 //
-// Baseline-only first observation: the FIRST OnQuestVariablesUpdated establishes the
-// baseline and emits no bump / no correlation (production polls quest variables every
-// heartbeat from author-mode start, so the first poll is always the pre-fight state).
-// Tests that exercise a bump-under-test must establish a non-null baseline first.
+// GWT-T1, T4, T5, T6, T8, T9 unchanged from previous revision.
 //
-// DELETED (byte-level, obsolete):
-//   GWT-L1  — kill-before-bump order (opposite of in-game reality)
-//   GWT-L2  — two DataIds in same byte window (replaced by L2'/L4')
-//   GWT-L3  — kill outside backward-only 500 ms window (replaced by L3' symmetric)
-//   GWT-L4  — two distinct DataIds in one byte bump (replaced by L4' nibble version)
-//   GWT-L5  — sequence-advance synthetic index -1 (SequenceVariableIndex DELETED)
-//   GWT-L6  — ResetDeltas byte (replaced by L6' nibble + bump-buffer clear)
-//   GWT-L8  — resumed-quest byte (replaced by L8' nibble)
+// GWT-T2 REPLACED by T2' (seeding model — THE bug fix):
+//   Pre-combat OnBattleNpcTargeted is tracked as _lastBattleNpcTarget (NO _inCombat gate).
+//   OnInCombatChanged(true) seeds _spanBattleNpcTargets with _lastBattleNpcTarget (if any).
+//   The real observer dedup means the target is forwarded ONCE on target-change — the
+//   re-confirm call in old T2 never happens in production. T2' matches that reality.
+//
+// GWT-T3 REPLACED by T3' (no target before combat → no attribution):
+//   _lastBattleNpcTarget is null → nothing seeded → nibble bump with no span target → null.
+//
+// GWT-T2b NEW (in-combat target-swap adds to span):
+//   Pre-combat target 347 seeds at combat-start; in-combat 348 adds to span; both captured.
+//
+// GWT-T7 REPLACED by T7' (ResetDeltas clears span but _lastBattleNpcTarget persists):
+//   ResetDeltas clears _spanBattleNpcTargets; _lastBattleNpcTarget survives.
+//   New OnInCombatChanged(true) re-seeds from the still-current _lastBattleNpcTarget.
+//
+// GWT-T10 REPLACED by T10' (new span clears prior span; target changed before span B):
+//   Span A target 347; target changes to 338 before span B; span B seeded with 338 only.
+//
+// RED causes (post-fix tests that fail today):
+//   T2' — pre-combat target dropped; seeding not implemented → span empty → FAIL
+//   T2b  — seeded 347 missing from span → FAIL
+//   T7'  — ResetDeltas contract for _lastBattleNpcTarget not implemented → behaviour undefined → FAIL
+//   T10' — depends on _lastBattleNpcTarget tracking; may FAIL or pass accidentally
 // ─────────────────────────────────────────────────────────────────────────────
 
 public sealed class CombatCorrelationAggregatorTests
@@ -31,7 +43,7 @@ public sealed class CombatCorrelationAggregatorTests
     private static readonly DateTimeOffset Epoch =
         new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
-    private static readonly byte[] ZeroBaseline = { 0, 0, 0, 0, 0, 0 };
+    private static readonly byte[] ZeroBaseline = [0, 0, 0, 0, 0, 0];
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -48,176 +60,211 @@ public sealed class CombatCorrelationAggregatorTests
            && e.DataIds.Count > 0;
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-L1' — bump-before-kill (the real in-game order) correlates to low nibble.
+    // GWT-T1 happy path — target during span + nibble bump attributes to the target.
     //
-    // THE decisive test: the merged design fails this because its correlation only
-    // triggers on bump-arrival (backward-only) — a kill arriving AFTER its bump is
-    // missed. The nibble bidirectional design correlates on kill-arrival too.
+    // Given quest 65847, baseline [0,0,0,0,0,0] established.
+    // When OnInCombatChanged(true);
+    //      OnBattleNpcTargeted(338);       ← in-combat target, added to span directly
+    //      OnQuestVariablesUpdated([0,0x30,0,0,0,0]) (V1 high 0→3);
+    //      OnInCombatChanged(false).
+    // Then KillCorrelatedTargets[(1,High)] == KillCorrelation([338], 3).
     //
-    // In-game order: PollQuestState (variable bump) BEFORE PollCombat (kill).
-    // Round 1 @t=250: bump V0 0x00→0x01 (FIRST obs → baseline only, no correlation),
-    //                 THEN kill 347 (buffered, no bump yet to match).
-    // Round 2 @t=500: bump 0x01→0x02 (correlates round-1 kill@250 via the ±500 ms window),
-    //                 THEN kill 347.
-    // Round 3 @t=900: bump 0x02→0x03 (Final=3), THEN kill 347.
-    // Expected: KillCorrelatedTargets[(0, Low)] == KillCorrelation([347], 3).
-    //
-    // NOTE: round-1's [0x01] is now the baseline (no direct correlation), but the
-    // symmetric window still captures the round-1 kill via the round-2 bump.
+    // T1's target comes AFTER InCombatChanged(true) — it is an in-combat target added
+    // directly to the span (not seeded). Seeding doesn't affect this path.
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GwtL1_BumpBeforeKill_RealInGameOrder_CorrelatesLowNibble()
+    public void GwtT1_TargetDuringSpan_NibbleBump_AttributesToTarget()
     {
         var clock = new FakeClock(Epoch);
         var aggregator = new SnapshotAggregator(Quest65847, clock);
 
-        // t=0: InCombat true
+        // Establish baseline (first observation)
+        aggregator.OnQuestVariablesUpdated(Quest65847, ZeroBaseline);
+
         aggregator.OnInCombatChanged(true);
-
-        // Round 1 @t=250ms: bump then kill (in-game order). [0x01] is the FIRST obs → baseline.
-        clock.Advance(TimeSpan.FromMilliseconds(250));
-        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x01, 0, 0, 0, 0, 0 });
-        aggregator.OnEnemyKilled(347u);
-
-        // Round 2 @t=500ms: bump then kill. 0x01→0x02 bump@500 correlates kill347@250 (Δ=250ms).
-        clock.Advance(TimeSpan.FromMilliseconds(250));
-        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x02, 0, 0, 0, 0, 0 });
-        aggregator.OnEnemyKilled(347u);
-
-        // Round 3 @t=900ms: bump then kill. Final reaches 3.
-        clock.Advance(TimeSpan.FromMilliseconds(400));
-        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x03, 0, 0, 0, 0, 0 });
-        aggregator.OnEnemyKilled(347u);
+        aggregator.OnBattleNpcTargeted(338u);
+        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0, 0x30, 0, 0, 0, 0 }); // V1 high 0→3
+        aggregator.OnInCombatChanged(false);
 
         var targets = aggregator.Current.KillCorrelatedTargets;
-        var key = new NibbleKey(0, NibbleHalf.Low);
+        var key = new NibbleKey(1, NibbleHalf.High);
         Assert.NotNull(targets);
         Assert.True(targets!.ContainsKey(key),
-            $"Expected (0,Low) in KillCorrelatedTargets. Got: {FormatTargets(targets)}");
+            $"Expected (1,High) in KillCorrelatedTargets. Got: {FormatTargets(targets)}");
         var entry = targets[key];
         Assert.Equal(3, entry.FinalValue);
-        Assert.Contains(347u, entry.DataIds);
-        // No high-nibble key from these bumps (high nibble stayed 0)
+        Assert.Single(entry.DataIds);
+        Assert.Contains(338u, entry.DataIds);
+        Assert.False(targets.ContainsKey(new NibbleKey(1, NibbleHalf.Low)),
+            $"(1,Low) must be absent — only high nibble bumped. Got: {FormatTargets(targets)}");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-T2' (THE BUG FIX) — pre-combat target is captured via seeding.
+    //
+    // Real observer forwards OnBattleNpcTargeted ONCE on target-change (dedup).
+    // The old code gated on _inCombat, so the single pre-combat forward was dropped.
+    //
+    // Given baseline [0,...] established.
+    // When OnBattleNpcTargeted(347)    ← NOT in combat; tracked as _lastBattleNpcTarget
+    //      OnInCombatChanged(true)     ← seeds _spanBattleNpcTargets with 347
+    //      OnQuestVariablesUpdated([0x03,0,...]) (V0 low 0→3).
+    // Then KillCorrelatedTargets[(0,Low)] == KillCorrelation([347], 3).
+    //
+    // FAILS TODAY: pre-combat target dropped; span empty; KillCorrelatedTargets null.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GwtT2Prime_PreCombatTarget_SeededAtCombatStart_IsAttributed()
+    {
+        var clock = new FakeClock(Epoch);
+        var aggregator = new SnapshotAggregator(Quest65847, clock);
+
+        aggregator.OnQuestVariablesUpdated(Quest65847, ZeroBaseline);
+
+        // Single pre-combat target — the ONLY call, like the real observer
+        aggregator.OnBattleNpcTargeted(347u);
+
+        // InCombatChanged(true) must seed _spanBattleNpcTargets with _lastBattleNpcTarget (347)
+        aggregator.OnInCombatChanged(true);
+
+        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x03, 0, 0, 0, 0, 0 }); // V0 low 0→3
+
+        var targets = aggregator.Current.KillCorrelatedTargets;
+        var lowKey = new NibbleKey(0, NibbleHalf.Low);
+
+        Assert.NotNull(targets);
+        Assert.True(targets!.ContainsKey(lowKey),
+            $"Pre-combat target must be seeded into span at combat-start. Got: {FormatTargets(targets)}");
+        Assert.Equal(3, targets[lowKey].FinalValue);
+        Assert.Contains(347u, targets[lowKey].DataIds);
         Assert.False(targets.ContainsKey(new NibbleKey(0, NibbleHalf.High)),
-            $"High nibble should not be correlated when only low nibble incremented. Got: {FormatTargets(targets)}");
+            $"(0,High) must be absent. Got: {FormatTargets(targets)}");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-L2' — AoE triple kill, single low-nibble bump → deduped DataId, FinalValue=3
+    // GWT-T3' — no target before combat → _lastBattleNpcTarget null → nothing seeded.
     //
-    // Baseline-only first observation: a [0,0,0,0,0,0] poll establishes the baseline
-    // FIRST (the realistic pre-fight state), THEN the AoE write 0x00→0x03 is a normal
-    // bump that correlates the three same-tick kills.
+    // Given baseline; OnInCombatChanged(true) with NO prior OnBattleNpcTargeted
+    //      (_lastBattleNpcTarget is null → nothing seeded);
+    //      OnQuestVariablesUpdated([0x01,0,...]) (V0 low 0→1).
+    // Then KillCorrelatedTargets is null/empty (nibble bumped but span has no target).
+    //
+    // Negative path: confirms seeding does NOT invent a target from thin air.
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GwtL2_AoeTripleKill_SingleLowNibbleBump_DeduplicatesDataId()
+    public void GwtT3Prime_NoPriorTarget_NothingSeeded_NoCorrelation()
     {
-        /*
-         * t=0: InCombat true; establish baseline [0,0,0,0,0,0] (pre-fight poll).
-         * t=250ms: bump 0x00→0x03 then OnEnemyKilled(347) ×3 (same tick).
-         * Then (0,Low).DataIds deduped == {347}, FinalValue == 3.
-         */
         var clock = new FakeClock(Epoch);
         var aggregator = new SnapshotAggregator(Quest65847, clock);
 
-        aggregator.OnInCombatChanged(true);
-
-        // FIRST observation establishes the pre-fight baseline (no bump, no correlation).
         aggregator.OnQuestVariablesUpdated(Quest65847, ZeroBaseline);
 
-        clock.Advance(TimeSpan.FromMilliseconds(250));
-        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x03, 0, 0, 0, 0, 0 });
-        aggregator.OnEnemyKilled(347u);
-        aggregator.OnEnemyKilled(347u);
-        aggregator.OnEnemyKilled(347u);
+        // No OnBattleNpcTargeted before InCombatChanged(true) — _lastBattleNpcTarget is null
+        aggregator.OnInCombatChanged(true);
+
+        // Nibble bumps but no target in span (nothing was seeded)
+        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x01, 0, 0, 0, 0, 0 });
 
         var targets = aggregator.Current.KillCorrelatedTargets;
-        var key = new NibbleKey(0, NibbleHalf.Low);
+        Assert.False(HasCorrelatedEntry(targets, new NibbleKey(0, NibbleHalf.Low)),
+            $"No prior target must yield no correlation. Got: {FormatTargets(targets)}");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-T2b — in-combat target-swap adds to span alongside seeded pre-combat target.
+    //
+    // Given baseline; OnBattleNpcTargeted(347) (pre-combat, seeds 347 at combat-start);
+    //      OnInCombatChanged(true)              ← 347 seeded;
+    //      OnBattleNpcTargeted(348)             ← different mob mid-fight, added in-combat;
+    //      OnQuestVariablesUpdated([0x03,0,...]) (V0 low 0→3).
+    // Then [(0,Low)].DataIds == [347, 348] (sorted).
+    //
+    // Note: observer dedup means we DON'T call 347 again — 347 is only present via seeding.
+    // FAILS TODAY: 347 not seeded → span only contains 348 → DataIds == [348].
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GwtT2b_InCombatTargetSwap_BothSeededAndInCombatTargetCaptured()
+    {
+        var clock = new FakeClock(Epoch);
+        var aggregator = new SnapshotAggregator(Quest65847, clock);
+
+        aggregator.OnQuestVariablesUpdated(Quest65847, ZeroBaseline);
+
+        // Pre-combat target — seeds 347 at combat-start
+        aggregator.OnBattleNpcTargeted(347u);
+        aggregator.OnInCombatChanged(true); // seeds 347
+
+        // Mid-fight target swap to a different mob — added in-combat
+        aggregator.OnBattleNpcTargeted(348u);
+
+        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x03, 0, 0, 0, 0, 0 }); // V0 low 0→3
+
+        var targets = aggregator.Current.KillCorrelatedTargets;
+        var lowKey = new NibbleKey(0, NibbleHalf.Low);
+
         Assert.NotNull(targets);
-        Assert.True(targets!.ContainsKey(key),
+        Assert.True(targets!.ContainsKey(lowKey),
             $"Expected (0,Low). Got: {FormatTargets(targets)}");
-        var entry = targets[key];
-        Assert.Equal(3, entry.FinalValue);
-        var unique = entry.DataIds.Distinct().ToList();
-        Assert.Single(unique);
-        Assert.Equal(347u, unique[0]);
+
+        var ids = targets[lowKey].DataIds.OrderBy(x => x).ToList();
+        Assert.True(ids.SequenceEqual(new[] { 347u, 348u }),
+            $"(0,Low) DataIds must be [347,348] (seeded + in-combat). Got: [{string.Join(",", ids)}]");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-L3' — kill outside the symmetric ±500 ms window not correlated (both directions).
-    // Kill→bump gap > 500 ms: bump at t=600ms, kill at t=0ms (|600-0|=600 > 500).
-    // Bump→kill gap > 500 ms: bump at t=0ms, kill at t=600ms (|0-600|=600 > 500).
+    // GWT-T4 successive bumps in one span → highest reached value (overwrite semantics).
     //
-    // A [0,...] baseline is established first so the bump-under-test is not the first obs.
+    // Given baseline; OnInCombatChanged(true); OnBattleNpcTargeted(347).
+    // When bumps: 0x01, 0x02, 0x03 (V0 low 1→2→3).
+    // Then [(0,Low)] == ([347], 3) — FinalValue = 3, the latest.
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GwtL3_KillBefore_OutsideSymmetricWindow_NotCorrelated()
+    public void GwtT4_SuccessiveBumps_HighestReachedValue()
     {
-        /*
-         * Baseline [0,...] @t=0; kill at t=0, bump at t=600ms — 600ms > 500ms window → not correlated.
-         */
         var clock = new FakeClock(Epoch);
         var aggregator = new SnapshotAggregator(Quest65847, clock);
 
-        // Establish baseline so the t=600ms write is a genuine bump, not the first obs.
         aggregator.OnQuestVariablesUpdated(Quest65847, ZeroBaseline);
-
-        aggregator.OnEnemyKilled(999u);
-
-        clock.Advance(TimeSpan.FromMilliseconds(600));
-        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x01, 0, 0, 0, 0, 0 });
-
-        var targets = aggregator.Current.KillCorrelatedTargets;
-        Assert.False(HasCorrelatedEntry(targets, new NibbleKey(0, NibbleHalf.Low)),
-            $"Kill @t=0 with bump @t=600ms (600ms > 500ms window) must NOT be correlated. Got: {FormatTargets(targets)}");
-    }
-
-    [Fact]
-    public void GwtL3_BumpBefore_OutsideSymmetricWindow_NotCorrelated()
-    {
-        /*
-         * Baseline [0,...] @t=0; bump at t=0, kill at t=600ms — 600ms > 500ms window → not correlated.
-         * Both the baseline and the bump are emitted at t=0 (the baseline first, then the bump).
-         */
-        var clock = new FakeClock(Epoch);
-        var aggregator = new SnapshotAggregator(Quest65847, clock);
-
-        // Establish baseline so [0x01] is a genuine bump, not the first obs.
-        aggregator.OnQuestVariablesUpdated(Quest65847, ZeroBaseline);
-        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x01, 0, 0, 0, 0, 0 });
-
-        clock.Advance(TimeSpan.FromMilliseconds(600));
-        aggregator.OnEnemyKilled(999u);
-
-        var targets = aggregator.Current.KillCorrelatedTargets;
-        Assert.False(HasCorrelatedEntry(targets, new NibbleKey(0, NibbleHalf.Low)),
-            $"Bump @t=0 with kill @t=600ms (600ms > 500ms symmetric window) must NOT be correlated. Got: {FormatTargets(targets)}");
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // GWT-L4' — both nibbles move in one write → two NibbleKeys produced.
-    //
-    // Baseline 0x02; kill 347 @t=250ms; then byte write 0x13
-    // (low 2→3 up, high 0→1 up) → both (0,Low) Final=3 and (0,High) Final=1, each {347}.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void GwtL4_BothNibblesInOneWrite_ProducesTwoNibbleKeys()
-    {
-        var clock = new FakeClock(Epoch);
-        var aggregator = new SnapshotAggregator(Quest65847, clock);
-
         aggregator.OnInCombatChanged(true);
+        aggregator.OnBattleNpcTargeted(347u);
 
-        // Establish baseline at 0x02 (first obs → baseline only)
+        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x01, 0, 0, 0, 0, 0 });
         aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x02, 0, 0, 0, 0, 0 });
+        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x03, 0, 0, 0, 0, 0 });
 
-        // kill 347, then byte write moving both nibbles
-        clock.Advance(TimeSpan.FromMilliseconds(250));
-        aggregator.OnEnemyKilled(347u);
+        var targets = aggregator.Current.KillCorrelatedTargets;
+        var lowKey = new NibbleKey(0, NibbleHalf.Low);
+        Assert.NotNull(targets);
+        Assert.True(targets!.ContainsKey(lowKey),
+            $"Expected (0,Low). Got: {FormatTargets(targets)}");
+        Assert.Equal(3, targets[lowKey].FinalValue);
+        Assert.Contains(347u, targets[lowKey].DataIds);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-T5 both nibbles move in one write, single target.
+    //
+    // Given baseline [0x02,0,...]; OnInCombatChanged(true); OnBattleNpcTargeted(347).
+    // When OnQuestVariablesUpdated([0x13,0,...]) (low 2→3 up, high 0→1 up).
+    // Then BOTH (0,Low) (Final=3) and (0,High) (Final=1) present, each DataIds==[347].
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GwtT5_BothNibblesInOneWrite_SingleTarget_TwoKeys()
+    {
+        var clock = new FakeClock(Epoch);
+        var aggregator = new SnapshotAggregator(Quest65847, clock);
+
+        // Baseline at 0x02 so 0x13 write is a genuine bump on both nibbles
+        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x02, 0, 0, 0, 0, 0 });
+        aggregator.OnInCombatChanged(true);
+        aggregator.OnBattleNpcTargeted(347u);
+
         aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x13, 0, 0, 0, 0, 0 }); // low 2→3, high 0→1
 
         var targets = aggregator.Current.KillCorrelatedTargets;
@@ -227,139 +274,127 @@ public sealed class CombatCorrelationAggregatorTests
         var highKey = new NibbleKey(0, NibbleHalf.High);
 
         Assert.True(targets!.ContainsKey(lowKey),
-            $"Expected (0,Low) from low nibble 2→3. Got: {FormatTargets(targets)}");
+            $"Expected (0,Low). Got: {FormatTargets(targets)}");
         Assert.Equal(3, targets[lowKey].FinalValue);
         Assert.Contains(347u, targets[lowKey].DataIds);
 
         Assert.True(targets.ContainsKey(highKey),
-            $"Expected (0,High) from high nibble 0→1. Got: {FormatTargets(targets)}");
+            $"Expected (0,High). Got: {FormatTargets(targets)}");
         Assert.Equal(1, targets[highKey].FinalValue);
         Assert.Contains(347u, targets[highKey].DataIds);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-L5' — high-nibble objective only: V1 low unchanged, V1 high bumped.
+    // GWT-T6 mixed-pack span → both targets on every bumped nibble (ambiguity raw data).
     //
-    // Baseline [0, 0x02, ...]; t=0 InCombat; t=250: bump [0, 0x32, ...] then kill 338.
-    // V1 low: 2→2 (unchanged) → no (1,Low); V1 high: 0→3 up → (1,High) Final=3.
+    // Given baseline; OnInCombatChanged(true);
+    //      OnBattleNpcTargeted(347); OnBattleNpcTargeted(49) (target swap mid-fight);
+    //      OnQuestVariablesUpdated([0x03,0,...])  (V0 low 0→3);
+    //      OnQuestVariablesUpdated([0x03,0x03,...]) (V1 low 0→3).
+    // Then (0,Low) and (1,Low) BOTH present, each DataIds==[49,347] (sorted).
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GwtL5_HighNibbleObjective_CorrectIndexAndHalf()
+    public void GwtT6_MixedPackSpan_BothTargetsOnEveryNibble()
     {
         var clock = new FakeClock(Epoch);
         var aggregator = new SnapshotAggregator(Quest65847, clock);
 
+        aggregator.OnQuestVariablesUpdated(Quest65847, ZeroBaseline);
         aggregator.OnInCombatChanged(true);
+        aggregator.OnBattleNpcTargeted(347u);
+        aggregator.OnBattleNpcTargeted(49u); // target swap
 
-        // Establish baseline at [0, 0x02, ...] (first obs → baseline only)
-        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0, 0x02, 0, 0, 0, 0 });
-
-        clock.Advance(TimeSpan.FromMilliseconds(250));
-        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0, 0x32, 0, 0, 0, 0 }); // V1 high 0→3, low 2→2
-        aggregator.OnEnemyKilled(338u);
+        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x03, 0, 0, 0, 0, 0 });        // V0 low 0→3
+        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x03, 0x03, 0, 0, 0, 0 });    // V1 low 0→3
 
         var targets = aggregator.Current.KillCorrelatedTargets;
         Assert.NotNull(targets);
 
-        var highKey = new NibbleKey(1, NibbleHalf.High);
-        Assert.True(targets!.ContainsKey(highKey),
-            $"Expected (1,High) from V1 high nibble 0→3. Got: {FormatTargets(targets)}");
-        Assert.Equal(3, targets[highKey].FinalValue);
-        Assert.Contains(338u, targets[highKey].DataIds);
+        var key0Low = new NibbleKey(0, NibbleHalf.Low);
+        var key1Low = new NibbleKey(1, NibbleHalf.Low);
 
-        // Low nibble of V1 did not change (2→2) → no (1,Low)
-        Assert.False(HasCorrelatedEntry(targets, new NibbleKey(1, NibbleHalf.Low)),
-            $"(1,Low) must be absent (low nibble did not change). Got: {FormatTargets(targets)}");
+        Assert.True(targets!.ContainsKey(key0Low),
+            $"Expected (0,Low). Got: {FormatTargets(targets)}");
+        Assert.True(targets.ContainsKey(key1Low),
+            $"Expected (1,Low). Got: {FormatTargets(targets)}");
+
+        // Both nibbles carry the SAME span target-set
+        var ids0 = targets[key0Low].DataIds.OrderBy(x => x).ToList();
+        var ids1 = targets[key1Low].DataIds.OrderBy(x => x).ToList();
+        Assert.True(ids0.SequenceEqual(new[] { 49u, 347u }),
+            $"(0,Low) DataIds must be [49,347]. Got: [{string.Join(",", ids0)}]");
+        Assert.True(ids1.SequenceEqual(new[] { 49u, 347u }),
+            $"(1,Low) DataIds must be [49,347]. Got: [{string.Join(",", ids1)}]");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-L6' — ResetDeltas clears correlation AND the nibble bump buffer, keeps baseline.
+    // GWT-T7' ResetDeltas clears span sets; _lastBattleNpcTarget persists.
     //
-    // Part A: after a correlated window, ResetDeltas clears KillCorrelatedTargets.
-    // Part B (decisive): re-emitting same value [0x03,...] with in-window kill → NO correlation
-    //   (baseline preserved at 0x03; no nibble delta). If baseline were zeroed, 0→3 would
-    //   spuriously correlate — this part distinguishes the two behaviors.
-    // Part C: genuine 0x03→0x04 (low 3→4) → correlates, Final=4.
-    // Part D: bump buffer cleared: a bump emitted before ResetDeltas should not correlate
-    //   a kill emitted after ResetDeltas.
+    // Contract decision: _lastBattleNpcTarget persists across ResetDeltas (like _prevQuestVariables).
+    // Rationale: it represents "the last mob the player was targeting" — a persistent observation
+    // about the player's current state, not a per-window delta signal. Clearing it would cause
+    // a pre-combat target to be lost if ResetDeltas runs between targeting and combat-start
+    // (e.g. authoring's before-snapshot capture). _prevQuestVariables uses the same rationale.
     //
-    // A [0,...] baseline is established first so the 0x00→0x03 write is a genuine bump.
+    // Part A: correlated (0,Low)=([347],3) exists; ResetDeltas() → span cleared → empty.
+    // Part B: OnInCombatChanged(true) → re-seeds with persisted _lastBattleNpcTarget (347);
+    //         OnQuestVariablesUpdated([0x03,...]) — baseline preserved at 0x03 → no delta → empty.
+    // Part C: genuine 0x03→0x04 (low 3→4) → [(0,Low)]=([347],4) (347 re-seeded from persistent last-target).
+    //
+    // FAILS TODAY: _lastBattleNpcTarget not tracked; seeding not implemented.
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GwtL6_ResetDeltas_ClearsCorrelationAndBumpBuffer_KeepsBaseline()
+    public void GwtT7Prime_ResetDeltas_ClearsSpan_LastTargetPersists_ReseededOnNewCombat()
     {
         var clock = new FakeClock(Epoch);
         var aggregator = new SnapshotAggregator(Quest65847, clock);
 
-        aggregator.OnInCombatChanged(true);
-
-        // Establish baseline so the first 0x03 write is a genuine bump, not the first obs.
         aggregator.OnQuestVariablesUpdated(Quest65847, ZeroBaseline);
 
-        // First window: 0x00→0x03, kill 347
-        clock.Advance(TimeSpan.FromMilliseconds(250));
+        // Pre-combat target — sets _lastBattleNpcTarget = 347
+        aggregator.OnBattleNpcTargeted(347u);
+        aggregator.OnInCombatChanged(true); // seeds 347
         aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x03, 0, 0, 0, 0, 0 });
-        aggregator.OnEnemyKilled(347u);
 
-        // Confirm pre-reset correlation
         var lowKey = new NibbleKey(0, NibbleHalf.Low);
         Assert.True(HasCorrelatedEntry(aggregator.Current.KillCorrelatedTargets, lowKey),
-            "Precondition: (0,Low) should be correlated before ResetDeltas");
+            "Precondition: (0,Low) must be correlated before ResetDeltas");
 
-        // ResetDeltas
+        // Authoring's before-snapshot capture
         aggregator.ResetDeltas();
 
-        // Part A: cleared
+        // Part A: span cleared
         var afterReset = aggregator.Current.KillCorrelatedTargets;
         Assert.False(HasCorrelatedEntry(afterReset, lowKey),
-            $"KillCorrelatedTargets must be cleared after ResetDeltas. Got: {FormatTargets(afterReset)}");
+            $"KillCorrelatedTargets must be empty after ResetDeltas. Got: {FormatTargets(afterReset)}");
 
-        // Part B (decisive): re-emit same value with in-window kill — baseline preserved → no delta
-        clock.Advance(TimeSpan.FromMilliseconds(500));
-        aggregator.OnEnemyKilled(347u);
+        // Part B: new combat span; _lastBattleNpcTarget (347) still persists → re-seeded
+        // baseline preserved at 0x03 → re-emitting same value yields no bump
+        aggregator.OnInCombatChanged(false);
+        aggregator.OnInCombatChanged(true); // re-seeds with persisted 347
         aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x03, 0, 0, 0, 0, 0 }); // 3→3, no change
 
         Assert.False(HasCorrelatedEntry(aggregator.Current.KillCorrelatedTargets, lowKey),
-            "Re-emitting the same value [0x03,...] after ResetDeltas must NOT correlate " +
-            $"(baseline preserved at 0x03; no nibble delta). Got: {FormatTargets(aggregator.Current.KillCorrelatedTargets)}");
+            "Re-emitting same value after ResetDeltas must not correlate (baseline preserved at 0x03). " +
+            $"Got: {FormatTargets(aggregator.Current.KillCorrelatedTargets)}");
 
-        // Part C: genuine 0x03→0x04 (low 3→4) → correlates
-        clock.Advance(TimeSpan.FromMilliseconds(500));
-        aggregator.OnEnemyKilled(347u);
+        // Part C: genuine 0x03→0x04 → correlates; 347 re-seeded from persistent _lastBattleNpcTarget
         aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x04, 0, 0, 0, 0, 0 });
-
         var targets2 = aggregator.Current.KillCorrelatedTargets;
         Assert.True(HasCorrelatedEntry(targets2, lowKey),
-            $"Expected (0,Low) after genuine 3→4 bump. Got: {FormatTargets(targets2)}");
+            $"Expected (0,Low) after genuine 3→4 bump with re-seeded 347. Got: {FormatTargets(targets2)}");
         Assert.Equal(4, targets2![lowKey].FinalValue);
-
-        // Part D: bump buffer cleared — a bump immediately before ResetDeltas should not
-        // correlate a kill immediately after ResetDeltas (even within the 500 ms window).
-        var clock2 = new FakeClock(Epoch);
-        var agg2 = new SnapshotAggregator(Quest65847, clock2);
-        agg2.OnInCombatChanged(true);
-        // establish baseline, then emit bump (t=0)
-        agg2.OnQuestVariablesUpdated(Quest65847, ZeroBaseline);
-        agg2.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x01, 0, 0, 0, 0, 0 });
-        // ResetDeltas immediately — clears bump buffer
-        agg2.ResetDeltas();
-        // kill arrives in-window relative to the old bump (t+100ms)
-        clock2.Advance(TimeSpan.FromMilliseconds(100));
-        agg2.OnEnemyKilled(347u);
-        // no further bump → correlation pass on kill finds no buffered bumps
-        Assert.False(HasCorrelatedEntry(agg2.Current.KillCorrelatedTargets, new NibbleKey(0, NibbleHalf.Low)),
-            "A kill arriving after ResetDeltas must not correlate against a bump that was emitted before ResetDeltas " +
-            $"(bump buffer must be cleared). Got: {FormatTargets(agg2.Current.KillCorrelatedTargets)}");
+        Assert.Contains(347u, targets2[lowKey].DataIds);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-L7' — InCombat false→true records combat start position and zone. UNCHANGED.
+    // GWT-T8 InCombat false→true records combat start position/zone. UNCHANGED.
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GwtL7_InCombatFalseToTrue_RecordsCombatStartPositionAndZone()
+    public void GwtT8_InCombatFalseToTrue_RecordsCombatStartPositionAndZone()
     {
         var clock = new FakeClock(Epoch);
         var aggregator = new SnapshotAggregator(Quest65847, clock);
@@ -379,97 +414,79 @@ public sealed class CombatCorrelationAggregatorTests
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-L8' — resumed-quest first observation (production order): no spurious correlation.
+    // GWT-T9 resumed-quest first observation: no spurious attribution.
     //
-    // Baseline-only first observation: the first OnQuestVariablesUpdated([0x02,...]) only
-    // sets the baseline (no bump, no correlation). A later unrelated kill (999) finds no
-    // buffered bump, and the unchanged re-emit produces no delta → no correlation at all.
-    //
-    // Production order: PollQuestState BEFORE PollCombat.
-    // At t=250: first OnQuestVariablesUpdated([0x02,...]) → baseline=0x02 (no bump).
-    // At t=400: unrelated kill 999 arrives (no buffered bump).
-    // At t=500: OnQuestVariablesUpdated([0x02,...]) unchanged → no delta → no correlation.
-    // Then no (0,Low) or (0,High) correlated entry.
+    // Given OnInCombatChanged(true); OnBattleNpcTargeted(338);
+    //      OnQuestVariablesUpdated([0,0x30,0,...]) as the FIRST observation (no prior baseline).
+    // Then KillCorrelatedTargets is null (first obs = baseline only; no bump).
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GwtL8_ResumedQuestFirstObservation_NoSpuriousCorrelation()
+    public void GwtT9_ResumedQuest_FirstObservation_NoSpuriousAttribution()
     {
         var clock = new FakeClock(Epoch);
         var aggregator = new SnapshotAggregator(Quest65847, clock);
 
         aggregator.OnInCombatChanged(true);
+        aggregator.OnBattleNpcTargeted(338u);
 
-        // First obs — baseline only (no bump, no correlation)
-        clock.Advance(TimeSpan.FromMilliseconds(250));
-        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x02, 0, 0, 0, 0, 0 });
-
-        // Unrelated kill enters buffer
-        clock.Advance(TimeSpan.FromMilliseconds(150));
-        aggregator.OnEnemyKilled(999u);
-
-        // Same value re-emitted — no nibble delta
-        clock.Advance(TimeSpan.FromMilliseconds(100));
-        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x02, 0, 0, 0, 0, 0 });
+        // FIRST observation — must establish baseline only, no bump
+        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0, 0x30, 0, 0, 0, 0 });
 
         var targets = aggregator.Current.KillCorrelatedTargets;
-        Assert.False(HasCorrelatedEntry(targets, new NibbleKey(0, NibbleHalf.Low)),
-            $"Resumed-quest first observation must not create spurious (0,Low) correlation. Got: {FormatTargets(targets)}");
-        Assert.False(HasCorrelatedEntry(targets, new NibbleKey(0, NibbleHalf.High)),
-            $"Resumed-quest first observation must not create spurious (0,High) correlation. Got: {FormatTargets(targets)}");
+        Assert.Null(targets);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-L9' — nibble decrement (completion reset) does not correlate and does not
-    //           erase the prior correlated entry.
+    // GWT-T10' new combat span clears prior span; _lastBattleNpcTarget updated between spans.
     //
-    // Build up (0,Low)=([347],3) from the happy path (with a baseline poll first).
-    // Then emit OnEnemyKilled(347) then OnQuestVariablesUpdated([0x00,...]) (low 3→0, decrement).
-    // Expected: (0,Low) still ([347],3); decrement is not a correlation event.
+    // Span A: pre-combat target 347 → seeded; bump V0 low → (0,Low)=([347],3).
+    //         OnInCombatChanged(false).
+    //         Player now targets 338 (target changes between fights).
+    // Span B: OnInCombatChanged(true) → seeds with current _lastBattleNpcTarget (338, NOT 347);
+    //         OnBattleNpcTargeted(338) is NOT called again (dedup);
+    //         Bump V1 low → (1,Low)=([338],3).
+    // Then: (1,Low)=([338],3); 347 absent; (0,Low) absent.
+    //
+    // FAILS TODAY: _lastBattleNpcTarget not tracked; seeding not implemented.
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GwtL9_NibbleDecrement_CompletionReset_DoesNotCorrelateAndDoesNotErasePrior()
+    public void GwtT10Prime_NewSpan_ClearsPriorSpan_LastTargetUpdatedBetweenSpans()
     {
         var clock = new FakeClock(Epoch);
         var aggregator = new SnapshotAggregator(Quest65847, clock);
 
-        aggregator.OnInCombatChanged(true);
+        aggregator.OnQuestVariablesUpdated(Quest65847, ZeroBaseline); // baseline
 
-        // Establish baseline so the 0x01 write is a genuine bump, not the first obs.
-        aggregator.OnQuestVariablesUpdated(Quest65847, ZeroBaseline);
-
-        // Build up 3 correlated kills (bump-before-kill order as per L1')
-        clock.Advance(TimeSpan.FromMilliseconds(250));
-        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x01, 0, 0, 0, 0, 0 });
-        aggregator.OnEnemyKilled(347u);
-
-        clock.Advance(TimeSpan.FromMilliseconds(250));
-        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x02, 0, 0, 0, 0, 0 });
-        aggregator.OnEnemyKilled(347u);
-
-        clock.Advance(TimeSpan.FromMilliseconds(400));
+        // Span A: pre-combat target 347
+        aggregator.OnBattleNpcTargeted(347u);
+        aggregator.OnInCombatChanged(true); // seeds 347
         aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x03, 0, 0, 0, 0, 0 });
-        aggregator.OnEnemyKilled(347u);
+        aggregator.OnInCombatChanged(false);
 
-        var lowKey = new NibbleKey(0, NibbleHalf.Low);
-        Assert.True(HasCorrelatedEntry(aggregator.Current.KillCorrelatedTargets, lowKey),
-            "Precondition: (0,Low)=([347],3) must be established before decrement test");
+        // Between spans: player retargets to a different mob (338)
+        // _lastBattleNpcTarget must be updated to 338 (no _inCombat gate on tracking)
+        aggregator.OnBattleNpcTargeted(338u);
 
-        // Completion reset: all bytes → 0x00 (low 3→0 decrement, strict-increase rule: not a bump)
-        clock.Advance(TimeSpan.FromMilliseconds(100));
-        aggregator.OnEnemyKilled(347u);
-        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x00, 0, 0, 0, 0, 0 });
+        // Span B: seeds with current _lastBattleNpcTarget (338, NOT the stale 347)
+        aggregator.OnInCombatChanged(true); // clears span A sets; seeds 338
+        // V1 low 0→3; baseline is [0x03,0,...] so only V1 index 1 is new
+        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0x03, 0x03, 0, 0, 0, 0 });
 
         var targets = aggregator.Current.KillCorrelatedTargets;
-        // Prior correlation must still be present unchanged
-        Assert.True(targets is { Count: > 0 } && targets.ContainsKey(lowKey),
-            $"(0,Low) must still be present after decrement. Got: {FormatTargets(targets)}");
-        Assert.Equal(3, targets![lowKey].FinalValue);
-        Assert.Contains(347u, targets[lowKey].DataIds);
+        Assert.NotNull(targets);
 
-        // No new high-nibble entry from the decrement
-        Assert.False(HasCorrelatedEntry(targets, new NibbleKey(0, NibbleHalf.High)),
-            $"Decrement must not produce a (0,High) entry. Got: {FormatTargets(targets)}");
+        var key1Low = new NibbleKey(1, NibbleHalf.Low);
+        Assert.True(targets!.ContainsKey(key1Low),
+            $"Expected only (1,Low) from span B with 338. Got: {FormatTargets(targets)}");
+        Assert.Contains(338u, targets[key1Low].DataIds);
+        Assert.Equal(3, targets[key1Low].FinalValue);
+
+        // Span A's nibble and target must be gone
+        Assert.False(targets.ContainsKey(new NibbleKey(0, NibbleHalf.Low)),
+            $"(0,Low) from span A must be cleared by the new span. Got: {FormatTargets(targets)}");
+        Assert.False(targets[key1Low].DataIds.Contains(347u),
+            $"347 from span A must not appear in span B's entry. Got: [{string.Join(",", targets[key1Low].DataIds)}]");
     }
 }

@@ -32,29 +32,25 @@ public sealed class SnapshotAggregator
     private bool _selectYesnoConfirmed;
     private IReadOnlyList<byte>? _questVariables;
 
-    // ── kill-correlation state ─────────────────────────────────────────────
+    // ── combat span state ──────────────────────────────────────────────────
     private bool _inCombat;
     private WorldPosition? _combatStartPosition;
     private int _combatStartZone;
 
-    // Recent kills buffer: (dataId, timestamp) ordered by time ascending.
-    private readonly List<(uint DataId, DateTimeOffset At)> _recentKills = new();
+    // Tracks the most-recently targeted BattleNpc regardless of combat state.
+    // Persists across ResetDeltas so a pre-combat target is still available to seed the
+    // next span even if ResetDeltas runs between targeting and InCombatChanged(true).
+    private uint? _lastBattleNpcTarget;
 
-    // Recent nibble bumps buffer: (key, nibble value, timestamp), ordered by time ascending.
-    private readonly List<(NibbleKey Key, int FinalValue, DateTimeOffset At)> _recentNibbleBumps = new();
+    // Distinct hostile targets acquired while _inCombat. Cleared on each false→true InCombat transition.
+    private readonly HashSet<uint> _spanBattleNpcTargets = new();
 
-    // Per-nibble accumulated correlations for the current recording window.
-    private readonly Dictionary<NibbleKey, (HashSet<uint> DataIds, int FinalValue)> _killCorrelatedTargets = new();
+    // Nibble bumps that occurred while _inCombat. Key → latest (highest) value reached. Cleared on each false→true InCombat transition.
+    private readonly Dictionary<NibbleKey, int> _spanNibbleBumps = new();
 
     // Previous quest-variable values baseline for delta detection.
     // Survives ResetDeltas so cross-window deltas are computed correctly.
     private IReadOnlyList<byte>? _prevQuestVariables;
-
-    /// <summary>
-    /// Correlation window: kills and nibble bumps within this span are bidirectionally correlated.
-    /// Must match the offline SnapshotState constant.
-    /// </summary>
-    public static readonly TimeSpan CombatCorrelationWindow = TimeSpan.FromMilliseconds(500);
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
     // tests inject FakeClock for deterministic CapturedAt values.
@@ -161,9 +157,6 @@ public sealed class SnapshotAggregator
         _questVariables = variables;
         _prevQuestVariables = variables;
 
-        var now = _clock.UtcNow;
-        EvictStale(now);
-
         var len = variables.Count;
         for (var i = 0; i < len; i++)
         {
@@ -173,46 +166,40 @@ public sealed class SnapshotAggregator
             var lowUp  = (n & 0x0F) > (p & 0x0F);
             var highUp = (n >> 4)   > (p >> 4);
 
-            if (lowUp)
+            if (lowUp && _inCombat)
             {
                 var key = new NibbleKey(i, NibbleHalf.Low);
-                var nibbleValue = n & 0x0F;
-                _recentNibbleBumps.Add((key, nibbleValue, now));
-                CorrelateKillsToBump(key, nibbleValue, now);
+                _spanNibbleBumps[key] = n & 0x0F;
             }
 
-            if (highUp)
+            if (highUp && _inCombat)
             {
                 var key = new NibbleKey(i, NibbleHalf.High);
-                var nibbleValue = n >> 4;
-                _recentNibbleBumps.Add((key, nibbleValue, now));
-                CorrelateKillsToBump(key, nibbleValue, now);
+                _spanNibbleBumps[key] = n >> 4;
             }
         }
     }
 
     /// <summary>
-    /// Called when a hostile enemy is detected as killed (tracked-then-gone while in combat).
-    /// Pushes the kill into the recent-kills buffer, evicts stale entries, and correlates
-    /// bidirectionally against any buffered nibble bumps within the symmetric window.
+    /// Called when the player targets a BattleNpc (ObjectKind == BattleNpc).
+    /// Always updates <c>_lastBattleNpcTarget</c> so a pre-combat target can be seeded
+    /// into the span when InCombatChanged(true) fires. Also adds to the span directly
+    /// when already in combat (the in-combat target-swap case).
     /// </summary>
-    public void OnEnemyKilled(uint dataId)
+    public void OnBattleNpcTargeted(uint dataId)
     {
-        var now = _clock.UtcNow;
-        _recentKills.Add((dataId, now));
-        EvictStale(now);
-
-        // Correlate-on-arrival: look back at buffered nibble bumps within the symmetric window.
-        foreach (var (key, finalValue, bumpAt) in _recentNibbleBumps)
-        {
-            if (AbsDelta(now, bumpAt) <= CombatCorrelationWindow)
-                AddToCorrelation(key, finalValue, dataId);
-        }
+        _lastBattleNpcTarget = dataId;
+        if (_inCombat)
+            _spanBattleNpcTargets.Add(dataId);
     }
 
     /// <summary>
     /// Called when the player's in-combat state changes.
-    /// On a false→true transition, captures the current position and zone as the combat-start location.
+    /// On a false→true transition, captures the current position and zone as the combat-start
+    /// location, clears the span sets to begin a fresh span, then seeds the span with
+    /// <c>_lastBattleNpcTarget</c> (the mob targeted right before engaging — the real observer
+    /// deduplicates so it will not re-forward the same target once combat starts).
+    /// On true→false, the span is retained so the record taken after the fight still sees it.
     /// </summary>
     public void OnInCombatChanged(bool inCombat)
     {
@@ -220,6 +207,10 @@ public sealed class SnapshotAggregator
         {
             _combatStartPosition = _position;
             _combatStartZone = (int)_zone.Value;
+            _spanBattleNpcTargets.Clear();
+            _spanNibbleBumps.Clear();
+            if (_lastBattleNpcTarget is { } t)
+                _spanBattleNpcTargets.Add(t);
         }
         _inCombat = inCombat;
     }
@@ -381,62 +372,22 @@ public sealed class SnapshotAggregator
         // travel → Lift Attendant: the aethernet step "resurfaces" in the next recording window).
         // Clearing here ensures isAethernet only considers shards targeted within this window.
         _lastAethernetShardInteracted = null;
-        // WHY: clear the per-window kill signals so they do not bleed into the next recording window.
+        // WHY: clear the per-span target/nibble sets so they do not bleed into the next recording window.
         // _prevQuestVariables is intentionally preserved — the next bump's delta must be computed
-        // against the last known values, not from zero. (GWT-L6')
-        _recentKills.Clear();
-        _recentNibbleBumps.Clear();
-        _killCorrelatedTargets.Clear();
+        // against the last known values, not from zero. (GWT-T7)
+        _spanBattleNpcTargets.Clear();
+        _spanNibbleBumps.Clear();
     }
 
-    // ── Private kill-correlation helpers ─────────────────────────────────────
-
-    private void EvictStale(DateTimeOffset now)
-    {
-        var cutoff = now - CombatCorrelationWindow;
-        _recentKills.RemoveAll(k => k.At < cutoff);
-        _recentNibbleBumps.RemoveAll(b => b.At < cutoff);
-    }
-
-    private static TimeSpan AbsDelta(DateTimeOffset a, DateTimeOffset b)
-    {
-        var d = a - b;
-        return d < TimeSpan.Zero ? -d : d;
-    }
-
-    private void CorrelateKillsToBump(NibbleKey key, int finalValue, DateTimeOffset bumpAt)
-    {
-        foreach (var (dataId, killAt) in _recentKills)
-        {
-            if (AbsDelta(bumpAt, killAt) <= CombatCorrelationWindow)
-                AddToCorrelation(key, finalValue, dataId);
-        }
-
-        // Ensure the bucket exists even when no kills matched (FinalValue is updated).
-        if (!_killCorrelatedTargets.TryGetValue(key, out var bucket))
-            _killCorrelatedTargets[key] = (new HashSet<uint>(), finalValue);
-        else
-            _killCorrelatedTargets[key] = (bucket.DataIds, finalValue);
-    }
-
-    private void AddToCorrelation(NibbleKey key, int finalValue, uint dataId)
-    {
-        if (!_killCorrelatedTargets.TryGetValue(key, out var bucket))
-            bucket = (new HashSet<uint>(), finalValue);
-        bucket.DataIds.Add(dataId);
-        _killCorrelatedTargets[key] = (bucket.DataIds, finalValue);
-    }
+    // ── Private span-correlation helper ──────────────────────────────────────
 
     private IReadOnlyDictionary<NibbleKey, KillCorrelation>? BuildKillCorrelatedTargets()
     {
-        if (_killCorrelatedTargets.Count == 0) return null;
-        var result = new Dictionary<NibbleKey, KillCorrelation>(_killCorrelatedTargets.Count);
-        foreach (var (key, (dataIds, finalValue)) in _killCorrelatedTargets)
-        {
-            if (dataIds.Count == 0) continue;
-            var sorted = dataIds.OrderBy(id => id).ToList();
-            result[key] = new KillCorrelation(sorted, finalValue);
-        }
+        if (_spanNibbleBumps.Count == 0 || _spanBattleNpcTargets.Count == 0) return null;
+        var dataIds = _spanBattleNpcTargets.OrderBy(id => id).ToList();
+        var result = new Dictionary<NibbleKey, KillCorrelation>(_spanNibbleBumps.Count);
+        foreach (var (key, value) in _spanNibbleBumps)
+            result[key] = new KillCorrelation(dataIds, value);
         return result.Count > 0 ? result : null;
     }
 }

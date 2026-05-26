@@ -50,22 +50,28 @@ public sealed class QuestStatePanel : Window
         {
             ImGui.Separator();
             ImGui.TextUnformatted("Variables (V0–V5):");
-            if (ImGui.BeginTable("qf-quest-variables", 6,
-                    ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchSame))
+            // One row per variable (transposed) so cells never truncate. Dec is the plain
+            // value; High/Low are the nibbles — quests often pack per-objective sub-counts
+            // into the high/low nibble of a single variable byte.
+            if (ImGui.BeginTable("qf-quest-variables", 5,
+                    ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp))
             {
-                for (var i = 0; i < 6; i++)
-                    ImGui.TableSetupColumn($"V{i}");
+                ImGui.TableSetupColumn("Var");
+                ImGui.TableSetupColumn("Dec");
+                ImGui.TableSetupColumn("Hex");
+                ImGui.TableSetupColumn("High");
+                ImGui.TableSetupColumn("Low");
                 ImGui.TableHeadersRow();
 
-                ImGui.TableNextRow();
                 for (var i = 0; i < 6; i++)
                 {
-                    ImGui.TableSetColumnIndex(i);
                     var b = vars[i];
-                    if (b == 0)
-                        ImGui.TextUnformatted("0");
-                    else
-                        ImGui.TextUnformatted($"0x{b:X2} H:{b >> 4} L:{b & 0x0F}");
+                    ImGui.TableNextRow();
+                    ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted($"V{i}");
+                    ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted(b.ToString());
+                    ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted($"0x{b:X2}");
+                    ImGui.TableSetColumnIndex(3); ImGui.TextUnformatted((b >> 4).ToString());
+                    ImGui.TableSetColumnIndex(4); ImGui.TextUnformatted((b & 0x0F).ToString());
                 }
                 ImGui.EndTable();
             }
