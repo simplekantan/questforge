@@ -6,6 +6,8 @@ using AdaptersAetheryteId = QuestForge.Adapters.Types.AetheryteId; // disambigua
 
 namespace QuestForge.Engine.Predicates;
 
+internal enum Nibble { Whole, Low, High }
+
 public sealed class PredicateEvaluator
 {
     private readonly IGameStateProvider _gameState;
@@ -100,7 +102,9 @@ public sealed class PredicateEvaluator
         return name switch
         {
             "questSequence" => (long)(await _questState.GetQuestSequence(new QuestId((uint)(long)args[0]), ct)).ValueOrThrow,
-            "questVariable" => await EvaluateQuestVariable((long)args[0], (long)args[1], ct),
+            "questVariable"     => await EvaluateQuestVariable((long)args[0], (long)args[1], Nibble.Whole, ct),
+            "questVariableLow"  => await EvaluateQuestVariable((long)args[0], (long)args[1], Nibble.Low,   ct),
+            "questVariableHigh" => await EvaluateQuestVariable((long)args[0], (long)args[1], Nibble.High,  ct),
             "isQuestAccepted" => (await _questState.IsQuestAccepted(new QuestId((uint)(long)args[0]), ct)).ValueOrThrow,
             "isQuestComplete" => (await _questState.IsQuestComplete(new QuestId((uint)(long)args[0]), ct)).ValueOrThrow,
             "questFlag" => (await _questState.IsQuestFlagSet(new QuestId((uint)(long)args[0]), (int)(long)args[1], ct)).ValueOrThrow,
@@ -115,12 +119,18 @@ public sealed class PredicateEvaluator
         };
     }
 
-    private async Task<object> EvaluateQuestVariable(long questId, long index, CancellationToken ct)
+    private async Task<object> EvaluateQuestVariable(long questId, long index, Nibble nibble, CancellationToken ct)
     {
         var vars = (await _questState.GetQuestVariables(new QuestId((uint)questId), ct)).ValueOrThrow;
         if (index < 0 || index >= vars.Count)
             return 0L;
-        return (long)vars[(int)index];
+        var b = vars[(int)index];
+        return nibble switch
+        {
+            Nibble.Low  => (long)(b & 0x0F),
+            Nibble.High => (long)(b >> 4),
+            _           => (long)b
+        };
     }
 
     private async Task<object> EvaluatePlayerNear(WorldPosition target, long radius, CancellationToken ct)
