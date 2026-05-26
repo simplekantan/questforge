@@ -7,21 +7,12 @@ using QuestForge.Plugin.Tracing;
 using Xunit;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RED PHASE — Slice 2: PollCombat aggregator-forwarding tests.
+// Slice 2: PollCombat aggregator-forwarding tests.
 //
-// These tests WILL FAIL because:
-//   1. UIObserver.PollCombat does NOT yet forward to _aggregator?.OnEnemyKilled(dataId)
-//   2. UIObserver.PollCombat does NOT yet forward to _aggregator?.OnInCombatChanged(bool)
-//   3. GameStateSnapshot.KillCorrelatedTargets / InCombat do not exist yet (compile error)
-//   4. SnapshotAggregator.OnEnemyKilled / OnInCombatChanged do not exist yet (compile error)
-//
-// The 5 existing Slice-1 tests in UIObserverCombatTests.cs must remain GREEN.
-//
-// Builder: in UIObserver.PollCombat, after emitting InCombat observation, add:
-//     _aggregator?.OnInCombatChanged(inCombat);
-// and after emitting EnemyKilled observation, add:
-//     _aggregator?.OnEnemyKilled(dataId);
-// Then both tests go green.
+// Verifies that UIObserver.PollCombat forwards OnEnemyKilled / OnInCombatChanged to
+// the wired SnapshotAggregator. The aggregator's correlation model is the nibble-level
+// bidirectional one (KillCorrelatedTargets keyed by NibbleKey); baseline-only first
+// observation means a baseline poll must precede the bump-under-test.
 // ─────────────────────────────────────────────────────────────────────────────
 
 namespace QuestForge.Plugin.Tests.Tracing;
@@ -54,7 +45,6 @@ public sealed class UIObserverCombatForwardingTests
         var framework    = new FakeFramework();
 
         // Aggregator with the same injected clock so kill timestamps correlate correctly.
-        // RED: SnapshotAggregator.OnEnemyKilled / OnInCombatChanged do not exist.
         var aggregator = new SnapshotAggregator(Quest65847, clock);
 
         var observer = new UIObserver(
@@ -84,32 +74,19 @@ public sealed class UIObserverCombatForwardingTests
     public void GWT_UFWD1_EnemyKilledPoll_ForwardsOnEnemyKilledToAggregator()
     {
         /*
-         * RED: UIObserver.PollCombat does not call _aggregator?.OnEnemyKilled(dataId).
-         *      Also: OnEnemyKilled and KillCorrelatedTargets do not exist on the aggregator/snapshot.
-         *
          * Given probe IsInCombat()==true, hostile [(obj=1, data=347)] at poll 1.
-         * Also: OnQuestVariablesUpdated already set a baseline (no variables actually change here,
-         *       so we only verify the kill was forwarded, not correlation itself).
-         * When poll 2: hostile gone.
-         * Then aggregator.Current has received the kill — verified by:
-         *   If we set V0 0→1 in the same poll after the kill, KillCorrelatedTargets[0] must be set.
-         *   Simpler: confirm InCombat true was forwarded and kill was forwarded by checking the
-         *   aggregator.Current.InCombat and that OnEnemyKilled has side effects that the builder
-         *   will wire (we cannot directly inspect the private buffer, but we can check a correlated result).
+         * When poll 2: hostile gone → OnEnemyKilled(347) forwarded.
+         * Then a variable bump (after a baseline poll) at the same tick correlates the kill,
+         * proving the kill reached the aggregator via PollCombat forwarding.
          *
-         * Concrete verification: drive kill + variable bump at the same clock tick via aggregator
-         * directly, then check KillCorrelatedTargets after poll. If forwarding is missing, the
-         * aggregator never receives the kill and KillCorrelatedTargets stays empty.
-         *
-         * Strategy (avoids mocking): use a SnapshotAggregator for quest 65847.
-         *   Poll 1: in combat, hostile present → aggregator.OnInCombatChanged(true) forwarded.
-         *   Poll 2 (same clock tick as kill detection): hostile gone → aggregator.OnEnemyKilled(347) forwarded.
-         *   Immediately after poll 2, manually call aggregator.OnQuestVariablesUpdated([1,...])
-         *   (the variable bump) using the same clock time.
-         *   Then KillCorrelatedTargets[0] must contain dataId=347.
+         * Baseline-only first observation: a [0,...] baseline poll is established before the
+         * [1,...] bump so the bump is a genuine delta (0→1), not the first observation.
          */
 
         var (observer, framework, combatProbe, clock, aggregator) = BuildForwardingFixture();
+
+        // Establish the pre-fight baseline (first observation → baseline only, no correlation).
+        aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 0, 0, 0, 0, 0, 0 });
 
         // Poll 1: in combat, hostile present
         combatProbe.SetInCombat(true);
@@ -117,11 +94,9 @@ public sealed class UIObserverCombatForwardingTests
         DrivePoll(framework, clock); // t=250ms
 
         // At this point OnInCombatChanged(true) should have been forwarded.
-        // RED: aggregator.Current.InCombat does not exist as a snapshot property yet.
         Assert.True(aggregator.Current.InCombat,
             "After PollCombat with InCombat=true, aggregator.Current.InCombat must be true. " +
-            "This fails because: (a) PollCombat doesn't forward OnInCombatChanged, or " +
-            "(b) GameStateSnapshot.InCombat does not exist yet.");
+            "This fails if PollCombat doesn't forward OnInCombatChanged.");
 
         // Poll 2: hostile gone (kill emitted + forwarded)
         combatProbe.ClearHostiles();
@@ -132,13 +107,13 @@ public sealed class UIObserverCombatForwardingTests
         aggregator.OnQuestVariablesUpdated(Quest65847, new byte[] { 1, 0, 0, 0, 0, 0 });
 
         // If OnEnemyKilled was forwarded correctly, the kill at t=500ms correlates with the bump at t=500ms.
-        // RED: KillCorrelatedTargets does not exist on the snapshot; OnEnemyKilled not implemented.
         var targets = aggregator.Current.KillCorrelatedTargets;
+        var lowKey = new NibbleKey(0, NibbleHalf.Low);
         Assert.NotNull(targets);
-        Assert.True(targets!.ContainsKey(0),
-            "After PollCombat forwarded OnEnemyKilled(347) at t=500ms and OnQuestVariablesUpdated bumped V0, " +
-            "KillCorrelatedTargets[0] must be set. This fails because PollCombat does not forward OnEnemyKilled.");
-        Assert.Contains(347u, targets[0].DataIds);
+        Assert.True(targets!.ContainsKey(lowKey),
+            "After PollCombat forwarded OnEnemyKilled(347) at t=500ms and OnQuestVariablesUpdated bumped V0 low nibble, " +
+            "KillCorrelatedTargets[(0,Low)] must be set. This fails if PollCombat does not forward OnEnemyKilled.");
+        Assert.Contains(347u, targets[lowKey].DataIds);
 
         observer.Dispose();
     }
@@ -151,17 +126,11 @@ public sealed class UIObserverCombatForwardingTests
     public void GWT_UFWD2_InCombatTransition_ForwardsOnInCombatChangedToAggregator()
     {
         /*
-         * RED: UIObserver.PollCombat does not call _aggregator?.OnInCombatChanged(inCombat).
-         *      Also: GameStateSnapshot.InCombat / CombatStartZone / CombatStartPosition missing.
-         *
          * Given aggregator set with zone 148 and player pos (10,0,20).
          * When probe IsInCombat() goes false→true in poll 2.
          * Then aggregator.Current.InCombat == true AND CombatStartZone == 148
          *      (proves OnInCombatChanged(true) was forwarded — aggregator captures start pos/zone
          *       from its own internal state at the time of the call).
-         *
-         * Setup: prime the aggregator's zone+position by calling OnZoneChanged on the aggregator
-         * directly (this would normally come from PollQuestState/TerritoryChanged forwarding).
          */
 
         var (observer, framework, combatProbe, clock, aggregator) = BuildForwardingFixture();
@@ -175,7 +144,6 @@ public sealed class UIObserverCombatForwardingTests
         DrivePoll(framework, clock);
 
         // Confirm InCombat still false
-        // RED: GameStateSnapshot.InCombat missing
         Assert.False(aggregator.Current.InCombat,
             "After poll 1 with IsInCombat()==false, aggregator.Current.InCombat must be false.");
 
@@ -184,11 +152,10 @@ public sealed class UIObserverCombatForwardingTests
         DrivePoll(framework, clock);
 
         // Assert forwarding: InCombat now true + CombatStartZone captured from aggregator state
-        // RED: CombatStartZone / CombatStartPosition do not exist as snapshot fields.
         var snap = aggregator.Current;
         Assert.True(snap.InCombat,
             "After PollCombat forwarded OnInCombatChanged(true), aggregator.Current.InCombat must be true. " +
-            "This fails because PollCombat does not forward OnInCombatChanged.");
+            "This fails if PollCombat does not forward OnInCombatChanged.");
         Assert.Equal(148, snap.CombatStartZone);
         Assert.NotNull(snap.CombatStartPosition);
         Assert.Equal(10f, snap.CombatStartPosition!.Value.X);

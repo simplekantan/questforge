@@ -5,16 +5,17 @@ using Xunit;
 namespace QuestForge.Engine.Tests.Authoring;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RED PHASE — Slice 2: StepInferenceEngine Rule 2.2 combat tests (GWT-I1..I5).
+// Slice A (RED): StepInferenceEngine Rule 2.2 nibble-level tests (GWT-I1'..I6').
 //
-// These tests WILL FAIL because the following do not exist yet:
-//   1. InferredFrom.Combat enum member
-//   2. StepInferenceEngine Rule 2.2 (fires when KillCorrelatedTargets non-empty)
-//   3. KillCorrelation record
-//   4. GameStateSnapshot.KillCorrelatedTargets / QuestSequence must be readable
-//   5. SnapshotAggregator.SequenceVariableIndex const = -1
+// DELETED (byte-level, obsolete):
+//   GWT-I1  — questVariable(65847, 0) >= 3 (byte expect, replaced by nibble L/H)
+//   GWT-I2  — questSequence(-1 key) → questSequence expect (SequenceVariableIndex deleted)
+//   GWT-I4  — multi-index and-join (removed; secondaries go to Notes only)
+//   GWT-I5  — step-id from union of all DataIds (now dominant key only)
 //
-// Builder: add InferredFrom.Combat and implement Rule 2.2. Then I1..I5 go green.
+// These compile-fail on:
+//   NibbleKey, NibbleHalf, IReadOnlyDictionary<NibbleKey, KillCorrelation>
+//   (SnapshotAggregator.SequenceVariableIndex reference removed)
 // ─────────────────────────────────────────────────────────────────────────────
 
 public sealed class CombatInferenceEngineTests
@@ -24,143 +25,113 @@ public sealed class CombatInferenceEngineTests
     private static readonly DateTimeOffset T0 = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset T1 = T0.AddSeconds(30);
 
+    private static string FormatResult(InferenceResult r)
+        => $"StepType={r.StepType}, InferredFrom={r.InferredFrom}, Expect={r.SuggestedExpect}, Id={r.SuggestedStepId}";
+
     // ─── Snapshot builder ────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Returns a baseline snapshot with sensible defaults. KillCorrelatedTargets
-    /// is provided separately as a non-positional init field.
-    /// </summary>
     private static GameStateSnapshot MakeSnapshot(
         int questSequence = 0,
-        IReadOnlyDictionary<int, KillCorrelation>? killCorrelatedTargets = null,
+        IReadOnlyDictionary<NibbleKey, KillCorrelation>? killCorrelatedTargets = null,
         DateTimeOffset? capturedAt = null,
         NpcId? lastNpcInteracted = null,
         bool inCombat = false,
         int combatStartZone = 0,
         WorldPosition? combatStartPosition = null) =>
         new(
-            CapturedAt:          capturedAt ?? T0,
-            Zone:                new ZoneId(100),
-            Position:            new WorldPosition(10, 0, 10),
-            ActiveQuest:         Quest65847,
-            QuestSequence:       questSequence,
-            QuestFlags:          0,
-            QuestAccepted:       false,
-            QuestCompleted:      false,
-            LastNpcInteracted:   lastNpcInteracted,
-            LastNpcPosition:     null,
-            LastDialoguePrompt:  null,
-            LastDialogueAnswer:  null,
-            InventoryHash:       0,
-            LastAttuned:         null)
+            CapturedAt:         capturedAt ?? T0,
+            Zone:               new ZoneId(100),
+            Position:           new WorldPosition(10, 0, 10),
+            ActiveQuest:        Quest65847,
+            QuestSequence:      questSequence,
+            QuestFlags:         0,
+            QuestAccepted:      false,
+            QuestCompleted:     false,
+            LastNpcInteracted:  lastNpcInteracted,
+            LastNpcPosition:    null,
+            LastDialoguePrompt: null,
+            LastDialogueAnswer: null,
+            InventoryHash:      0,
+            LastAttuned:        null)
         {
-            // Slice-2 non-positional fields — will be RED until GameStateSnapshot is extended
             KillCorrelatedTargets = killCorrelatedTargets,
             InCombat              = inCombat,
             CombatStartZone       = combatStartZone,
             CombatStartPosition   = combatStartPosition,
         };
 
-    private static KillCorrelation Correlation(uint[] dataIds, int finalValue)
+    private static KillCorrelation Corr(uint[] dataIds, int finalValue)
         => new(DataIds: dataIds, FinalValue: finalValue);
 
-    private static string FormatResult(InferenceResult r)
-        => $"StepType={r.StepType}, InferredFrom={r.InferredFrom}, Expect={r.SuggestedExpect}, Id={r.SuggestedStepId}";
-
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-I1 — combat beats sequence advance → questVariable expect, not talk
+    // GWT-I1' — combat beats sequence advance and Rule 7 NPC → low-nibble expect.
+    //
+    // before seq=0; after seq=3, [(0,Low)]=([347],3), LastNpcInteracted=9999.
+    // Rule 2.2 must fire before Rule 3 (seq advance) and Rule 7 (NPC).
+    // Expect: StepType="combat", SuggestedExpect="questVariableLow(65847, 0) >= 3",
+    //         InferredFrom=Combat.
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GWT_I1_CombatBeatsSequenceAdvance_ReturnsQuestVariableExpect()
+    public void GwtI1_LowNibbleCombat_BeatsSequenceAdvanceAndNpcRule()
     {
-        /*
-         * RED: InferredFrom.Combat and Rule 2.2 do not exist.
-         *
-         * before: seq=0, no correlated targets.
-         * after:  seq=3, KillCorrelatedTargets[0]=([347],3).
-         *
-         * Rule 2.2 must fire BEFORE Rule 3 (sequence advance).
-         * Expect: StepType="combat", SuggestedExpect="questVariable(65847, 0) >= 3",
-         *         InferredFrom=InferredFrom.Combat (NOT QuestSequenceChange or DialogueInteraction).
-         */
-
         var engine = new StepInferenceEngine();
         var before = MakeSnapshot(questSequence: 0);
         var after = MakeSnapshot(
             questSequence: 3,
-            killCorrelatedTargets: new Dictionary<int, KillCorrelation>
+            killCorrelatedTargets: new Dictionary<NibbleKey, KillCorrelation>
             {
-                [0] = Correlation([347u], 3)
+                [new NibbleKey(0, NibbleHalf.Low)] = Corr([347u], 3)
             },
-            lastNpcInteracted: new NpcId(9999u), // would fire Rule 7 if combat rule absent
+            lastNpcInteracted: new NpcId(9999u),
             capturedAt: T1);
 
         var result = engine.Infer(before, after);
 
         Assert.Equal("combat", result.StepType);
         Assert.Equal(InferredFrom.Combat, result.InferredFrom);
-        Assert.Equal("questVariable(65847, 0) >= 3", result.SuggestedExpect);
+        Assert.Equal("questVariableLow(65847, 0) >= 3", result.SuggestedExpect);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-I2 — sequence-only combat (index -1) → questSequence expect
+    // GWT-I2' — high-nibble produces questVariableHigh expect.
+    //
+    // after: [(1,High)]=([338],3).
+    // Expect: SuggestedExpect="questVariableHigh(65847, 1) >= 3".
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GWT_I2_SequenceOnlyCombat_ReturnsQuestSequenceExpect()
+    public void GwtI2_HighNibbleCombat_ProducesQuestVariableHighExpect()
     {
-        /*
-         * RED: same missing members as GWT-I1.
-         *
-         * after: KillCorrelatedTargets[-1]=([347],3), QuestSequence=3.
-         * No variable index changed — only sequence advanced.
-         * Expect: SuggestedExpect="questSequence(65847) >= 3".
-         */
-
         var engine = new StepInferenceEngine();
         var before = MakeSnapshot(questSequence: 0);
         var after = MakeSnapshot(
-            questSequence: 3,
-            killCorrelatedTargets: new Dictionary<int, KillCorrelation>
+            questSequence: 0,
+            killCorrelatedTargets: new Dictionary<NibbleKey, KillCorrelation>
             {
-                [SnapshotAggregator.SequenceVariableIndex] = Correlation([347u], 3)
+                [new NibbleKey(1, NibbleHalf.High)] = Corr([338u], 3)
             },
             capturedAt: T1);
 
         var result = engine.Infer(before, after);
 
         Assert.Equal("combat", result.StepType);
-        Assert.Equal("questSequence(65847) >= 3", result.SuggestedExpect);
+        Assert.Equal("questVariableHigh(65847, 1) >= 3", result.SuggestedExpect);
         Assert.Equal(InferredFrom.Combat, result.InferredFrom);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-I3 — no correlation → falls through to existing Rule 3 (talk)
+    // GWT-I3' — no correlation falls through to existing Rule 3 (talk / seq advance).
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GWT_I3_NoKillCorrelation_FallsThroughToExistingRules()
+    public void GwtI3_NoKillCorrelation_FallsThroughToTalkRule()
     {
-        /*
-         * RED: this test should PASS once Rule 2.2 is correctly guarded (only fires when
-         * KillCorrelatedTargets is non-empty). It is included to verify the guard does not
-         * break existing inference. If it fails, Rule 2.2 has an incorrect guard.
-         *
-         * after: empty KillCorrelatedTargets, seq advanced 0→1 (Rule 3 fires → talk).
-         * Then StepType="talk" (Rule 3 unchanged).
-         *
-         * NOTE: this test uses existing (already-working) engine paths. It will compile and
-         * execute today — but the `KillCorrelatedTargets` init property does not exist on
-         * GameStateSnapshot yet, so it causes a compile error. Fixing the compile error is
-         * the only blocker; the assertion should hold once Rule 2.2 is correctly guarded.
-         */
-
         var engine = new StepInferenceEngine();
         var before = MakeSnapshot(questSequence: 0);
         var after = MakeSnapshot(
             questSequence: 1,
-            killCorrelatedTargets: null,  // no combat correlation
+            killCorrelatedTargets: null,
             capturedAt: T1);
 
         var result = engine.Infer(before, after);
@@ -169,29 +140,29 @@ public sealed class CombatInferenceEngineTests
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-I4 — multi-index split: primary = largest FinalValue, Notes mentions split
+    // GWT-I4' — dominant = most-distinct-DataIds; secondaries in Notes, NOT and-joined.
+    //
+    // [(0,Low)]=([347,348],3) → 2 DataIds (dominant)
+    // [(1,Low)]=([49],1)      → 1 DataId  (secondary → Notes only)
+    //
+    // Assert:
+    //   primary is (0,Low); SuggestedExpect="questVariableLow(65847, 0) >= 3"
+    //   SuggestedExpect does NOT contain " and " (no and-join)
+    //   SuggestedExpect does NOT contain "questVariableLow(65847, 1)" (no secondary)
+    //   Notes mentions V1-Low / 49 / "split"
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GWT_I4_MultiIndexCorrelation_PrimaryUsesLargestFinalValue_NotesHasSplit()
+    public void GwtI4_DominantNibble_MostDistinctDataIds_SecondariesInNotes_NotAndJoined()
     {
-        /*
-         * RED: same missing members as GWT-I1.
-         *
-         * after: KillCorrelatedTargets[0]=([347],3), [1]=([400],1).
-         * Primary = index 0 (FinalValue 3 > 1).
-         * SuggestedExpect contains questVariable(65847, 0) >= 3.
-         * Notes must mention index 1 / split, and AND-join questVariable(65847, 1) >= 1.
-         */
-
         var engine = new StepInferenceEngine();
         var before = MakeSnapshot(questSequence: 0);
         var after = MakeSnapshot(
             questSequence: 0,
-            killCorrelatedTargets: new Dictionary<int, KillCorrelation>
+            killCorrelatedTargets: new Dictionary<NibbleKey, KillCorrelation>
             {
-                [0] = Correlation([347u], 3),
-                [1] = Correlation([400u], 1)
+                [new NibbleKey(0, NibbleHalf.Low)] = Corr([347u, 348u], 3),
+                [new NibbleKey(1, NibbleHalf.Low)] = Corr([49u], 1)
             },
             capturedAt: T1);
 
@@ -199,35 +170,93 @@ public sealed class CombatInferenceEngineTests
 
         Assert.Equal("combat", result.StepType);
         Assert.NotNull(result.SuggestedExpect);
-        Assert.Contains("questVariable(65847, 0) >= 3", result.SuggestedExpect!);
-        // Notes must indicate multi-index split
+        Assert.Equal("questVariableLow(65847, 0) >= 3", result.SuggestedExpect);
+
+        // Critical: no and-join
+        Assert.DoesNotContain(" and ", result.SuggestedExpect!,
+            StringComparison.Ordinal);
+
+        // Critical: secondary predicate not in expect string
+        Assert.DoesNotContain("questVariableLow(65847, 1)", result.SuggestedExpect,
+            StringComparison.Ordinal);
+
+        // Notes must acknowledge the secondary
         Assert.NotNull(result.Notes);
         Assert.True(
-            result.Notes!.Contains("1") || result.Notes.Contains("split") || result.Notes.Contains("index"),
-            $"Notes must mention the secondary index split. Got Notes: {result.Notes}");
+            result.Notes!.Contains("split") || result.Notes.Contains("V1") || result.Notes.Contains("49"),
+            $"Notes must mention the secondary nibble / DataId 49 / 'split'. Got Notes: {result.Notes}");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-I5 — SuggestedStepId uses lowest data-id in the union
+    // GWT-I5' — dominance tie-break: equal DataId counts → lowest VarIndex, then Low.
+    //
+    // Case A: [(1,Low)]=([49],3) vs [(0,High)]=([338],3) — both 1 DataId.
+    //         Tie-break: VarIndex 0 < 1 → primary (0,High).
+    //         Expect: "questVariableHigh(65847, 0) >= 3".
+    //
+    // Case B: [(0,High)]=([338],2) vs [(0,Low)]=([347],2) — both 1 DataId, same VarIndex.
+    //         Tie-break: Low(0) before High(1) → primary (0,Low).
+    //         Expect: "questVariableLow(65847, 0) >= 2".
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(false)] // Case A: lower VarIndex wins
+    [InlineData(true)]  // Case B: Low before High at same VarIndex
+    public void GwtI5_TieBreak_LowestVarIndexThenLow(bool sameVarIndex)
+    {
+        var engine = new StepInferenceEngine();
+        var before = MakeSnapshot(questSequence: 0);
+
+        InferenceResult result;
+        if (!sameVarIndex)
+        {
+            // Case A
+            var after = MakeSnapshot(
+                questSequence: 0,
+                killCorrelatedTargets: new Dictionary<NibbleKey, KillCorrelation>
+                {
+                    [new NibbleKey(1, NibbleHalf.Low)]  = Corr([49u],  3),
+                    [new NibbleKey(0, NibbleHalf.High)] = Corr([338u], 3)
+                },
+                capturedAt: T1);
+            result = engine.Infer(before, after);
+            Assert.Equal("questVariableHigh(65847, 0) >= 3", result.SuggestedExpect);
+        }
+        else
+        {
+            // Case B
+            var after = MakeSnapshot(
+                questSequence: 0,
+                killCorrelatedTargets: new Dictionary<NibbleKey, KillCorrelation>
+                {
+                    [new NibbleKey(0, NibbleHalf.High)] = Corr([338u], 2),
+                    [new NibbleKey(0, NibbleHalf.Low)]  = Corr([347u], 2)
+                },
+                capturedAt: T1);
+            result = engine.Infer(before, after);
+            Assert.Equal("questVariableLow(65847, 0) >= 2", result.SuggestedExpect);
+        }
+
+        Assert.Equal("combat", result.StepType);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-I6' — SuggestedStepId uses lowest DataId of the dominant key's set.
+    //
+    // [(0,Low)]=([348,347],2) → lowest DataId of dominant = 347.
+    // Then SuggestedStepId == "defeat-347".
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GWT_I5_StepIdUsesLowestDataId()
+    public void GwtI6_StepId_UsesLowestDataIdOfDominantKey()
     {
-        /*
-         * RED: same missing members as GWT-I1.
-         *
-         * DataIds = {348, 347} (unordered). Lowest = 347.
-         * Then SuggestedStepId == "defeat-347".
-         */
-
         var engine = new StepInferenceEngine();
         var before = MakeSnapshot(questSequence: 0);
         var after = MakeSnapshot(
             questSequence: 0,
-            killCorrelatedTargets: new Dictionary<int, KillCorrelation>
+            killCorrelatedTargets: new Dictionary<NibbleKey, KillCorrelation>
             {
-                [0] = Correlation([348u, 347u], 2)
+                [new NibbleKey(0, NibbleHalf.Low)] = Corr([348u, 347u], 2)
             },
             capturedAt: T1);
 

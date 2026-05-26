@@ -40,25 +40,21 @@ public sealed class SnapshotAggregator
     // Recent kills buffer: (dataId, timestamp) ordered by time ascending.
     private readonly List<(uint DataId, DateTimeOffset At)> _recentKills = new();
 
-    // Per-variable accumulated correlations for the current recording window.
-    private readonly Dictionary<int, (HashSet<uint> DataIds, int FinalValue)> _killCorrelatedTargets = new();
+    // Recent nibble bumps buffer: (key, nibble value, timestamp), ordered by time ascending.
+    private readonly List<(NibbleKey Key, int FinalValue, DateTimeOffset At)> _recentNibbleBumps = new();
+
+    // Per-nibble accumulated correlations for the current recording window.
+    private readonly Dictionary<NibbleKey, (HashSet<uint> DataIds, int FinalValue)> _killCorrelatedTargets = new();
 
     // Previous quest-variable values baseline for delta detection.
-    // Key: quest variable index (0-5). Updated on each OnQuestVariablesUpdated call.
     // Survives ResetDeltas so cross-window deltas are computed correctly.
     private IReadOnlyList<byte>? _prevQuestVariables;
 
     /// <summary>
-    /// Correlation window: kills within this many milliseconds before a variable bump are
-    /// attributed to that bump. Must match the offline SnapshotState constant.
+    /// Correlation window: kills and nibble bumps within this span are bidirectionally correlated.
+    /// Must match the offline SnapshotState constant.
     /// </summary>
     public static readonly TimeSpan CombatCorrelationWindow = TimeSpan.FromMilliseconds(500);
-
-    /// <summary>
-    /// Synthetic variable index used to record sequence-advance correlations
-    /// (kill → sequence bump) when no regular variable index changed.
-    /// </summary>
-    public const int SequenceVariableIndex = -1;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
     // tests inject FakeClock for deterministic CapturedAt values.
@@ -129,21 +125,7 @@ public sealed class SnapshotAggregator
     public void OnQuestSequenceChanged(QuestId quest, int newSequence)
     {
         if (_activeQuest == quest)
-        {
-            var oldSequence = _questSequence;
             _questSequence = newSequence;
-
-            // Sequence-advance correlation: if recent kills are in-window, correlate under SequenceVariableIndex.
-            if (newSequence > oldSequence)
-            {
-                var now = _clock.UtcNow;
-                EvictStaleKills(now);
-                if (_recentKills.Count > 0)
-                {
-                    CorrelateKillsToIndex(SequenceVariableIndex, newSequence, now);
-                }
-            }
-        }
     }
 
     public void OnQuestFlagsChanged(QuestId quest, uint newFlags)
@@ -154,44 +136,78 @@ public sealed class SnapshotAggregator
 
     /// <summary>
     /// Called when the active quest's work bytes (V0–V5) are observed.
-    /// Stores the latest values; ignored when the quest does not match the authored quest
-    /// (matches OnQuestSequenceChanged / OnQuestFlagsChanged semantics).
-    /// Also runs kill-correlation for any index where the new value exceeds the previous.
+    /// Stores the latest values; ignored when the quest does not match the authored quest.
+    /// Computes per-nibble deltas vs the baseline and correlates bidirectionally.
+    /// The FIRST observation (no prior baseline) only establishes the baseline: no nibble
+    /// deltas are computed, no bumps are buffered, and no correlation occurs. In production
+    /// UIObserver polls quest variables every heartbeat from author-mode start, so the first
+    /// observation is always the pre-fight state; an objective bump cannot land on it.
     /// </summary>
     public void OnQuestVariablesUpdated(QuestId quest, IReadOnlyList<byte> variables)
     {
         if (_activeQuest != quest) return;
 
-        var prev = _prevQuestVariables;
-        _questVariables = variables;
-
-        var now = _clock.UtcNow;
-        EvictStaleKills(now);
-
-        if (_recentKills.Count > 0)
+        // First observation: establish the baseline only. No delta, no bump, no correlation.
+        // WHY: the first poll is always the pre-fight state in production, so any non-zero
+        // value here is resumed-quest progress, not an objective bump — it must not correlate.
+        if (_prevQuestVariables is null)
         {
-            // When no previous baseline exists, treat all indices as starting at zero.
-            var len = variables.Count;
-            for (var i = 0; i < len; i++)
-            {
-                var prevVal = prev != null && i < prev.Count ? prev[i] : (byte)0;
-                if (variables[i] > prevVal)
-                    CorrelateKillsToIndex(i, variables[i], now);
-            }
+            _questVariables = variables;
+            _prevQuestVariables = variables;
+            return;
         }
 
+        var prev = _prevQuestVariables;
+        _questVariables = variables;
         _prevQuestVariables = variables;
+
+        var now = _clock.UtcNow;
+        EvictStale(now);
+
+        var len = variables.Count;
+        for (var i = 0; i < len; i++)
+        {
+            var n = variables[i];
+            var p = i < prev.Count ? prev[i] : (byte)0;
+
+            var lowUp  = (n & 0x0F) > (p & 0x0F);
+            var highUp = (n >> 4)   > (p >> 4);
+
+            if (lowUp)
+            {
+                var key = new NibbleKey(i, NibbleHalf.Low);
+                var nibbleValue = n & 0x0F;
+                _recentNibbleBumps.Add((key, nibbleValue, now));
+                CorrelateKillsToBump(key, nibbleValue, now);
+            }
+
+            if (highUp)
+            {
+                var key = new NibbleKey(i, NibbleHalf.High);
+                var nibbleValue = n >> 4;
+                _recentNibbleBumps.Add((key, nibbleValue, now));
+                CorrelateKillsToBump(key, nibbleValue, now);
+            }
+        }
     }
 
     /// <summary>
     /// Called when a hostile enemy is detected as killed (tracked-then-gone while in combat).
-    /// Pushes the kill into the recent-kills buffer and evicts entries older than the correlation window.
+    /// Pushes the kill into the recent-kills buffer, evicts stale entries, and correlates
+    /// bidirectionally against any buffered nibble bumps within the symmetric window.
     /// </summary>
     public void OnEnemyKilled(uint dataId)
     {
         var now = _clock.UtcNow;
         _recentKills.Add((dataId, now));
-        EvictStaleKills(now);
+        EvictStale(now);
+
+        // Correlate-on-arrival: look back at buffered nibble bumps within the symmetric window.
+        foreach (var (key, finalValue, bumpAt) in _recentNibbleBumps)
+        {
+            if (AbsDelta(now, bumpAt) <= CombatCorrelationWindow)
+                AddToCorrelation(key, finalValue, dataId);
+        }
     }
 
     /// <summary>
@@ -367,46 +383,60 @@ public sealed class SnapshotAggregator
         _lastAethernetShardInteracted = null;
         // WHY: clear the per-window kill signals so they do not bleed into the next recording window.
         // _prevQuestVariables is intentionally preserved — the next bump's delta must be computed
-        // against the last known values, not from zero. (GWT-L6)
+        // against the last known values, not from zero. (GWT-L6')
         _recentKills.Clear();
+        _recentNibbleBumps.Clear();
         _killCorrelatedTargets.Clear();
     }
 
     // ── Private kill-correlation helpers ─────────────────────────────────────
 
-    private void EvictStaleKills(DateTimeOffset correlationTime)
+    private void EvictStale(DateTimeOffset now)
     {
-        var cutoff = correlationTime - CombatCorrelationWindow;
+        var cutoff = now - CombatCorrelationWindow;
         _recentKills.RemoveAll(k => k.At < cutoff);
+        _recentNibbleBumps.RemoveAll(b => b.At < cutoff);
     }
 
-    private void CorrelateKillsToIndex(int varIndex, int finalValue, DateTimeOffset correlationTime)
+    private static TimeSpan AbsDelta(DateTimeOffset a, DateTimeOffset b)
     {
-        var cutoff = correlationTime - CombatCorrelationWindow;
-        if (!_killCorrelatedTargets.TryGetValue(varIndex, out var bucket))
-        {
-            bucket = (new HashSet<uint>(), finalValue);
-            _killCorrelatedTargets[varIndex] = bucket;
-        }
-
-        foreach (var (dataId, at) in _recentKills)
-        {
-            if (at >= cutoff)
-                bucket.DataIds.Add(dataId);
-        }
-
-        _killCorrelatedTargets[varIndex] = (bucket.DataIds, finalValue);
+        var d = a - b;
+        return d < TimeSpan.Zero ? -d : d;
     }
 
-    private IReadOnlyDictionary<int, KillCorrelation>? BuildKillCorrelatedTargets()
+    private void CorrelateKillsToBump(NibbleKey key, int finalValue, DateTimeOffset bumpAt)
+    {
+        foreach (var (dataId, killAt) in _recentKills)
+        {
+            if (AbsDelta(bumpAt, killAt) <= CombatCorrelationWindow)
+                AddToCorrelation(key, finalValue, dataId);
+        }
+
+        // Ensure the bucket exists even when no kills matched (FinalValue is updated).
+        if (!_killCorrelatedTargets.TryGetValue(key, out var bucket))
+            _killCorrelatedTargets[key] = (new HashSet<uint>(), finalValue);
+        else
+            _killCorrelatedTargets[key] = (bucket.DataIds, finalValue);
+    }
+
+    private void AddToCorrelation(NibbleKey key, int finalValue, uint dataId)
+    {
+        if (!_killCorrelatedTargets.TryGetValue(key, out var bucket))
+            bucket = (new HashSet<uint>(), finalValue);
+        bucket.DataIds.Add(dataId);
+        _killCorrelatedTargets[key] = (bucket.DataIds, finalValue);
+    }
+
+    private IReadOnlyDictionary<NibbleKey, KillCorrelation>? BuildKillCorrelatedTargets()
     {
         if (_killCorrelatedTargets.Count == 0) return null;
-        var result = new Dictionary<int, KillCorrelation>(_killCorrelatedTargets.Count);
-        foreach (var (idx, (dataIds, finalValue)) in _killCorrelatedTargets)
+        var result = new Dictionary<NibbleKey, KillCorrelation>(_killCorrelatedTargets.Count);
+        foreach (var (key, (dataIds, finalValue)) in _killCorrelatedTargets)
         {
+            if (dataIds.Count == 0) continue;
             var sorted = dataIds.OrderBy(id => id).ToList();
-            result[idx] = new KillCorrelation(sorted, finalValue);
+            result[key] = new KillCorrelation(sorted, finalValue);
         }
-        return result;
+        return result.Count > 0 ? result : null;
     }
 }

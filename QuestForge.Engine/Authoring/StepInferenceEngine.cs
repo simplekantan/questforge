@@ -55,43 +55,36 @@ public sealed class StepInferenceEngine
                 Notes: $"Mandatory sub-quest {foreignQuest.Value} accepted. NPC: {npcId?.Value}");
         }
 
-        // Rule 2.2: Kill-correlated combat. Fires when kills were attributed to a variable bump
-        // or sequence advance within the 500 ms correlation window. Must run BEFORE Rule 3
-        // (sequence advance) so a kill that bumps questSequence is not mis-emitted as a talk step.
+        // Rule 2.2: Kill-correlated combat (nibble-level, bidirectional).
+        // Fires when kills are correlated to an incremented nibble within the symmetric window.
+        // Must run BEFORE Rule 3 (sequence advance) so combat is not mis-emitted as a talk step.
         if (after.KillCorrelatedTargets is { Count: > 0 } targets
-            && targets.Values.Any(t => t.DataIds.Count > 0))
+            && targets.Any(kv => kv.Value.DataIds.Count > 0))
         {
-            var primary = targets.OrderByDescending(kv => kv.Value.FinalValue).First();
-            var allDataIds = targets.Values.SelectMany(t => t.DataIds).Distinct().OrderBy(x => x).ToArray();
+            var primary = targets
+                .Where(kv => kv.Value.DataIds.Count > 0)
+                .OrderByDescending(kv => kv.Value.DataIds.Count)
+                .ThenBy(kv => kv.Key.VarIndex)
+                .ThenBy(kv => kv.Key.Half)
+                .First();
 
-            string expect = primary.Key == SnapshotAggregator.SequenceVariableIndex
-                ? $"questSequence({questIdValue}) >= {after.QuestSequence}"
-                : $"questVariable({questIdValue}, {primary.Key}) >= {primary.Value.FinalValue}";
+            var dataIds = primary.Value.DataIds.Distinct().OrderBy(x => x).ToArray();
 
-            var notes = "Spawn defaulted to overworldEnemies; review. Location = player position at combat start.";
+            string fn = primary.Key.Half == NibbleHalf.Low ? "questVariableLow" : "questVariableHigh";
+            string expect = $"{fn}({questIdValue}, {primary.Key.VarIndex}) >= {primary.Value.FinalValue}";
 
-            if (targets.Count > 1)
+            string notes = "Spawn defaulted to overworldEnemies; review. Location = player position at combat start.";
+            var others = targets.Where(kv => !kv.Key.Equals(primary.Key) && kv.Value.DataIds.Count > 0).ToArray();
+            if (others.Length > 0)
             {
-                var secondaryParts = targets
-                    .Where(kv => kv.Key != primary.Key)
-                    .OrderBy(kv => kv.Key)
-                    .Select(kv => kv.Key == SnapshotAggregator.SequenceVariableIndex
-                        ? $"questSequence({questIdValue}) >= {after.QuestSequence}"
-                        : $"questVariable({questIdValue}, {kv.Key}) >= {kv.Value.FinalValue}")
-                    .ToArray();
-
-                expect = expect + " and " + string.Join(" and ", secondaryParts);
-
-                var secondaryIndices = targets
-                    .Where(kv => kv.Key != primary.Key)
-                    .Select(kv => kv.Key.ToString())
-                    .ToArray();
-                notes = $"Multiple correlated variable indices: primary index {primary.Key}, secondary index {string.Join(", ", secondaryIndices)}. Consider splitting into separate steps. " + notes;
+                notes = "Multiple objectives progressed this record: " +
+                        string.Join(", ", others.Select(o => $"V{o.Key.VarIndex}-{o.Key.Half} ([{string.Join(",", o.Value.DataIds)}])")) +
+                        ". If this record covered more than one objective, split it. " + notes;
             }
 
             return new InferenceResult(
                 StepType: "combat",
-                SuggestedStepId: $"defeat-{allDataIds[0]}",
+                SuggestedStepId: $"defeat-{dataIds[0]}",
                 SuggestedExpect: expect,
                 Confidence: Confidence.Medium,
                 InferredFrom: InferredFrom.Combat,
