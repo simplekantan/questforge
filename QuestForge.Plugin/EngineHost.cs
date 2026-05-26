@@ -107,6 +107,10 @@ public sealed class EngineHost : IDisposable
     internal IQuestState QuestState => _questStateInner;
     internal IGameStateProvider GameState => _gameStateInner;
 
+    // Exposed for /qf debug combat subcommands — raw adapters (not recording-proxy wrappers)
+    public IGameStateProvider DebugGameState => _gameStateInner;
+    public ICombat            DebugCombat    => _combat;
+
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
     public void StopRun() => EndRun();
@@ -464,7 +468,11 @@ public sealed class EngineHost : IDisposable
         // TraceSession file lifecycle for non-QuestRun modes is managed by Plugin.cs.
     }
 
-    public void Dispose() => EndRun();
+    public void Dispose()
+    {
+        EndRun();
+        _combat.Dispose();
+    }
 
     // When a skippable cutscene is active, AutoCutsceneSkipper presses Escape which opens
     // a SelectString confirmation dialog. Click the first entry (Yes/skip) to confirm.

@@ -18,11 +18,15 @@ public sealed record CombatDecision(KillTarget? Target, bool RotationShouldRun, 
 /// Pure, deterministic kill-priority ranking.
 /// All state is parameter-driven — no Dalamud, no async, fully unit-testable.
 ///
-/// Priority weights (higher = attack first):
-///   IsTargetingPlayer  +150  (aggro on us)
-///   OnPlayerEnmityList +125  (on our hate list)
-///   HasQuestMarker     +100  (quest objective)
-///   DataId ∈ killIds   +90   (explicit kill target)
+/// Priority weights (higher = attack first) — quest enemy first, adds secondary:
+///   DataId ∈ killIds   +1000  (quest enemy — dominant; always attack first)
+///   HasQuestMarker     +100   (quest objective marker)
+///   IsTargetingPlayer  +10    (aggro add — eligible but strictly secondary)
+///   OnPlayerEnmityList +5     (on our hate list — lowest non-zero weight)
+///
+/// Overworld eligibility: kill-set OR IsTargetingPlayer OR OnPlayerEnmityList.
+/// Pure allies (none of the three) are excluded under OverworldEnemies.
+/// Aggro'd adds are only cleared after the quest enemy is down (quest enemy dominates at +1000).
 ///
 /// Tie-breaks: higher score first → nearest (DistanceToPlayer asc) → lowest ActorId.Value.
 /// </summary>
@@ -45,10 +49,14 @@ public static class KillPriority
             if (actor.IsDead || !actor.IsTargetable)
                 continue;
 
-            // For OverworldEnemies, only actors in the kill set are eligible.
+            // For OverworldEnemies, only actors that are in the kill set OR aggro'd/enmity-listed
+            // are eligible. Pure allies (none of the three conditions) are excluded.
             // For AutoOnEnterArea, all targetable/living hostiles are eligible (kill set is
             // a scoring bonus only, not a filter). Empty killIds = clear-the-room case.
-            if (spawn == CombatSpawn.OverworldEnemies && !killEnemyDataIds.Contains(actor.DataId))
+            if (spawn == CombatSpawn.OverworldEnemies
+                && !killEnemyDataIds.Contains(actor.DataId)
+                && !actor.IsTargetingPlayer
+                && !actor.OnPlayerEnmityList)
                 continue;
 
             var score = Score(actor, killEnemyDataIds);
@@ -74,10 +82,10 @@ public static class KillPriority
     public static int Score(HostileActor a, IReadOnlySet<uint> killEnemyDataIds)
     {
         var score = 0;
-        if (a.IsTargetingPlayer)   score += 150;
-        if (a.OnPlayerEnmityList)  score += 125;
+        if (killEnemyDataIds.Contains(a.DataId)) score += 1000;
         if (a.HasQuestMarker)      score += 100;
-        if (killEnemyDataIds.Contains(a.DataId)) score += 90;
+        if (a.IsTargetingPlayer)   score += 10;
+        if (a.OnPlayerEnmityList)  score += 5;
         return score;
     }
 }
