@@ -142,6 +142,10 @@ public sealed class CombatFixtureTests
             Serialize(new ObservationEvent(runId, "GetHostileActors",
                 Elem(30f), actorsJson, At)),
 
+            // GetCurrentJob — approach-range resolution (added when CombatController gained job-aware ranging)
+            Serialize(new ObservationEvent(runId, "GetCurrentJob",
+                null, Elem(new { value = 2u }), At)),
+
             // decision: Engage for the combat step
             Serialize(new DecisionEvent(runId, combatStepId, "Engage", At.AddSeconds(1))),
 

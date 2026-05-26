@@ -82,7 +82,7 @@ public sealed class QuestEngine
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         _expectEvaluator    = new ExpectEvaluator(new PredicateEvaluator(gameState, questState));
-        _combatController   = new CombatController(gameState, combat);
+        _combatController   = new CombatController(gameState, combat, navigator);
     }
 
     public void StartQuest(QuestDefinition quest)

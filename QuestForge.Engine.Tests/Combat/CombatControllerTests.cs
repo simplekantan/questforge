@@ -1,4 +1,5 @@
 using QuestForge.Adapters.Fakes.Combat;
+using QuestForge.Adapters.Fakes.Movement;
 using QuestForge.Adapters.Fakes.State;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Combat;
@@ -63,7 +64,7 @@ public sealed class CombatControllerTests
          */
         var gameState = new FakeGameStateProvider();
         var combat = new FakeCombat();
-        var controller = new CombatController(gameState, combat);
+        var controller = new CombatController(gameState, combat, new FakeNavigator(gameState));
 
         gameState.AddHostileActor(MakeHostile(9, 100, distance: 5));
         var step = MakeStep([100u]);
@@ -97,7 +98,7 @@ public sealed class CombatControllerTests
          */
         var gameState = new FakeGameStateProvider();
         var combat = new FakeCombat();
-        var controller = new CombatController(gameState, combat);
+        var controller = new CombatController(gameState, combat, new FakeNavigator(gameState));
 
         gameState.AddHostileActor(MakeHostile(9, 100, distance: 5));
         var step = MakeStep([100u]);
@@ -126,7 +127,7 @@ public sealed class CombatControllerTests
          */
         var gameState = new FakeGameStateProvider();
         var combat = new FakeCombat();
-        var controller = new CombatController(gameState, combat);
+        var controller = new CombatController(gameState, combat, new FakeNavigator(gameState));
 
         // Tick 1: X is alive
         var x = MakeHostile(1, 100, distance: 5);
@@ -172,7 +173,7 @@ public sealed class CombatControllerTests
          */
         var gameState = new FakeGameStateProvider();
         var combat = new FakeCombat();
-        var controller = new CombatController(gameState, combat);
+        var controller = new CombatController(gameState, combat, new FakeNavigator(gameState));
 
         gameState.AddHostileActor(MakeHostile(1, 100, distance: 5));
         var step = MakeStep([100u]);
@@ -206,7 +207,7 @@ public sealed class CombatControllerTests
          */
         var gameState = new FakeGameStateProvider();
         var combat = new FakeCombat();
-        var controller = new CombatController(gameState, combat);
+        var controller = new CombatController(gameState, combat, new FakeNavigator(gameState));
 
         gameState.SetHostileActorsFailure("simulated-failure", "unit test");
         var step = MakeStep([100u]);
@@ -233,7 +234,7 @@ public sealed class CombatControllerTests
          */
         var gameState = new FakeGameStateProvider();
         var combat = new FakeCombat();
-        var controller = new CombatController(gameState, combat);
+        var controller = new CombatController(gameState, combat, new FakeNavigator(gameState));
 
         gameState.AddHostileActor(MakeHostile(9, 100, distance: 5));
         var step = MakeStep([100u]);
