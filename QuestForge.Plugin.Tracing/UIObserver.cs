@@ -15,8 +15,9 @@ namespace QuestForge.Plugin.Tracing;
 ///   2. <see cref="SnapshotAggregator"/> forwarding — only when an aggregator is set.
 ///
 /// Polling cadence:
-///   Every frame : PollAethernetDestination, PollDialogueOption, PollSelectYesno
-///   Heartbeat (250 ms) : PollQuestState, PollAttunement, PollKeyItems
+///   Every frame : PollAethernetDestination, PollDialogueOption, PollSelectYesno, PollTargetNpc
+///   Heartbeat (250 ms) : PollPlayerPosition, PollQuestState, PollAttunement, PollKeyItems,
+///                        PollCombat, PollBattleNpcTarget
 /// </summary>
 public sealed class UIObserver : IDisposable
 {
@@ -46,7 +47,7 @@ public sealed class UIObserver : IDisposable
     private readonly HashSet<uint> _attunedAetheryteIds = new();
 
     // ── combat tracking ───────────────────────────────────────────────────
-    private readonly Dictionary<ulong, uint> _trackedHostiles = new();
+    private readonly Dictionary<ulong, CombatHostileState> _hostileStates = new();
     private bool _lastInCombat;
 
     // ── key-items tracking ─────────────────────────────────────────────────
@@ -64,8 +65,15 @@ public sealed class UIObserver : IDisposable
     // ── SelectYesno tracking ──────────────────────────────────────────────
     private bool _selectYesnoWasOpen;
 
-    // ── Target NPC tracking ───────────────────────────────────────────────
+    // ── Target tracking ───────────────────────────────────────────────────
+    // _lastTargetBaseId dedups the every-frame PollTargetNpc (aetheryte + interactable-NPC).
+    // _lastBattleNpcBaseId dedups the heartbeat PollBattleNpcTarget (hostile combat target).
+    // The two fields are kept SEPARATE so the every-frame and heartbeat pollers never share a
+    // last-emitted value — sharing would let one poller suppress the other's GetTarget emission
+    // (e.g. an NPC target seen every-frame would dedup-block a same-id hostile re-confirm, and
+    // vice-versa). Distinct ids in practice, but the separation makes the dedup contract explicit.
     private uint _lastTargetBaseId;
+    private uint _lastBattleNpcBaseId;
 
     // ── disposal ──────────────────────────────────────────────────────────
     private bool _disposed;
@@ -144,6 +152,7 @@ public sealed class UIObserver : IDisposable
         _pendingDialogueIdx        = null;
         _selectYesnoWasOpen        = false;
         _lastTargetBaseId          = 0;
+        _lastBattleNpcBaseId       = 0;
 
         _aggregator?.OnAethernetTeleportConsumed();
         _aggregator?.OnDialogueOptionConsumed();
@@ -161,7 +170,7 @@ public sealed class UIObserver : IDisposable
         _lastKnownQuestState.Clear();
         _attunedAetheryteIds.Clear();
         _previousKeyItemsMap.Clear();
-        _trackedHostiles.Clear();
+        _hostileStates.Clear();
         _lastInCombat = false;
     }
 
@@ -171,11 +180,13 @@ public sealed class UIObserver : IDisposable
 
     private void OnFrameworkUpdate()
     {
-        // Every-frame pollers
-        PollTargetNpc();
+        // Every-frame pollers (menu/addon state + non-combat target capture).
+        // PollTargetNpc runs every-frame so NPC interaction (LastNpcInteracted → talk Rule 7 /
+        // attune Rule 2.5) and aethernet-shard capture are not throttled to the 250 ms heartbeat.
         PollAethernetDestination();
         PollDialogueOption();
         PollSelectYesno();
+        PollTargetNpc();
 
         // Heartbeat pollers (throttled to 250 ms)
         var now = _clock.UtcNow;
@@ -186,7 +197,12 @@ public sealed class UIObserver : IDisposable
         PollQuestState();
         PollAttunement();
         PollKeyItems();
+        // WHY PollBattleNpcTarget immediately after PollCombat: OnInCombatChanged(true) must reach
+        // the aggregator BEFORE OnBattleNpcTargeted, because the aggregator gates the span target
+        // on _inCombat. Running both at heartbeat in this order guarantees the gate is open when
+        // the hostile target is forwarded. (The non-combat PollTargetNpc stays every-frame above.)
         PollCombat();
+        PollBattleNpcTarget();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -385,28 +401,53 @@ public sealed class UIObserver : IDisposable
             _aggregator?.OnInCombatChanged(inCombat);
         }
 
-        var currentHostiles = new Dictionary<ulong, uint>();
-        foreach (var (objectId, dataId) in _combatProbe.GetVisibleHostiles())
-            currentHostiles[objectId] = dataId;
-
-        foreach (var (objectId, dataId) in _trackedHostiles)
+        var seen = new HashSet<ulong>();
+        foreach (var (objectId, dataId, isDead) in _combatProbe.GetVisibleHostiles())
         {
-            if (currentHostiles.ContainsKey(objectId)) continue;
-            if (!wasInCombat) continue;
+            seen.Add(objectId);
+            var hadPrior = _hostileStates.TryGetValue(objectId, out var prior);
+            var wasDead  = hadPrior && prior.WasDead;
 
-            var valueEl = JsonSerializer.SerializeToElement(new { dataId }, JsonOpts);
-            _traceSession.Write(new ObservationEvent(
-                RunId:    runId,
-                Method:   "EnemyKilled",
-                Argument: null,
-                Value:    valueEl,
-                At:       now));
-            _aggregator?.OnEnemyKilled(dataId);
+            if (isDead && !wasDead && hadPrior && wasInCombat)
+            {
+                var valueEl = JsonSerializer.SerializeToElement(new { dataId }, JsonOpts);
+                _traceSession.Write(new ObservationEvent(
+                    RunId:    runId,
+                    Method:   "EnemyKilled",
+                    Argument: null,
+                    Value:    valueEl,
+                    At:       now));
+                // D9: EnemyKilled is kept as a presence corroborator but is no longer forwarded
+                // to the aggregator — attribution uses the hostile target, not the kill event.
+            }
+
+            _hostileStates[objectId] = new CombatHostileState(dataId, isDead);
         }
 
-        _trackedHostiles.Clear();
-        foreach (var (objectId, dataId) in currentHostiles)
-            _trackedHostiles[objectId] = dataId;
+        foreach (var goneId in _hostileStates.Keys.Where(id => !seen.Contains(id)).ToList())
+            _hostileStates.Remove(goneId);
+    }
+
+    /// <summary>
+    /// Detects the player's hostile (BattleNpc) hard target and forwards it for combat span
+    /// attribution. Runs at heartbeat immediately after <see cref="PollCombat"/> so the
+    /// aggregator's _inCombat gate is already open (D2). Contains ONLY the BattleNpc branch —
+    /// the aetheryte / interactable-NPC branches live in the every-frame <see cref="PollTargetNpc"/>.
+    /// </summary>
+    private void PollBattleNpcTarget()
+    {
+        if (_targetProbe is null) return;
+
+        var bn = _targetProbe.GetBattleNpcTarget();
+        if (!bn.HasValue) return;
+
+        if (bn.Value.BaseId == _lastBattleNpcBaseId) return;
+        _lastBattleNpcBaseId = bn.Value.BaseId;
+
+        var now   = _clock.UtcNow;
+        var runId = CurrentRunId;
+        WriteObservation("GetTarget", 0u, new { baseId = bn.Value.BaseId, kind = "hostile" }, runId, now);
+        _aggregator?.OnBattleNpcTargeted(bn.Value.BaseId);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -588,9 +629,27 @@ public sealed class UIObserver : IDisposable
         }
     }
 
+    /// <summary>
+    /// Every-frame capture of the player's NON-hostile hard target: aethernet shards
+    /// (OnAethernetShardTargeted / OnInteraction → Rule 2.5) and interactable NPCs
+    /// (OnInteraction → LastNpcInteracted, drives talk Rule 7 / attune Rule 2.5).
+    ///
+    /// CRITICAL (D2 guarantee): a BattleNpc hard target must NOT be forwarded as OnInteraction,
+    /// which would corrupt LastNpcInteracted with a mob id and emit a spurious talk step.
+    /// GetInteractableNpcTarget() deliberately accepts BOTH EventNpc and BattleNpc (it serves the
+    /// dialogue-capture path), so after splitting the hostile detection into the heartbeat
+    /// PollBattleNpcTarget we guard here: if the hard target IS a BattleNpc, skip entirely. The
+    /// hostile target is owned by PollBattleNpcTarget. This keeps the ITargetProbe contract intact
+    /// (the dialogue-capture callers still see BattleNpc quest-givers) while localizing the
+    /// combat / non-combat routing in the observer.
+    /// </summary>
     private void PollTargetNpc()
     {
         if (_targetProbe is null) return;
+
+        // GUARD: a BattleNpc hard target is owned by the heartbeat PollBattleNpcTarget.
+        // Skip it here so it is never mis-routed to OnInteraction (D2 no-corruption guarantee).
+        if (_targetProbe.GetBattleNpcTarget() is not null) return;
 
         // Check aetheryte target first
         var aetheryteInfo = _targetProbe.GetAetheryteTarget();
@@ -678,3 +737,5 @@ public sealed class UIObserver : IDisposable
         _framework.Unsubscribe(OnFrameworkUpdate);
     }
 }
+
+internal readonly record struct CombatHostileState(uint DataId, bool WasDead);

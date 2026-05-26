@@ -7,24 +7,20 @@ using QuestForge.Plugin.Tracing;
 using Xunit;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RED PHASE — Slice 1 combat tests (GWT-U1..U5).
+// RED PHASE — Slice 1 combat tests (GWT-U1..U11).
 //
-// These tests WILL fail to compile because the following do not exist yet:
-//   1. QuestForge.Plugin.Tracing.ICombatProbe               (new interface)
-//   2. UIObserver ctor param: ICombatProbe? combatProbe = null
-//   3. UIObserver.PollCombat()                              (new heartbeat poller)
-//   4. UIObserver._trackedHostiles / _lastInCombat fields   (internal state)
-//   5. UIObserver.ResetHeartbeatState() clearing _trackedHostiles/_lastInCombat
+// Kill detection is being reworked from "corpse-removal (tracked-then-gone)" to
+// "death-state (alive→dead transition)".  PollCombat still uses _trackedHostiles
+// (tracked-then-gone), so every kill-detection test (U1..U10) FAILS behaviourally.
+// U7 and U11 test InCombat dedup / no-probe back-compat which already work, so they
+// pass today and remain green — that is expected (they confirm unchanged behaviour).
 //
-// Every OTHER symbol (FakeFramework, FakeClock, FakeTraceWriter, TraceSession,
-// ObservationEvent, SnapshotAggregator, UIObserver core ctor) already exists.
+// ICombatProbe.GetVisibleHostiles() now returns the 3-tuple (ObjectId, DataId, IsDead).
+// FakeCombatProbe has been updated accordingly.  DalamudCombatProbe has a minimal stub
+// (IsDead: false always) so QuestForge.Plugin compiles — builder replaces it (Slice 2D).
 //
-// Builder: implement ICombatProbe, add combatProbe ctor param, add PollCombat()
-// to the heartbeat block, extend ResetHeartbeatState(). Then all 5 tests go green.
-//
-// Scope: Slice 1 ONLY.  NO tests for Slice 2 (SnapshotAggregator.OnEnemyKilled /
-// OnInCombatChanged), Slice 3 (SnapshotState, TraceToQuestExtractor), or Slice 4
-// (DalamudCombatProbe).
+// Builder: rework PollCombat per plan D3/D4/D5, swap _trackedHostiles→_hostileStates,
+// update ResetHeartbeatState per D7.  Then all U1..U10 go green.
 //
 // Run with:
 //   dotnet test QuestForge.Plugin.Tests --filter "FullyQualifiedName~UIObserverCombatTests"
@@ -36,29 +32,43 @@ namespace QuestForge.Plugin.Tests.Tracing;
 
 /// <summary>
 /// Controllable in-memory implementation of <see cref="ICombatProbe"/>.
-/// Mirrors the existing FakeAddonProbe / FakeGameProbe pattern in UIObserverTests.cs.
+/// Now uses the 3-tuple (ObjectId, DataId, IsDead) per plan D2.
 /// </summary>
 public sealed class FakeCombatProbe : ICombatProbe
 {
     private bool _inCombat;
-    private readonly List<(ulong ObjectId, uint DataId)> _hostiles = new();
+    private readonly List<(ulong ObjectId, uint DataId, bool IsDead)> _hostiles = new();
 
     /// <summary>Sets the return value of <see cref="IsInCombat"/>.</summary>
     public void SetInCombat(bool value) => _inCombat = value;
 
-    /// <summary>Replaces the visible-hostiles list returned by <see cref="GetVisibleHostiles"/>.</summary>
-    public void SetHostiles(params (ulong ObjectId, uint DataId)[] hostiles)
+    /// <summary>
+    /// Replaces the visible-hostiles list with the full 3-tuple.
+    /// A linger = same (id, data, IsDead:true) across polls.
+    /// A despawn = remove the entry.
+    /// </summary>
+    public void SetHostiles(params (ulong ObjectId, uint DataId, bool IsDead)[] hostiles)
     {
         _hostiles.Clear();
         _hostiles.AddRange(hostiles);
     }
 
-    /// <summary>Clears the hostile list (simulates all mobs gone).</summary>
+    /// <summary>
+    /// Convenience: set alive hostiles (IsDead=false) without spelling out the bool.
+    /// </summary>
+    public void SetAliveHostiles(params (ulong ObjectId, uint DataId)[] hostiles)
+    {
+        _hostiles.Clear();
+        foreach (var (objectId, dataId) in hostiles)
+            _hostiles.Add((objectId, dataId, IsDead: false));
+    }
+
+    /// <summary>Clears the hostile list — models all mobs despawned (NOT a kill by itself).</summary>
     public void ClearHostiles() => _hostiles.Clear();
 
     // ICombatProbe
     public bool IsInCombat() => _inCombat;
-    public IReadOnlyList<(ulong ObjectId, uint DataId)> GetVisibleHostiles()
+    public IReadOnlyList<(ulong ObjectId, uint DataId, bool IsDead)> GetVisibleHostiles()
         => _hostiles.AsReadOnly();
 }
 
@@ -75,8 +85,6 @@ public sealed class UIObserverCombatTests
 
     /// <summary>
     /// Builds a UIObserver wired with a FakeCombatProbe.
-    /// Drives one heartbeat tick by advancing clock past 250 ms (so the first
-    /// <c>framework.Tick()</c> always fires the heartbeat pollers including PollCombat).
     /// </summary>
     private static (UIObserver observer,
                     FakeFramework framework,
@@ -93,7 +101,6 @@ public sealed class UIObserverCombatTests
         var combatProbe = new FakeCombatProbe();
         var framework   = new FakeFramework();
 
-        // RED: 'combatProbe' parameter does not exist on UIObserver yet → CS1739 / CS1503.
         var observer = new UIObserver(
             framework:    framework,
             traceSession: session,
@@ -113,281 +120,475 @@ public sealed class UIObserverCombatTests
         framework.Tick();
     }
 
-    // ─── Helper ──────────────────────────────────────────────────────────────
+    // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private static string FormatEvents(FakeTraceWriter writer)
         => string.Join("; ", writer.RecordedEvents
             .OfType<ObservationEvent>()
             .Select(e => $"[{e.Method}] value={e.Value?.GetRawText()}"));
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // GWT-U1 — tracked-then-gone while in combat → one EnemyKilled written
-    // ─────────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void GWT_U1_TrackedHostileGoneWhileInCombat_EmitsEnemyKilledObservation()
-    {
-        /*
-         * RED: Compile-error — ICombatProbe does not exist; UIObserver has no combatProbe param.
-         *
-         * Given probe IsInCombat()==true and hostiles [(obj=1, data=347)] at poll 1,
-         * When poll 2 has no hostiles (mob gone),
-         * Then an ObservationEvent with Method="EnemyKilled" and Value={"dataId":347}
-         *      is written to the TraceSession.
-         *
-         * Specifically:
-         *   - Exactly ONE EnemyKilled event is written across both polls.
-         *   - Its Value JSON must contain a "dataId" field equal to 347 (uint).
-         *   - No EnemyKilled is written on poll 1 (mob was present, not gone yet).
-         */
-
-        // Arrange
-        var (observer, framework, combatProbe, clock, writer) = BuildCombatFixture();
-
-        // Poll 1: in combat, hostile present
-        combatProbe.SetInCombat(true);
-        combatProbe.SetHostiles((ObjectId: 1UL, DataId: 347u));
-        DrivePoll(framework, clock); // poll 1
-
-        var countAfterPoll1 = writer.RecordedEvents
-            .OfType<ObservationEvent>()
-            .Count(e => e.Method == "EnemyKilled");
-
-        // Poll 2: still in combat (from previous poll perspective), hostile gone
-        combatProbe.ClearHostiles();
-        DrivePoll(framework, clock); // poll 2
-
-        // Assert — no EnemyKilled on poll 1
-        Assert.Equal(0, countAfterPoll1);
-
-        // Assert — exactly one EnemyKilled after poll 2
-        var killedEvents = writer.RecordedEvents
+    private static List<ObservationEvent> KilledEvents(FakeTraceWriter writer)
+        => writer.RecordedEvents
             .OfType<ObservationEvent>()
             .Where(e => e.Method == "EnemyKilled")
             .ToList();
 
-        Assert.True(killedEvents.Count == 1,
-            $"Expected exactly 1 EnemyKilled, got {killedEvents.Count}. Events: {FormatEvents(writer)}");
-
-        // Value must contain dataId:347
-        var killed = killedEvents[0];
-        Assert.NotNull(killed.Value);
-        var valueDoc = killed.Value!.Value;
-        Assert.Equal(JsonValueKind.Object, valueDoc.ValueKind);
-        Assert.True(valueDoc.TryGetProperty("dataId", out var dataIdEl),
-            $"EnemyKilled value must have 'dataId' property. Got: {valueDoc.GetRawText()}");
-        Assert.Equal(347u, dataIdEl.GetUInt32());
-
-        // Argument must be null per spec (§1.1)
-        Assert.Null(killed.Argument);
-
-        observer.Dispose();
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // GWT-U2 — disappearance while NOT in combat is not a kill
-    // ─────────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void GWT_U2_HostileGoneWhileOutOfCombat_NoEnemyKilledEmitted()
-    {
-        /*
-         * RED: Compile-error — same missing Slice-1 members as GWT-U1.
-         *
-         * Given IsInCombat()==false at poll 1 with hostile [(obj=1,data=347)],
-         * When poll 2 has no hostiles,
-         * Then NO EnemyKilled observation is written.
-         * _trackedHostiles IS updated silently so a future in-combat disappearance
-         * would start from the new (empty) snapshot — verified by checking zero kills total.
-         */
-
-        // Arrange
-        var (observer, framework, combatProbe, clock, writer) = BuildCombatFixture();
-
-        // Poll 1: out of combat, hostile present
-        combatProbe.SetInCombat(false);
-        combatProbe.SetHostiles((ObjectId: 1UL, DataId: 347u));
-        DrivePoll(framework, clock);
-
-        // Poll 2: hostile gone, still out of combat
-        combatProbe.ClearHostiles();
-        DrivePoll(framework, clock);
-
-        // Assert — zero EnemyKilled events across both polls
-        var killedEvents = writer.RecordedEvents
-            .OfType<ObservationEvent>()
-            .Where(e => e.Method == "EnemyKilled")
-            .ToList();
-
-        Assert.Empty(killedEvents);
-
-        observer.Dispose();
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // GWT-U3 — InCombat transition emitted once per change (dedup on change only)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void GWT_U3_InCombatTransitionEmittedOnlyOnChange_NotEveryPoll()
-    {
-        /*
-         * RED: Compile-error — same missing Slice-1 members as GWT-U1.
-         *
-         * Given IsInCombat() returns: false → true → true → false across 4 heartbeats,
-         * Then exactly TWO InCombat observations are written:
-         *   - poll 2: {value:true}   (false→true transition)
-         *   - poll 4: {value:false}  (true→false transition)
-         * polls 1 and 3 produce NO InCombat write (false→false and true→true are suppressed).
-         *
-         * "Direct write, dedup on change only" — mirrors InventoryChanged pattern (§1.1).
-         */
-
-        // Arrange
-        var (observer, framework, combatProbe, clock, writer) = BuildCombatFixture();
-
-        // Poll 1: false (initial)
-        combatProbe.SetInCombat(false);
-        DrivePoll(framework, clock);
-
-        // Poll 2: false → true  (should emit InCombat {value:true})
-        combatProbe.SetInCombat(true);
-        DrivePoll(framework, clock);
-
-        // Poll 3: true → true  (no change — must NOT emit)
-        combatProbe.SetInCombat(true);
-        DrivePoll(framework, clock);
-
-        // Poll 4: true → false  (should emit InCombat {value:false})
-        combatProbe.SetInCombat(false);
-        DrivePoll(framework, clock);
-
-        // Assert
-        var inCombatEvents = writer.RecordedEvents
+    private static List<ObservationEvent> InCombatEvents(FakeTraceWriter writer)
+        => writer.RecordedEvents
             .OfType<ObservationEvent>()
             .Where(e => e.Method == "InCombat")
             .ToList();
 
+    private static uint GetDataId(ObservationEvent e)
+    {
+        Assert.NotNull(e.Value);
+        Assert.True(e.Value!.Value.TryGetProperty("dataId", out var el),
+            $"EnemyKilled value must have 'dataId'. Got: {e.Value.Value.GetRawText()}");
+        return el.GetUInt32();
+    }
+
+    private static bool GetInCombatValue(ObservationEvent e)
+    {
+        Assert.NotNull(e.Value);
+        Assert.True(e.Value!.Value.TryGetProperty("value", out var el),
+            $"InCombat value must have 'value'. Got: {e.Value.Value.GetRawText()}");
+        return el.GetBoolean();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-U1 — alive→dead transition while in combat emits exactly one EnemyKilled
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GWT_U1_AliveToDeadTransitionWhileInCombat_EmitsExactlyOneEnemyKilled()
+    {
+        /*
+         * RED: PollCombat uses tracked-then-gone logic — it will NOT emit on poll 2
+         * (the mob is still visible, just dead), so the assertion for exactly one
+         * EnemyKilled will fail.
+         *
+         * Given IsInCombat()==true and hostile (obj=1, data=347, IsDead=false) at poll 1;
+         * When poll 2 has (obj=1, data=347, IsDead=true) — same mob now dead, still in combat;
+         * Then exactly ONE EnemyKilled with dataId==347u is written;
+         *      ZERO EnemyKilled on poll 1 (alive, no transition yet).
+         */
+
+        var (observer, framework, combatProbe, clock, writer) = BuildCombatFixture();
+
+        // Poll 1: in combat, hostile alive
+        combatProbe.SetInCombat(true);
+        combatProbe.SetHostiles((1UL, 347u, false));
+        DrivePoll(framework, clock);
+
+        var countAfterPoll1 = KilledEvents(writer).Count;
+
+        // Poll 2: same hostile now dead, still in combat
+        combatProbe.SetHostiles((1UL, 347u, true));
+        DrivePoll(framework, clock);
+
+        Assert.Equal(0, countAfterPoll1);
+
+        var killed = KilledEvents(writer);
+        Assert.True(killed.Count == 1,
+            $"Expected exactly 1 EnemyKilled after alive→dead transition, got {killed.Count}. Events: {FormatEvents(writer)}");
+
+        Assert.Equal(347u, GetDataId(killed[0]));
+        Assert.Null(killed[0].Argument);
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-U2 — linger (dead mob stays visible) does not re-emit
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GWT_U2_LingeringDeadHostile_NoReEmit()
+    {
+        /*
+         * RED: Old logic emits on disappearance, not on death — so with the mob still
+         * visible and dead for polls 3 and 4 it will not emit at all (zero, not one).
+         *
+         * Given the U1 setup through poll 2 (one kill emitted);
+         * When polls 3 and 4 still show (obj=1, data=347, IsDead=true) — linger;
+         * Then still exactly ONE EnemyKilled total (no re-emit per linger poll).
+         */
+
+        var (observer, framework, combatProbe, clock, writer) = BuildCombatFixture();
+
+        // Poll 1: alive
+        combatProbe.SetInCombat(true);
+        combatProbe.SetHostiles((1UL, 347u, false));
+        DrivePoll(framework, clock);
+
+        // Poll 2: dead (transition — should emit)
+        combatProbe.SetHostiles((1UL, 347u, true));
+        DrivePoll(framework, clock);
+
+        // Poll 3: still dead (linger)
+        DrivePoll(framework, clock);
+
+        // Poll 4: still dead (linger)
+        DrivePoll(framework, clock);
+
+        var killed = KilledEvents(writer);
+        Assert.True(killed.Count == 1,
+            $"Expected exactly 1 EnemyKilled despite linger, got {killed.Count}. Events: {FormatEvents(writer)}");
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-U3 — despawn after dead does not re-emit
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GWT_U3_DespawnAfterDeadHostile_SilentNoDuplicateKill()
+    {
+        /*
+         * RED: Old logic would emit on poll 4 when the (already dead) mob finally disappears
+         * because it was "tracked then gone while in combat". The new logic must be silent.
+         *
+         * Given U1 setup through poll 2 (one kill emitted), then linger poll 3;
+         * When poll 4 has no hostiles (corpse despawned), still in combat;
+         * Then still exactly ONE EnemyKilled total (despawn is silent).
+         */
+
+        var (observer, framework, combatProbe, clock, writer) = BuildCombatFixture();
+
+        // Poll 1: alive
+        combatProbe.SetInCombat(true);
+        combatProbe.SetHostiles((1UL, 347u, false));
+        DrivePoll(framework, clock);
+
+        // Poll 2: dead
+        combatProbe.SetHostiles((1UL, 347u, true));
+        DrivePoll(framework, clock);
+
+        // Poll 3: linger (still dead)
+        DrivePoll(framework, clock);
+
+        // Poll 4: despawn
+        combatProbe.ClearHostiles();
+        DrivePoll(framework, clock);
+
+        var killed = KilledEvents(writer);
+        Assert.True(killed.Count == 1,
+            $"Expected exactly 1 EnemyKilled (despawn silent), got {killed.Count}. Events: {FormatEvents(writer)}");
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-U4 — death observed as combat ends (the Objective-2 fix)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GWT_U4_DeathObservedSamePollCombatEnds_EmitsKillAndInCombatFalse()
+    {
+        /*
+         * RED: Old logic gates on was-in-combat correctly but never fires because
+         * the mob is still visible (just dead). New logic must fire because
+         * wasInCombat==true when the dead poll is processed.
+         *
+         * Given IsInCombat()==true and (obj=1, data=347, alive) at poll 1;
+         * When poll 2 has IsInCombat()==false AND (obj=1, data=347, dead);
+         * Then exactly ONE EnemyKilled (wasInCombat was true before transition block)
+         *      AND exactly one InCombat{value:false}.
+         */
+
+        var (observer, framework, combatProbe, clock, writer) = BuildCombatFixture();
+
+        // Poll 1: in combat, alive
+        combatProbe.SetInCombat(true);
+        combatProbe.SetHostiles((1UL, 347u, false));
+        DrivePoll(framework, clock);
+
+        // Poll 2: combat ends AND mob is dead on same poll
+        combatProbe.SetInCombat(false);
+        combatProbe.SetHostiles((1UL, 347u, true));
+        DrivePoll(framework, clock);
+
+        var killed = KilledEvents(writer);
+        Assert.True(killed.Count == 1,
+            $"Expected exactly 1 EnemyKilled when death seen same poll combat ends, got {killed.Count}. Events: {FormatEvents(writer)}");
+        Assert.Equal(347u, GetDataId(killed[0]));
+
+        var inCombatFalseEvents = InCombatEvents(writer)
+            .Where(e => !GetInCombatValue(e))
+            .ToList();
+        Assert.True(inCombatFalseEvents.Count == 1,
+            $"Expected exactly 1 InCombat{{value:false}}, got {inCombatFalseEvents.Count}. Events: {FormatEvents(writer)}");
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-U5 — already-dead-on-first-sight is skipped
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GWT_U5_AlreadyDeadOnFirstSight_NoEnemyKilledEmitted()
+    {
+        /*
+         * RED: Old tracked-then-gone logic will emit when this dead mob eventually
+         * disappears (because it was "tracked and gone while in combat"). New logic
+         * must skip it — no alive→dead transition was ever observed.
+         *
+         * Given no hostiles tracked yet;
+         * When poll 1 has IsInCombat()==true and (obj=9, data=347, IsDead=true) — first seen dead;
+         * Then ZERO EnemyKilled; a later linger/despawn also emits nothing.
+         */
+
+        var (observer, framework, combatProbe, clock, writer) = BuildCombatFixture();
+
+        // Poll 1: first seen already dead
+        combatProbe.SetInCombat(true);
+        combatProbe.SetHostiles((9UL, 347u, true));
+        DrivePoll(framework, clock);
+
+        // Poll 2: linger (still dead)
+        DrivePoll(framework, clock);
+
+        // Poll 3: despawn
+        combatProbe.ClearHostiles();
+        DrivePoll(framework, clock);
+
+        var killed = KilledEvents(writer);
+        Assert.True(killed.Count == 0,
+            $"Expected ZERO EnemyKilled for already-dead-on-first-sight mob, got {killed.Count}. Events: {FormatEvents(writer)}");
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-U6 — out-of-combat death is not emitted
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GWT_U6_AliveToDeadWhileOutOfCombat_NoEnemyKilledEmitted()
+    {
+        /*
+         * RED: Old logic gates on was-in-combat and won't emit out-of-combat,
+         * so this may pass with the old code — but the alive→dead path is now
+         * explicitly exercised against the in-combat gate.
+         *
+         * Given IsInCombat()==false and (obj=1, data=347, alive) at poll 1;
+         * When poll 2 has (obj=1, data=347, dead) still out of combat;
+         * Then ZERO EnemyKilled (was-in-combat gate fails).
+         */
+
+        var (observer, framework, combatProbe, clock, writer) = BuildCombatFixture();
+
+        // Poll 1: out of combat, alive
+        combatProbe.SetInCombat(false);
+        combatProbe.SetHostiles((1UL, 347u, false));
+        DrivePoll(framework, clock);
+
+        // Poll 2: dead, still out of combat
+        combatProbe.SetHostiles((1UL, 347u, true));
+        DrivePoll(framework, clock);
+
+        var killed = KilledEvents(writer);
+        Assert.Empty(killed);
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-U7 — InCombat dedup-on-change is unchanged
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GWT_U7_InCombatTransitionEmittedOnlyOnChange()
+    {
+        /*
+         * This tests unchanged behaviour — expected to pass today and after the rework.
+         *
+         * Given IsInCombat() returns: false→true→true→false across 4 polls (no hostiles);
+         * Then exactly TWO InCombat observations:
+         *   - poll 2: {value:true}
+         *   - poll 4: {value:false}
+         * Polls 1 and 3 produce NO InCombat write.
+         */
+
+        var (observer, framework, combatProbe, clock, writer) = BuildCombatFixture();
+
+        combatProbe.SetInCombat(false);
+        DrivePoll(framework, clock); // poll 1
+
+        combatProbe.SetInCombat(true);
+        DrivePoll(framework, clock); // poll 2: false→true
+
+        combatProbe.SetInCombat(true);
+        DrivePoll(framework, clock); // poll 3: no change
+
+        combatProbe.SetInCombat(false);
+        DrivePoll(framework, clock); // poll 4: true→false
+
+        var inCombatEvents = InCombatEvents(writer);
+
         Assert.True(inCombatEvents.Count == 2,
-            $"Expected exactly 2 InCombat observations (true then false), got {inCombatEvents.Count}. Events: {FormatEvents(writer)}");
+            $"Expected exactly 2 InCombat observations, got {inCombatEvents.Count}. Events: {FormatEvents(writer)}");
 
-        // First event must be true
-        var first = inCombatEvents[0];
-        Assert.NotNull(first.Value);
-        Assert.Equal(JsonValueKind.Object, first.Value!.Value.ValueKind);
-        Assert.True(first.Value.Value.TryGetProperty("value", out var firstVal),
-            $"InCombat value must have 'value' property. Got: {first.Value.Value.GetRawText()}");
-        Assert.True(firstVal.GetBoolean());
+        Assert.True(GetInCombatValue(inCombatEvents[0]),
+            "First InCombat event must be {value:true}");
+        Assert.False(GetInCombatValue(inCombatEvents[1]),
+            "Second InCombat event must be {value:false}");
 
-        // Second event must be false
-        var second = inCombatEvents[1];
-        Assert.NotNull(second.Value);
-        Assert.True(second.Value!.Value.TryGetProperty("value", out var secondVal),
-            $"InCombat value must have 'value' property. Got: {second.Value.Value.GetRawText()}");
-        Assert.False(secondVal.GetBoolean());
-
-        // Argument must be null per spec (§1.1)
         Assert.All(inCombatEvents, e => Assert.Null(e.Argument));
 
         observer.Dispose();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-U4 — ResetHeartbeatState clears tracking; no phantom kill on next poll
+    // GWT-U8 — multiple deaths same poll emit one EnemyKilled each
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GWT_U4_ResetHeartbeatState_ClearsCombatTracking_NoPhantomKill()
+    public void GWT_U8_MultipleDeathsSamePoll_EmitsOneKillPerObjectId()
     {
         /*
-         * RED: Compile-error — same missing Slice-1 members as GWT-U1.
+         * RED: Old logic fires on disappearance only — both are still visible (dead),
+         * so zero kills emitted. New logic must emit two (one per ObjectId transition).
          *
-         * Verifies two things:
-         *
-         * A. No phantom kill: Given a tracked hostile and _lastInCombat==true,
-         *    When ResetHeartbeatState(), Then the next poll with the SAME hostile
-         *    present does not emit EnemyKilled (because _trackedHostiles was cleared,
-         *    so it's treated as newly appeared, not as "was tracked and is now gone").
-         *
-         * B. InCombat re-emits on next true transition: after reset _lastInCombat==false,
-         *    so the next poll where IsInCombat()==true should emit InCombat {value:true}.
+         * Given IsInCombat()==true and (obj=1,data=347,alive), (obj=2,data=347,alive) at poll 1;
+         * When poll 2 has both dead, still in combat;
+         * Then exactly TWO EnemyKilled, both dataId==347u.
          */
 
-        // Arrange
         var (observer, framework, combatProbe, clock, writer) = BuildCombatFixture();
 
-        // Poll 1: in combat with one hostile — establishes tracking
+        // Poll 1: two alive hostiles
         combatProbe.SetInCombat(true);
-        combatProbe.SetHostiles((ObjectId: 1UL, DataId: 347u));
+        combatProbe.SetHostiles((1UL, 347u, false), (2UL, 347u, false));
         DrivePoll(framework, clock);
 
-        // Confirm state is established (InCombat true emitted once)
-        var inCombatBeforeReset = writer.RecordedEvents
-            .OfType<ObservationEvent>()
-            .Count(e => e.Method == "InCombat");
-        Assert.True(inCombatBeforeReset >= 1,
-            "Expected at least one InCombat observation before reset");
-
-        // Act: reset heartbeat state — clears _trackedHostiles and _lastInCombat
-        observer.ResetHeartbeatState();
-
-        // Poll 2: same hostile still present, still in combat
-        // Since _trackedHostiles was cleared: mob is seen as NEW (not gone), so NO kill.
-        // Since _lastInCombat was cleared to false: the false→true transition re-fires InCombat.
-        var killedBeforePoll2 = writer.RecordedEvents
-            .OfType<ObservationEvent>()
-            .Count(e => e.Method == "EnemyKilled");
-
-        combatProbe.SetInCombat(true);
-        combatProbe.SetHostiles((ObjectId: 1UL, DataId: 347u));
+        // Poll 2: both dead
+        combatProbe.SetHostiles((1UL, 347u, true), (2UL, 347u, true));
         DrivePoll(framework, clock);
 
-        // Assert A — no phantom kill: mob was tracked-cleared-then-seen-new, not gone
-        var killedAfterPoll2 = writer.RecordedEvents
-            .OfType<ObservationEvent>()
-            .Count(e => e.Method == "EnemyKilled");
-        Assert.Equal(killedBeforePoll2, killedAfterPoll2);
+        var killed = KilledEvents(writer);
+        Assert.True(killed.Count == 2,
+            $"Expected exactly 2 EnemyKilled (one per ObjectId), got {killed.Count}. Events: {FormatEvents(writer)}");
 
-        // Assert B — InCombat re-emits because _lastInCombat reset to false
-        var inCombatAfterReset = writer.RecordedEvents
-            .OfType<ObservationEvent>()
-            .Where(e => e.Method == "InCombat")
-            .Skip(inCombatBeforeReset) // events added after reset
-            .ToList();
-        Assert.True(inCombatAfterReset.Count >= 1,
-            $"Expected at least one InCombat re-emit after ResetHeartbeatState. Events: {FormatEvents(writer)}");
-
-        var reEmitted = inCombatAfterReset[0];
-        Assert.NotNull(reEmitted.Value);
-        Assert.True(reEmitted.Value!.Value.TryGetProperty("value", out var reEmitVal));
-        Assert.True(reEmitVal.GetBoolean(),
-            "InCombat re-emitted after reset must have value:true");
+        Assert.All(killed, e => Assert.Equal(347u, GetDataId(e)));
 
         observer.Dispose();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-U5 — UIObserver without ICombatProbe → no combat observations (back-compat)
+    // GWT-U9 — revive (dead→alive→dead) emits on each genuine alive→dead transition
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GWT_U5_NoCombatProbe_NoCombatObservationsEver()
+    public void GWT_U9_ReviveAndReKill_EmitsTwoEnemyKilled()
     {
         /*
-         * RED: Compile-error — UIObserver ctor does not yet have a combatProbe param,
-         *      so this test cannot even call it without combatProbe (but the absence
-         *      of the param is itself the compile error that blocks the whole file).
+         * RED: Old logic cannot model revival (presence-only tracking); this is a new
+         * scenario entirely. Will emit 0 or wrong count.
          *
-         * Given UIObserver constructed WITHOUT an ICombatProbe (null / param omitted),
-         * When several heartbeats fire (with or without game probe data),
-         * Then no ObservationEvent with Method="EnemyKilled" or Method="InCombat"
-         *      is ever written.
-         * Existing pollers (quest, attunement) must still be unaffected.
-         *
-         * This guards the back-compat contract: the new ctor param must default to null.
+         * Given (obj=1,data=347): alive(p1)→dead(p2)→alive(p3)→dead(p4), all in combat;
+         * Then exactly TWO EnemyKilled (poll 2 and poll 4).
+         * The WasDead latch resets when the mob returns alive, enabling a second transition.
          */
 
-        // Arrange — build WITHOUT combatProbe (relies on default null)
+        var (observer, framework, combatProbe, clock, writer) = BuildCombatFixture();
+
+        combatProbe.SetInCombat(true);
+
+        // Poll 1: alive
+        combatProbe.SetHostiles((1UL, 347u, false));
+        DrivePoll(framework, clock);
+
+        // Poll 2: dead (first kill)
+        combatProbe.SetHostiles((1UL, 347u, true));
+        DrivePoll(framework, clock);
+
+        // Poll 3: alive again (revive)
+        combatProbe.SetHostiles((1UL, 347u, false));
+        DrivePoll(framework, clock);
+
+        // Poll 4: dead again (second kill)
+        combatProbe.SetHostiles((1UL, 347u, true));
+        DrivePoll(framework, clock);
+
+        var killed = KilledEvents(writer);
+        Assert.True(killed.Count == 2,
+            $"Expected exactly 2 EnemyKilled across alive→dead→alive→dead, got {killed.Count}. Events: {FormatEvents(writer)}");
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-U10 — ResetHeartbeatState clears _hostileStates; no phantom kill on next poll
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GWT_U10_ResetHeartbeatState_ClearsHostileStates_NoPhantomKill()
+    {
+        /*
+         * RED: Old logic uses _trackedHostiles (cleared by reset). After reset, the
+         * same mob with IsDead:true on poll 2 is seen as already-dead-on-first-sight
+         * per D4 — no phantom kill. However, old PollCombat uses tracked-then-gone so
+         * this specific assertion (zero new kills after reset when mob arrives dead) is
+         * the new D4 semantics; will fail if PollCombat is not reworked.
+         *
+         * Given poll 1 in combat with (obj=1,data=347,alive) — state established + InCombat{true} emitted;
+         * When ResetHeartbeatState(), then poll 2 with (obj=1,data=347,dead), in combat;
+         * Then ZERO new EnemyKilled (first-seen-dead after reset → skipped);
+         *      AND InCombat{value:true} re-emits on poll 2 (because _lastInCombat reset to false).
+         */
+
+        var (observer, framework, combatProbe, clock, writer) = BuildCombatFixture();
+
+        // Poll 1: in combat, alive — establishes state
+        combatProbe.SetInCombat(true);
+        combatProbe.SetHostiles((1UL, 347u, false));
+        DrivePoll(framework, clock);
+
+        var inCombatBeforeReset = InCombatEvents(writer).Count;
+        Assert.True(inCombatBeforeReset >= 1, "Expected InCombat{true} emitted on poll 1");
+
+        // Reset
+        observer.ResetHeartbeatState();
+
+        var killedBeforeReset = KilledEvents(writer).Count;
+
+        // Poll 2: same mob now dead — first-seen-dead after reset → must be skipped
+        combatProbe.SetInCombat(true);
+        combatProbe.SetHostiles((1UL, 347u, true));
+        DrivePoll(framework, clock);
+
+        // Assert A: no new kill
+        var killedAfterPoll2 = KilledEvents(writer).Count;
+        Assert.Equal(killedBeforeReset, killedAfterPoll2);
+
+        // Assert B: InCombat{true} re-emits because _lastInCombat reset to false
+        var inCombatAfterReset = InCombatEvents(writer).Skip(inCombatBeforeReset).ToList();
+        Assert.True(inCombatAfterReset.Count >= 1,
+            $"Expected InCombat re-emit after ResetHeartbeatState. Events: {FormatEvents(writer)}");
+        Assert.True(GetInCombatValue(inCombatAfterReset[0]),
+            "InCombat re-emitted after reset must be {value:true}");
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-U11 — no ICombatProbe → no combat observations (back-compat)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GWT_U11_NoCombatProbe_NoCombatObservationsEver()
+    {
+        /*
+         * Expected to pass today and after rework (null probe guard unchanged).
+         *
+         * Given UIObserver built WITHOUT a combatProbe (default null);
+         * When several heartbeats fire;
+         * Then ZERO EnemyKilled and ZERO InCombat observations ever.
+         */
+
         var writer  = new FakeTraceWriter();
         var session = new TraceSession(TraceMode.Always, Path.GetTempPath(), _ => writer);
         session.OnPluginStart();
@@ -395,24 +596,19 @@ public sealed class UIObserverCombatTests
         var clock     = new FakeClock(T0);
         var framework = new FakeFramework();
 
-        // RED: if combatProbe param doesn't exist yet, the existing ctor call (without it)
-        // compiles fine but PollCombat won't be added either → no combat events.
-        // Once the builder adds the param with default=null this test documents the null path.
         var observer = new UIObserver(
             framework:    framework,
             traceSession: session,
             passiveRunId: PassiveRunId,
-            // combatProbe is intentionally omitted → uses default null
+            // combatProbe intentionally omitted → default null
             clock:        clock);
 
-        // Act — fire multiple heartbeat polls
         for (var i = 0; i < 4; i++)
         {
             clock.Advance(TimeSpan.FromMilliseconds(250));
             framework.Tick();
         }
 
-        // Assert — absolutely no EnemyKilled or InCombat observations
         var combatObs = writer.RecordedEvents
             .OfType<ObservationEvent>()
             .Where(e => e.Method == "EnemyKilled" || e.Method == "InCombat")

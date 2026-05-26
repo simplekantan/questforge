@@ -55,15 +55,15 @@ public sealed class StepInferenceEngine
                 Notes: $"Mandatory sub-quest {foreignQuest.Value} accepted. NPC: {npcId?.Value}");
         }
 
-        // Rule 2.2: Kill-correlated combat (nibble-level, bidirectional).
-        // Fires when kills are correlated to an incremented nibble within the symmetric window.
+        // Rule 2.2: Target-correlated combat (span-scoped).
+        // Fires when the span has at least one hostile target and one bumped nibble.
         // Must run BEFORE Rule 3 (sequence advance) so combat is not mis-emitted as a talk step.
         if (after.KillCorrelatedTargets is { Count: > 0 } targets
             && targets.Any(kv => kv.Value.DataIds.Count > 0))
         {
             var primary = targets
                 .Where(kv => kv.Value.DataIds.Count > 0)
-                .OrderByDescending(kv => kv.Value.DataIds.Count)
+                .OrderByDescending(kv => kv.Value.FinalValue)
                 .ThenBy(kv => kv.Key.VarIndex)
                 .ThenBy(kv => kv.Key.Half)
                 .First();
@@ -73,20 +73,21 @@ public sealed class StepInferenceEngine
             string fn = primary.Key.Half == NibbleHalf.Low ? "questVariableLow" : "questVariableHigh";
             string expect = $"{fn}({questIdValue}, {primary.Key.VarIndex}) >= {primary.Value.FinalValue}";
 
+            bool multiTarget = dataIds.Length > 1;
+            bool multiNibble = targets.Count(kv => kv.Value.DataIds.Count > 0) > 1;
+
             string notes = "Spawn defaulted to overworldEnemies; review. Location = player position at combat start.";
-            var others = targets.Where(kv => !kv.Key.Equals(primary.Key) && kv.Value.DataIds.Count > 0).ToArray();
-            if (others.Length > 0)
+            if (multiTarget || multiNibble)
             {
-                notes = "Multiple objectives progressed this record: " +
-                        string.Join(", ", others.Select(o => $"V{o.Key.VarIndex}-{o.Key.Half} ([{string.Join(",", o.Value.DataIds)}])")) +
-                        ". If this record covered more than one objective, split it. " + notes;
+                notes = $"Ambiguous record: span saw {dataIds.Length} hostile target(s) [{string.Join(",", dataIds)}] " +
+                        $"and {targets.Count} nibble bump(s). One combat step per NPC type — re-record split. " + notes;
             }
 
             return new InferenceResult(
                 StepType: "combat",
                 SuggestedStepId: $"defeat-{dataIds[0]}",
                 SuggestedExpect: expect,
-                Confidence: Confidence.Medium,
+                Confidence: multiTarget || multiNibble ? Confidence.Low : Confidence.Medium,
                 InferredFrom: InferredFrom.Combat,
                 Notes: notes);
         }

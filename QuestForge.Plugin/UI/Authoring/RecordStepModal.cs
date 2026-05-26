@@ -1,3 +1,4 @@
+using System.Linq;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using QuestForge.Engine.Authoring;
@@ -29,8 +30,11 @@ public sealed class RecordStepModal : Window
     [
         "<Detect>", "travel", "talk", "accept", "turn-in", "attune",
         "hand-over-item", "pickup-item", "interact-object", "cutscene",
-        "use-item", "use-emote", "use-action", "await-user"
+        "use-item", "use-emote", "use-action", "await-user", "combat"
     ];
+
+    // Combat step: comma-separated DataIds entered by the author (manual override)
+    private string _editKillEnemyDataIds = "";
 
     // Async save tracking
     private Task? _saveTask;
@@ -56,6 +60,7 @@ public sealed class RecordStepModal : Window
         _editStepId = "";
         _editExpect = "";
         _editNotes = "";
+        _editKillEnemyDataIds = "";
         _saveError = "";
         IsOpen = true;
     }
@@ -123,6 +128,11 @@ public sealed class RecordStepModal : Window
             _editStepId = _inference.SuggestedStepId;
             _editExpect = _inference.SuggestedExpect ?? "";
             _editNotes = _inference.Notes ?? "";
+            // Seed the kill-set from the detected targets so an auto-detected combat step carries
+            // its DataIds into KillEnemyDataIds (the field is the only source BuildRawStep reads).
+            _editKillEnemyDataIds = _inference.StepType == "combat" && _after?.KillCorrelatedTargets is { } kct
+                ? string.Join(",", kct.Values.SelectMany(t => t.DataIds).Distinct().OrderBy(id => id))
+                : "";
             _state = RecordState.InferenceReady;
         }
         ImGui.SameLine();
@@ -141,6 +151,7 @@ public sealed class RecordStepModal : Window
         "pickup-item"    => "pickup-item",
         "interact-object"=> "interact-object",
         "cutscene"       => "cutscene",
+        "combat"         => "combat-step",
         _                => "step"
     };
 
@@ -166,6 +177,13 @@ public sealed class RecordStepModal : Window
         ImGui.TextUnformatted("Step ID:");
         ImGui.SetNextItemWidth(300f);
         ImGui.InputText("##stepid", ref _editStepId, 128);
+
+        if (_inference!.StepType == "combat")
+        {
+            ImGui.TextUnformatted("Kill Enemy DataIds (comma-separated uints):");
+            ImGui.SetNextItemWidth(300f);
+            ImGui.InputText("##killdataids", ref _editKillEnemyDataIds, 256);
+        }
 
         ImGui.TextUnformatted("Expect (predicate):");
         ImGui.SetNextItemWidth(200f);
@@ -248,8 +266,46 @@ public sealed class RecordStepModal : Window
         await _host.RecordStep(before, inference, stepId, expect, notes, rawStep, CancellationToken.None);
     }
 
-    private static Step BuildRawStep(string stepId, string stepType, string? expect, GameStateSnapshot? after, GameStateSnapshot? before = null)
-        => QuestForge.Engine.Authoring.StepFactory.Build(stepType, stepId, expect, after, before);
+    private Step BuildRawStep(string stepId, string stepType, string? expect, GameStateSnapshot? after, GameStateSnapshot? before = null)
+    {
+        if (stepType == "combat")
+        {
+            var dataIds = _editKillEnemyDataIds
+                .Split(',', System.StringSplitOptions.RemoveEmptyEntries | System.StringSplitOptions.TrimEntries)
+                .Select(s => uint.TryParse(s, out var v) ? (uint?)v : null)
+                .Where(v => v.HasValue)
+                .Select(v => v!.Value)
+                .ToArray();
+
+            ExpectValue? expectValue = expect is { Length: > 0 }
+                ? new PredicateExpect { Predicate = expect }
+                : null;
+
+            var zone = (int)(after?.Zone.Value ?? 0);
+            var zoneStr = zone > 0 ? zone.ToString() : null;
+            var combatPos = after?.CombatStartPosition is { } csp
+                ? new Position3(csp.X, csp.Y, csp.Z)
+                : new Position3(after?.Position.X ?? 0, after?.Position.Y ?? 0, after?.Position.Z ?? 0);
+            var combatZone = after?.CombatStartZone > 0 ? after.CombatStartZone : zone;
+
+            var stepIdResolved = dataIds.Length > 0 ? $"defeat-{dataIds[0]}" : stepId;
+            if (_editStepId.Length > 0 && _editStepId != DefaultStepIdForType("combat"))
+                stepIdResolved = stepId;
+
+            return new CombatStep
+            {
+                Id = stepIdResolved,
+                Expect = expectValue,
+                Zone = zoneStr,
+                RequiredZone = zoneStr,
+                KillEnemyDataIds = dataIds,
+                Spawn = CombatSpawn.OverworldEnemies,
+                Location = new NpcLocation(NpcId: 0, Zone: combatZone, Position: combatPos)
+            };
+        }
+
+        return QuestForge.Engine.Authoring.StepFactory.Build(stepType, stepId, expect, after, before);
+    }
 
     private List<string> BuildPredicateOptions()
     {
@@ -269,6 +325,9 @@ public sealed class RecordStepModal : Window
             $"questFlag({questId}, 2)",
             $"questFlag({questId}, 3)",
             $"playerZone() == {zone}",
+            $"questVariable({questId}, 0)",
+            $"questVariableLow({questId}, 0) >= 3",
+            $"questVariableHigh({questId}, 1) >= 3",
         };
 
         if (snap.LastAttuned.HasValue)
@@ -283,6 +342,7 @@ public sealed class RecordStepModal : Window
         _after = null;
         _inference = null;
         _overrideStepType = "";
+        _editKillEnemyDataIds = "";
         _state = RecordState.WaitingForAction;
         _saveTask = null;
         _saveError = "";

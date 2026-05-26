@@ -96,7 +96,8 @@ public sealed class AuthoringHost : IDisposable
             passiveRunId: $"passive-{DateTime.UtcNow:yyyyMMdd-HHmmss}",
             new DalamudAddonProbe(services.GameGui, services.DataManager),
             new DalamudGameProbe(services.DataManager, services.ObjectTable, services.ClientState),
-            targetProbe: new DalamudTargetProbe(services.TargetManager, services.ClientState));
+            targetProbe: new DalamudTargetProbe(services.TargetManager, services.ClientState),
+            combatProbe: new DalamudCombatProbe(services.Condition, services.ObjectTable));
 
         _services.ClientState.TerritoryChanged += OnTerritoryChanged;
         _services.Framework.Update += OnFrameworkUpdate;
