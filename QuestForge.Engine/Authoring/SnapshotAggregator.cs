@@ -1,4 +1,5 @@
 using QuestForge.Adapters.Types;
+using System.Linq;
 
 namespace QuestForge.Engine.Authoring;
 
@@ -30,6 +31,34 @@ public sealed class SnapshotAggregator
     private QuestId? _foreignQuestAccepted;
     private bool _selectYesnoConfirmed;
     private IReadOnlyList<byte>? _questVariables;
+
+    // ── kill-correlation state ─────────────────────────────────────────────
+    private bool _inCombat;
+    private WorldPosition? _combatStartPosition;
+    private int _combatStartZone;
+
+    // Recent kills buffer: (dataId, timestamp) ordered by time ascending.
+    private readonly List<(uint DataId, DateTimeOffset At)> _recentKills = new();
+
+    // Per-variable accumulated correlations for the current recording window.
+    private readonly Dictionary<int, (HashSet<uint> DataIds, int FinalValue)> _killCorrelatedTargets = new();
+
+    // Previous quest-variable values baseline for delta detection.
+    // Key: quest variable index (0-5). Updated on each OnQuestVariablesUpdated call.
+    // Survives ResetDeltas so cross-window deltas are computed correctly.
+    private IReadOnlyList<byte>? _prevQuestVariables;
+
+    /// <summary>
+    /// Correlation window: kills within this many milliseconds before a variable bump are
+    /// attributed to that bump. Must match the offline SnapshotState constant.
+    /// </summary>
+    public static readonly TimeSpan CombatCorrelationWindow = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>
+    /// Synthetic variable index used to record sequence-advance correlations
+    /// (kill → sequence bump) when no regular variable index changed.
+    /// </summary>
+    public const int SequenceVariableIndex = -1;
 
     // clock defaults to SystemClock so production callers need only pass activeQuest;
     // tests inject FakeClock for deterministic CapturedAt values.
@@ -65,7 +94,11 @@ public sealed class SnapshotAggregator
         DialogueNpcSource            = _dialogueNpcSource,
         ForeignQuestAccepted         = _foreignQuestAccepted,
         SelectYesnoConfirmed         = _selectYesnoConfirmed,
-        QuestVariables               = _questVariables
+        QuestVariables               = _questVariables,
+        InCombat                     = _inCombat,
+        KillCorrelatedTargets        = BuildKillCorrelatedTargets(),
+        CombatStartPosition          = _combatStartPosition,
+        CombatStartZone              = _combatStartZone
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -96,7 +129,21 @@ public sealed class SnapshotAggregator
     public void OnQuestSequenceChanged(QuestId quest, int newSequence)
     {
         if (_activeQuest == quest)
+        {
+            var oldSequence = _questSequence;
             _questSequence = newSequence;
+
+            // Sequence-advance correlation: if recent kills are in-window, correlate under SequenceVariableIndex.
+            if (newSequence > oldSequence)
+            {
+                var now = _clock.UtcNow;
+                EvictStaleKills(now);
+                if (_recentKills.Count > 0)
+                {
+                    CorrelateKillsToIndex(SequenceVariableIndex, newSequence, now);
+                }
+            }
+        }
     }
 
     public void OnQuestFlagsChanged(QuestId quest, uint newFlags)
@@ -109,11 +156,56 @@ public sealed class SnapshotAggregator
     /// Called when the active quest's work bytes (V0–V5) are observed.
     /// Stores the latest values; ignored when the quest does not match the authored quest
     /// (matches OnQuestSequenceChanged / OnQuestFlagsChanged semantics).
+    /// Also runs kill-correlation for any index where the new value exceeds the previous.
     /// </summary>
     public void OnQuestVariablesUpdated(QuestId quest, IReadOnlyList<byte> variables)
     {
-        if (_activeQuest == quest)
-            _questVariables = variables;
+        if (_activeQuest != quest) return;
+
+        var prev = _prevQuestVariables;
+        _questVariables = variables;
+
+        var now = _clock.UtcNow;
+        EvictStaleKills(now);
+
+        if (_recentKills.Count > 0)
+        {
+            // When no previous baseline exists, treat all indices as starting at zero.
+            var len = variables.Count;
+            for (var i = 0; i < len; i++)
+            {
+                var prevVal = prev != null && i < prev.Count ? prev[i] : (byte)0;
+                if (variables[i] > prevVal)
+                    CorrelateKillsToIndex(i, variables[i], now);
+            }
+        }
+
+        _prevQuestVariables = variables;
+    }
+
+    /// <summary>
+    /// Called when a hostile enemy is detected as killed (tracked-then-gone while in combat).
+    /// Pushes the kill into the recent-kills buffer and evicts entries older than the correlation window.
+    /// </summary>
+    public void OnEnemyKilled(uint dataId)
+    {
+        var now = _clock.UtcNow;
+        _recentKills.Add((dataId, now));
+        EvictStaleKills(now);
+    }
+
+    /// <summary>
+    /// Called when the player's in-combat state changes.
+    /// On a false→true transition, captures the current position and zone as the combat-start location.
+    /// </summary>
+    public void OnInCombatChanged(bool inCombat)
+    {
+        if (inCombat && !_inCombat)
+        {
+            _combatStartPosition = _position;
+            _combatStartZone = (int)_zone.Value;
+        }
+        _inCombat = inCombat;
     }
 
     public void OnInteraction(NpcId npc, WorldPosition npcPosition)
@@ -259,6 +351,8 @@ public sealed class SnapshotAggregator
     /// "before" snapshot starts clean. Call this when capturing the before snapshot
     /// at the start of each Record cycle to prevent stale deltas from bleeding into
     /// subsequent inference windows.
+    /// Also clears the kill-correlation buffer and accumulated correlations, but PRESERVES
+    /// _prevQuestVariables so the next bump's delta is computed against the correct baseline.
     /// </summary>
     public void ResetDeltas()
     {
@@ -271,5 +365,48 @@ public sealed class SnapshotAggregator
         // travel → Lift Attendant: the aethernet step "resurfaces" in the next recording window).
         // Clearing here ensures isAethernet only considers shards targeted within this window.
         _lastAethernetShardInteracted = null;
+        // WHY: clear the per-window kill signals so they do not bleed into the next recording window.
+        // _prevQuestVariables is intentionally preserved — the next bump's delta must be computed
+        // against the last known values, not from zero. (GWT-L6)
+        _recentKills.Clear();
+        _killCorrelatedTargets.Clear();
+    }
+
+    // ── Private kill-correlation helpers ─────────────────────────────────────
+
+    private void EvictStaleKills(DateTimeOffset correlationTime)
+    {
+        var cutoff = correlationTime - CombatCorrelationWindow;
+        _recentKills.RemoveAll(k => k.At < cutoff);
+    }
+
+    private void CorrelateKillsToIndex(int varIndex, int finalValue, DateTimeOffset correlationTime)
+    {
+        var cutoff = correlationTime - CombatCorrelationWindow;
+        if (!_killCorrelatedTargets.TryGetValue(varIndex, out var bucket))
+        {
+            bucket = (new HashSet<uint>(), finalValue);
+            _killCorrelatedTargets[varIndex] = bucket;
+        }
+
+        foreach (var (dataId, at) in _recentKills)
+        {
+            if (at >= cutoff)
+                bucket.DataIds.Add(dataId);
+        }
+
+        _killCorrelatedTargets[varIndex] = (bucket.DataIds, finalValue);
+    }
+
+    private IReadOnlyDictionary<int, KillCorrelation>? BuildKillCorrelatedTargets()
+    {
+        if (_killCorrelatedTargets.Count == 0) return null;
+        var result = new Dictionary<int, KillCorrelation>(_killCorrelatedTargets.Count);
+        foreach (var (idx, (dataIds, finalValue)) in _killCorrelatedTargets)
+        {
+            var sorted = dataIds.OrderBy(id => id).ToList();
+            result[idx] = new KillCorrelation(sorted, finalValue);
+        }
+        return result;
     }
 }

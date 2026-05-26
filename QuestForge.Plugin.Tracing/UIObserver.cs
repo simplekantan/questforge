@@ -382,6 +382,7 @@ public sealed class UIObserver : IDisposable
                 Argument: null,
                 Value:    valueEl,
                 At:       now));
+            _aggregator?.OnInCombatChanged(inCombat);
         }
 
         var currentHostiles = new Dictionary<ulong, uint>();
@@ -400,6 +401,7 @@ public sealed class UIObserver : IDisposable
                 Argument: null,
                 Value:    valueEl,
                 At:       now));
+            _aggregator?.OnEnemyKilled(dataId);
         }
 
         _trackedHostiles.Clear();

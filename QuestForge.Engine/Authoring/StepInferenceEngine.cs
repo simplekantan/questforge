@@ -55,6 +55,49 @@ public sealed class StepInferenceEngine
                 Notes: $"Mandatory sub-quest {foreignQuest.Value} accepted. NPC: {npcId?.Value}");
         }
 
+        // Rule 2.2: Kill-correlated combat. Fires when kills were attributed to a variable bump
+        // or sequence advance within the 500 ms correlation window. Must run BEFORE Rule 3
+        // (sequence advance) so a kill that bumps questSequence is not mis-emitted as a talk step.
+        if (after.KillCorrelatedTargets is { Count: > 0 } targets
+            && targets.Values.Any(t => t.DataIds.Count > 0))
+        {
+            var primary = targets.OrderByDescending(kv => kv.Value.FinalValue).First();
+            var allDataIds = targets.Values.SelectMany(t => t.DataIds).Distinct().OrderBy(x => x).ToArray();
+
+            string expect = primary.Key == SnapshotAggregator.SequenceVariableIndex
+                ? $"questSequence({questIdValue}) >= {after.QuestSequence}"
+                : $"questVariable({questIdValue}, {primary.Key}) >= {primary.Value.FinalValue}";
+
+            var notes = "Spawn defaulted to overworldEnemies; review. Location = player position at combat start.";
+
+            if (targets.Count > 1)
+            {
+                var secondaryParts = targets
+                    .Where(kv => kv.Key != primary.Key)
+                    .OrderBy(kv => kv.Key)
+                    .Select(kv => kv.Key == SnapshotAggregator.SequenceVariableIndex
+                        ? $"questSequence({questIdValue}) >= {after.QuestSequence}"
+                        : $"questVariable({questIdValue}, {kv.Key}) >= {kv.Value.FinalValue}")
+                    .ToArray();
+
+                expect = expect + " and " + string.Join(" and ", secondaryParts);
+
+                var secondaryIndices = targets
+                    .Where(kv => kv.Key != primary.Key)
+                    .Select(kv => kv.Key.ToString())
+                    .ToArray();
+                notes = $"Multiple correlated variable indices: primary index {primary.Key}, secondary index {string.Join(", ", secondaryIndices)}. Consider splitting into separate steps. " + notes;
+            }
+
+            return new InferenceResult(
+                StepType: "combat",
+                SuggestedStepId: $"defeat-{allDataIds[0]}",
+                SuggestedExpect: expect,
+                Confidence: Confidence.Medium,
+                InferredFrom: InferredFrom.Combat,
+                Notes: notes);
+        }
+
         // Rule 2.3: Key item acquired
         if (after.KeyItemsAdded is { Count: > 0 } newItems)
         {

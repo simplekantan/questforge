@@ -72,8 +72,29 @@ public static class StepFactory
         var hasNpcDialogue = (after?.DialogueOptionSelected.HasValue == true || after?.SelectYesnoConfirmed == true)
             && after?.DialogueNpcSource != null;
 
+        // Combat-start position: use CombatStartPosition if captured, else fall back to player position.
+        var combatStartPos = after?.CombatStartPosition is { } csp
+            ? new Position3(csp.X, csp.Y, csp.Z)
+            : playerPos;
+        var combatStartZone = after?.CombatStartZone > 0 ? after.CombatStartZone : zone;
+
         return stepType switch
         {
+            "combat" => new CombatStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                Zone = zoneStr,
+                RequiredZone = zoneStr,
+                KillEnemyDataIds = after?.KillCorrelatedTargets is { } kct
+                    ? kct.Values.SelectMany(t => t.DataIds).Distinct().OrderBy(id => id).ToArray()
+                    : [],
+                Spawn = CombatSpawn.OverworldEnemies,
+                Location = new NpcLocation(
+                    NpcId: 0,
+                    Zone: combatStartZone,
+                    Position: combatStartPos)
+            },
             "travel" when hasNpcDialogue =>
                 BuildNpcDialogueTravelStep(stepId, expectValue, zoneStr, zone, before, after!, dialogueChoices),
             "travel" when hasAethernetDestination =>
