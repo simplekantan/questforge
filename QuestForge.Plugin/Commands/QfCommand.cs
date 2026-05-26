@@ -3,6 +3,7 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using QuestForge.Adapters.Dalamud.Scheduling;
 using QuestForge.Adapters.Types;
+using QuestForge.Engine.Combat;
 using QuestForge.Engine.Scheduling;
 using QuestForge.Plugin.Authoring;
 using QuestForge.Plugin.UI.Authoring;
@@ -31,6 +32,11 @@ internal sealed class QfCommand : IDisposable
     private readonly IDalamudPluginInterface _pi;
     private readonly PluginConfig _config;
     private readonly IObjectTable _objectTable;
+    private readonly IFramework _framework;
+
+    private CombatController? _debugCombatController;
+    private DateTime _debugCombatLastTick = DateTime.MinValue;
+    private bool _debugCombatLoopActive;
 
     public QfCommand(
         EngineHost host,
@@ -49,7 +55,8 @@ internal sealed class QfCommand : IDisposable
         IPluginLog log,
         IDalamudPluginInterface pi,
         PluginConfig config,
-        IObjectTable objectTable)
+        IObjectTable objectTable,
+        IFramework framework)
     {
         _host = host;
         _authoringHost = authoringHost;
@@ -68,6 +75,7 @@ internal sealed class QfCommand : IDisposable
         _pi = pi;
         _config = config;
         _objectTable = objectTable;
+        _framework = framework;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
             HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf config trace on|off"
@@ -668,6 +676,9 @@ internal sealed class QfCommand : IDisposable
             {
                 try
                 {
+                    if (_debugCombatLoopActive)
+                        StopDebugCombatLoop();
+
                     var r = _host.DebugCombat.StartRotation(CancellationToken.None).GetAwaiter().GetResult();
                     if (r is Result<Unit>.Failure f)
                     {
@@ -675,48 +686,13 @@ internal sealed class QfCommand : IDisposable
                         _chat.Print($"[QF] rotation start failed: {f.Reason}");
                         return;
                     }
-                    _log.Info("[debug rotation start] lease acquired, auto-rotation on");
-                    _chat.Print("[QF] rotation started — WrathCombo lease acquired");
 
-                    // Find nearest targetable, living hostile within 30y and set as target
-                    var actorsResult = _host.DebugGameState.GetHostileActors(30f, CancellationToken.None).GetAwaiter().GetResult();
-                    if (actorsResult is Result<System.Collections.Generic.IReadOnlyList<HostileActor>>.Success { Value: var actors })
-                    {
-                        // Use the engine's real selector (empty kill-set + AutoOnEnterArea): it scores
-                        // quest-marker (+100) / aggro / enmity, so a docile quest-marked mob is chosen
-                        // over an un-marked allied NPC. Mirrors the live combat picker. For a specific
-                        // target, hard-target it first — WrathCombo (Manual) attacks your current target.
-                        var target = QuestForge.Engine.Combat.KillPriority.SelectTarget(
-                            actors,
-                            new System.Collections.Generic.HashSet<uint>(),
-                            QuestForge.Schema.CombatSpawn.AutoOnEnterArea);
+                    _debugCombatController = new CombatController(_host.DebugGameState, _host.DebugCombat);
+                    _framework.Update += OnDebugCombatTick;
+                    _debugCombatLoopActive = true;
 
-                        if (target is { } kt)
-                        {
-                            var tr = _host.DebugCombat.SetTarget(kt.Id, CancellationToken.None).GetAwaiter().GetResult();
-                            if (tr is Result<Unit>.Failure tf)
-                            {
-                                _log.Warning($"[debug rotation start] SetTarget failed: {tf.Reason}");
-                                _chat.Print($"[QF] SetTarget failed: {tf.Reason}");
-                            }
-                            else
-                            {
-                                var tline = $"targeted DataId={kt.DataId} (kill-priority pick) — WrathCombo should now attack";
-                                _log.Info($"[debug rotation start] {tline}");
-                                _chat.Print($"[QF] {tline}");
-                            }
-                        }
-                        else
-                        {
-                            _chat.Print("[QF] no eligible target in 30y — rotation active; hard-target a mob and WrathCombo will attack it");
-                        }
-                    }
-                    else
-                    {
-                        _chat.Print("[QF] could not scan hostiles — rotation active but no target set");
-                    }
-
-                    _chat.Print("[QF] run /qf debug rotation stop to release the lease when done");
+                    _log.Info("[debug rotation start] continuous loop started");
+                    _chat.Print("[QF] continuous rotation started — retargets every ~250ms; run /qf debug rotation stop to end.");
                 }
                 catch (Exception ex)
                 {
@@ -727,23 +703,7 @@ internal sealed class QfCommand : IDisposable
             }
             case "stop":
             {
-                try
-                {
-                    var r = _host.DebugCombat.StopRotation(CancellationToken.None).GetAwaiter().GetResult();
-                    if (r is Result<Unit>.Failure f)
-                    {
-                        _log.Warning($"[debug rotation stop] failure: {f.Reason} — {f.Detail}");
-                        _chat.Print($"[QF] rotation stop failed: {f.Reason}");
-                        return;
-                    }
-                    _log.Info("[debug rotation stop] lease released, auto-rotation off");
-                    _chat.Print("[QF] rotation stopped — lease released");
-                }
-                catch (Exception ex)
-                {
-                    _log.Error(ex, "[debug rotation stop] unexpected exception");
-                    _chat.PrintError($"QuestForge: debug rotation stop error — {ex.Message}");
-                }
+                StopDebugCombatLoop();
                 break;
             }
             default:
@@ -752,8 +712,59 @@ internal sealed class QfCommand : IDisposable
         }
     }
 
+    private void OnDebugCombatTick(IFramework framework)
+    {
+        if (!_debugCombatLoopActive || _debugCombatController is null) return;
+        var now = DateTime.UtcNow;
+        if (now - _debugCombatLastTick < TimeSpan.FromMilliseconds(250)) return;
+        _debugCombatLastTick = now;
+        try
+        {
+            var step = new CombatStep
+            {
+                Id = "debug-combat",
+                KillEnemyDataIds = System.Array.Empty<uint>(),
+                Spawn = CombatSpawn.AutoOnEnterArea,
+            };
+            _ = _debugCombatController.Decide(step, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "[debug rotation tick] exception — stopping loop");
+            StopDebugCombatLoop();
+        }
+    }
+
+    private void StopDebugCombatLoop()
+    {
+        _framework.Update -= OnDebugCombatTick;
+        _debugCombatLoopActive = false;
+        _debugCombatController = null;
+
+        try
+        {
+            var r = _host.DebugCombat.StopRotation(CancellationToken.None).GetAwaiter().GetResult();
+            if (r is Result<Unit>.Failure f)
+                _log.Warning($"[debug rotation stop] StopRotation failure: {f.Reason} — {f.Detail}");
+
+            _host.DebugCombat.ClearTarget(CancellationToken.None).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "[debug rotation stop] exception during cleanup");
+        }
+
+        _log.Info("[debug rotation stop] continuous loop stopped — lease released");
+        _chat.Print("[QF] continuous rotation stopped — lease released.");
+    }
+
     private void PrintUsage()
         => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf config trace on|off");
 
-    public void Dispose() => _commands.RemoveHandler(Cmd);
+    public void Dispose()
+    {
+        if (_debugCombatLoopActive)
+            StopDebugCombatLoop();
+        _commands.RemoveHandler(Cmd);
+    }
 }
