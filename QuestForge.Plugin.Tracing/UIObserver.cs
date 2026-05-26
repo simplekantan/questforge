@@ -27,6 +27,7 @@ public sealed class UIObserver : IDisposable
     private readonly IAddonProbe? _addonProbe;
     private readonly IGameProbe? _gameProbe;
     private readonly ITargetProbe? _targetProbe;
+    private readonly ICombatProbe? _combatProbe;
     private readonly IClock _clock;
 
     // ── aggregator (swappable) ───────────────────────────────────────────────
@@ -43,6 +44,10 @@ public sealed class UIObserver : IDisposable
     // ── attunement tracking ───────────────────────────────────────────────
     // Cleared by ResetHeartbeatState so a new authoring session re-emits attunements.
     private readonly HashSet<uint> _attunedAetheryteIds = new();
+
+    // ── combat tracking ───────────────────────────────────────────────────
+    private readonly Dictionary<ulong, uint> _trackedHostiles = new();
+    private bool _lastInCombat;
 
     // ── key-items tracking ─────────────────────────────────────────────────
     private Dictionary<uint, int> _previousKeyItemsMap = new();
@@ -83,7 +88,8 @@ public sealed class UIObserver : IDisposable
         IAddonProbe? addonProbe = null,
         IGameProbe? gameProbe = null,
         IClock? clock = null,
-        ITargetProbe? targetProbe = null)
+        ITargetProbe? targetProbe = null,
+        ICombatProbe? combatProbe = null)
     {
         ArgumentNullException.ThrowIfNull(framework);
         ArgumentNullException.ThrowIfNull(traceSession);
@@ -95,6 +101,7 @@ public sealed class UIObserver : IDisposable
         _addonProbe   = addonProbe;
         _gameProbe    = gameProbe;
         _targetProbe  = targetProbe;
+        _combatProbe  = combatProbe;
         _clock        = clock ?? SystemClock.Instance;
 
         _framework.Subscribe(OnFrameworkUpdate);
@@ -154,6 +161,8 @@ public sealed class UIObserver : IDisposable
         _lastKnownQuestState.Clear();
         _attunedAetheryteIds.Clear();
         _previousKeyItemsMap.Clear();
+        _trackedHostiles.Clear();
+        _lastInCombat = false;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -177,6 +186,7 @@ public sealed class UIObserver : IDisposable
         PollQuestState();
         PollAttunement();
         PollKeyItems();
+        PollCombat();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -351,6 +361,50 @@ public sealed class UIObserver : IDisposable
             Argument: null,
             Value:    valueEl,
             At:       now));
+    }
+
+    private void PollCombat()
+    {
+        if (_combatProbe is null) return;
+
+        var wasInCombat = _lastInCombat;
+        var inCombat    = _combatProbe.IsInCombat();
+        var now         = _clock.UtcNow;
+        var runId       = CurrentRunId;
+
+        if (inCombat != _lastInCombat)
+        {
+            _lastInCombat = inCombat;
+            var valueEl = JsonSerializer.SerializeToElement(new { value = inCombat }, JsonOpts);
+            _traceSession.Write(new ObservationEvent(
+                RunId:    runId,
+                Method:   "InCombat",
+                Argument: null,
+                Value:    valueEl,
+                At:       now));
+        }
+
+        var currentHostiles = new Dictionary<ulong, uint>();
+        foreach (var (objectId, dataId) in _combatProbe.GetVisibleHostiles())
+            currentHostiles[objectId] = dataId;
+
+        foreach (var (objectId, dataId) in _trackedHostiles)
+        {
+            if (currentHostiles.ContainsKey(objectId)) continue;
+            if (!wasInCombat) continue;
+
+            var valueEl = JsonSerializer.SerializeToElement(new { dataId }, JsonOpts);
+            _traceSession.Write(new ObservationEvent(
+                RunId:    runId,
+                Method:   "EnemyKilled",
+                Argument: null,
+                Value:    valueEl,
+                At:       now));
+        }
+
+        _trackedHostiles.Clear();
+        foreach (var (objectId, dataId) in currentHostiles)
+            _trackedHostiles[objectId] = dataId;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
