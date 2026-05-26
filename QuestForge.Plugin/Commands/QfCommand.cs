@@ -687,7 +687,7 @@ internal sealed class QfCommand : IDisposable
                         return;
                     }
 
-                    _debugCombatController = new CombatController(_host.DebugGameState, _host.DebugCombat);
+                    _debugCombatController = new CombatController(_host.DebugGameState, _host.DebugCombat, _host.DebugNavigator);
                     _framework.Update += OnDebugCombatTick;
                     _debugCombatLoopActive = true;
 

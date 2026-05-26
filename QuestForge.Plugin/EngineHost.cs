@@ -110,6 +110,7 @@ public sealed class EngineHost : IDisposable
     // Exposed for /qf debug combat subcommands — raw adapters (not recording-proxy wrappers)
     public IGameStateProvider DebugGameState => _gameStateInner;
     public ICombat            DebugCombat    => _combat;
+    public INavigator         DebugNavigator => _navigator;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.

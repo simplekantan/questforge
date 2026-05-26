@@ -8,11 +8,19 @@ namespace QuestForge.Engine.Combat;
 /// </summary>
 public readonly record struct KillTarget(ActorId Id, uint DataId);
 
+public enum ApproachState { None, Approaching, InRange }
+
 /// <summary>
 /// What the CombatController decided for this tick.
 /// RotationShouldRun mirrors "are we engaged with something".
+/// Approach is None when idle/no target, Approaching while navigating toward target,
+/// and InRange once within attack range.
 /// </summary>
-public sealed record CombatDecision(KillTarget? Target, bool RotationShouldRun, string Reason);
+public sealed record CombatDecision(
+    KillTarget? Target,
+    bool RotationShouldRun,
+    string Reason,
+    ApproachState Approach = ApproachState.None);
 
 /// <summary>
 /// Pure, deterministic kill-priority ranking.
