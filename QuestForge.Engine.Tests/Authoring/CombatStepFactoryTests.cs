@@ -6,27 +6,29 @@ using Xunit;
 namespace QuestForge.Engine.Tests.Authoring;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RED PHASE — Slice 2: StepFactory "combat" case tests (GWT-F1..F2).
+// Slice A (RED): StepFactory "combat" case nibble-level tests (GWT-F1'..F3').
 //
-// These tests WILL FAIL because the following do not exist yet:
-//   1. StepFactory.Build does not handle stepType="combat"
-//   2. KillCorrelation record / GameStateSnapshot.KillCorrelatedTargets
-//   3. GameStateSnapshot.CombatStartPosition / CombatStartZone
-//   4. CombatStep is already in Schema — the factory case just does not exist yet
+// DELETED (byte-level, obsolete):
+//   GWT-F1  — KillCorrelatedTargets keyed by int/varIndex (replaced by NibbleKey)
+//   GWT-F2  — same key change; also the expect string changed from questVariable→nibble
+//   (GWT-F2 kept for fallback position test, renamed F2')
 //
-// Builder: add the "combat" arm to StepFactory.Build. Then F1..F2 go green.
+// NEW:
+//   GWT-F3' — single dominant NibbleKey snapshot → KillEnemyDataIds is that key's DataIds only.
+//
+// These compile-fail on:
+//   NibbleKey, NibbleHalf, IReadOnlyDictionary<NibbleKey, KillCorrelation>
 // ─────────────────────────────────────────────────────────────────────────────
 
 public sealed class CombatStepFactoryTests
 {
     private static readonly QuestId Quest65847 = new(65847);
-
     private static readonly DateTimeOffset T0 = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
     // ─── Snapshot builder ────────────────────────────────────────────────────
 
     private static GameStateSnapshot MakeAfterSnapshot(
-        IReadOnlyDictionary<int, KillCorrelation>? killCorrelatedTargets = null,
+        IReadOnlyDictionary<NibbleKey, KillCorrelation>? killCorrelatedTargets = null,
         int combatStartZone = 0,
         WorldPosition? combatStartPosition = null,
         WorldPosition? position = null) =>
@@ -46,7 +48,6 @@ public sealed class CombatStepFactoryTests
             InventoryHash:      0,
             LastAttuned:        null)
         {
-            // Slice-2 non-positional fields (RED until GameStateSnapshot is extended)
             KillCorrelatedTargets = killCorrelatedTargets,
             CombatStartZone       = combatStartZone,
             CombatStartPosition   = combatStartPosition,
@@ -54,35 +55,33 @@ public sealed class CombatStepFactoryTests
 
     private static string FormatStep(Step step)
         => step is CombatStep cs
-            ? $"CombatStep Id={cs.Id}, DataIds=[{string.Join(",", cs.KillEnemyDataIds)}], Spawn={cs.Spawn}, Zone={cs.Zone}, Loc.Zone={cs.Location?.Zone}, Loc.Pos=({cs.Location?.Position.X},{cs.Location?.Position.Y},{cs.Location?.Position.Z}), Expect={cs.Expect}"
+            ? $"CombatStep Id={cs.Id}, DataIds=[{string.Join(",", cs.KillEnemyDataIds)}], Spawn={cs.Spawn}, " +
+              $"Loc.Zone={cs.Location?.Zone}, Loc.Pos=({cs.Location?.Position.X},{cs.Location?.Position.Y},{cs.Location?.Position.Z}), Expect={cs.Expect}"
             : $"Unexpected step type {step.GetType().Name}";
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-F1 — builds CombatStep with union data-ids + default OverworldEnemies spawn
+    // GWT-F1' — builds CombatStep with nibble expect, OverworldEnemies, combat-start Location.
+    //
+    // Snapshot: [(0,Low)]=([347,348],3), CombatStartZone=148, CombatStartPosition=(10,0,20).
+    // Build("combat","defeat-347","questVariableLow(65847,0) >= 3", after).
+    // Then:
+    //   - result is CombatStep
+    //   - KillEnemyDataIds contains 347 and 348 (sorted/distinct)
+    //   - Spawn == CombatSpawn.OverworldEnemies
+    //   - Location.Zone == 148
+    //   - Location.Position == (10,0,20)
+    //   - Expect is PredicateExpect with Predicate=="questVariableLow(65847,0) >= 3"
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GWT_F1_BuildCombatStep_UnionDataIds_OverworldSpawn_LocationFromCombatStart()
+    public void GwtF1_BuildCombatStep_NibbleExpect_OverworldSpawn_LocationFromCombatStart()
     {
-        /*
-         * RED: StepFactory does not have a "combat" case; KillCorrelation / snapshot fields missing.
-         *
-         * Given snapshot with KillCorrelatedTargets[0]=([347,348],3),
-         *       CombatStartZone=148, CombatStartPosition=(10,0,20).
-         * When Build("combat", "defeat-347", "questVariable(65847,0) >= 3", after).
-         * Then:
-         *   - result is CombatStep (not a fallback TalkStep)
-         *   - KillEnemyDataIds contains 347 and 348 (sorted/distinct)
-         *   - Spawn == CombatSpawn.OverworldEnemies (D5 default)
-         *   - Location.Zone == 148 (CombatStartZone)
-         *   - Location.Position == (10,0,20) (CombatStartPosition)
-         *   - Expect is a PredicateExpect (not null)
-         */
-
         var after = MakeAfterSnapshot(
-            killCorrelatedTargets: new Dictionary<int, KillCorrelation>
+            killCorrelatedTargets: new Dictionary<NibbleKey, KillCorrelation>
             {
-                [0] = new KillCorrelation(DataIds: new uint[] { 347u, 348u }, FinalValue: 3)
+                [new NibbleKey(0, NibbleHalf.Low)] = new KillCorrelation(
+                    DataIds: new uint[] { 347u, 348u },
+                    FinalValue: 3)
             },
             combatStartZone: 148,
             combatStartPosition: new WorldPosition(10, 0, 20));
@@ -90,7 +89,7 @@ public sealed class CombatStepFactoryTests
         var step = StepFactory.Build(
             stepType: "combat",
             stepId:   "defeat-347",
-            expect:   "questVariable(65847,0) >= 3",
+            expect:   "questVariableLow(65847,0) >= 3",
             after:    after);
 
         Assert.IsType<CombatStep>(step);
@@ -108,37 +107,32 @@ public sealed class CombatStepFactoryTests
         Assert.Equal(0f,  cs.Location.Position.Y);
         Assert.Equal(20f, cs.Location.Position.Z);
 
-        Assert.IsType<PredicateExpect>(cs.Expect);
+        var pe = Assert.IsType<PredicateExpect>(cs.Expect);
+        Assert.Equal("questVariableLow(65847,0) >= 3", pe.Predicate);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GWT-F2 — missing CombatStartPosition falls back to player position
+    // GWT-F2' — missing CombatStartPosition falls back to player position.
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GWT_F2_MissingCombatStartPosition_FallsBackToPlayerPosition()
+    public void GwtF2_MissingCombatStartPosition_FallsBackToPlayerPosition()
     {
-        /*
-         * RED: same missing members as GWT-F1.
-         *
-         * Given CombatStartPosition==null, player Position=(5,0,5).
-         * When Build("combat", ...).
-         * Then Location.Position == (5,0,5) (D6 fallback to after.Position).
-         */
-
         var after = MakeAfterSnapshot(
-            killCorrelatedTargets: new Dictionary<int, KillCorrelation>
+            killCorrelatedTargets: new Dictionary<NibbleKey, KillCorrelation>
             {
-                [0] = new KillCorrelation(DataIds: new uint[] { 347u }, FinalValue: 1)
+                [new NibbleKey(0, NibbleHalf.Low)] = new KillCorrelation(
+                    DataIds: new uint[] { 347u },
+                    FinalValue: 1)
             },
             combatStartZone: 100,
-            combatStartPosition: null,    // <-- no combat-start position captured
+            combatStartPosition: null,
             position: new WorldPosition(5, 0, 5));
 
         var step = StepFactory.Build(
             stepType: "combat",
             stepId:   "defeat-347",
-            expect:   "questVariable(65847,0) >= 1",
+            expect:   "questVariableLow(65847,0) >= 1",
             after:    after);
 
         Assert.IsType<CombatStep>(step);
@@ -148,5 +142,42 @@ public sealed class CombatStepFactoryTests
         Assert.Equal(5f, cs.Location!.Position.X);
         Assert.Equal(0f, cs.Location.Position.Y);
         Assert.Equal(5f, cs.Location.Position.Z);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-F3' — single dominant NibbleKey → KillEnemyDataIds is that key's DataIds only.
+    //
+    // The inference/extractor passes a snapshot with ONLY the dominant key (per-record
+    // scoping). The factory's union read over a single-key dict is exact: no residue.
+    //
+    // Snapshot: ONLY [(0,Low)]=([347],3).
+    // Then KillEnemyDataIds == [347] (not any other DataId, not an empty list).
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GwtF3_SingleDominantNibbleKey_KillEnemyDataIds_IsThatKeysDataIdsOnly()
+    {
+        var after = MakeAfterSnapshot(
+            killCorrelatedTargets: new Dictionary<NibbleKey, KillCorrelation>
+            {
+                [new NibbleKey(0, NibbleHalf.Low)] = new KillCorrelation(
+                    DataIds: new uint[] { 347u },
+                    FinalValue: 3)
+            },
+            combatStartZone: 148,
+            combatStartPosition: new WorldPosition(10, 0, 20));
+
+        var step = StepFactory.Build(
+            stepType: "combat",
+            stepId:   "defeat-347",
+            expect:   "questVariableLow(65847,0) >= 3",
+            after:    after);
+
+        Assert.IsType<CombatStep>(step);
+        var cs = (CombatStep)step;
+
+        // Exactly one DataId, exactly 347u — no residue from other keys
+        Assert.Single(cs.KillEnemyDataIds);
+        Assert.Equal(347u, cs.KillEnemyDataIds[0]);
     }
 }

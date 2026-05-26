@@ -79,10 +79,9 @@ public sealed record GameStateSnapshot(
     public bool InCombat { get; init; }
 
     // Non-positional: does not affect existing constructor call sites.
-    // Kill-to-variable correlations accumulated across the current recording window.
-    // Key: variable index (0-5), or SnapshotAggregator.SequenceVariableIndex (-1) for sequence advances.
-    // Null or empty when no correlated kills have been observed.
-    public IReadOnlyDictionary<int, KillCorrelation>? KillCorrelatedTargets { get; init; }
+    // Kill-to-nibble correlations accumulated across the current recording window.
+    // Key: (VarIndex, NibbleHalf). Null or empty when no correlated kills have been observed.
+    public IReadOnlyDictionary<NibbleKey, KillCorrelation>? KillCorrelatedTargets { get; init; }
 
     // Non-positional: does not affect existing constructor call sites.
     // Player position captured when the local player entered combat (false→true transition).
