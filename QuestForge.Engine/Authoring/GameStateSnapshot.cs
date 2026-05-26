@@ -5,6 +5,12 @@ namespace QuestForge.Engine.Authoring;
 /// <summary>Captures the departure and destination shard of a completed aethernet teleport.</summary>
 public sealed record AethernetHop(AetheryteId? From, AethernetId To);
 
+/// <summary>
+/// Associates a set of enemy data-ids with the quest variable (or sequence) value that was
+/// reached after those kills were observed within the correlation window.
+/// </summary>
+public sealed record KillCorrelation(IReadOnlyList<uint> DataIds, int FinalValue);
+
 public sealed record GameStateSnapshot(
     DateTimeOffset CapturedAt,
     ZoneId Zone,
@@ -67,6 +73,25 @@ public sealed record GameStateSnapshot(
     // recording window (e.g. a mandatory sub-quest offered by an NPC mid-sequence).
     // Cleared by ResetDeltas so it is a per-window delta signal.
     public QuestId? ForeignQuestAccepted { get; init; }
+
+    // Non-positional: does not affect existing constructor call sites.
+    // True when the local player is in combat. Set by OnInCombatChanged.
+    public bool InCombat { get; init; }
+
+    // Non-positional: does not affect existing constructor call sites.
+    // Kill-to-variable correlations accumulated across the current recording window.
+    // Key: variable index (0-5), or SnapshotAggregator.SequenceVariableIndex (-1) for sequence advances.
+    // Null or empty when no correlated kills have been observed.
+    public IReadOnlyDictionary<int, KillCorrelation>? KillCorrelatedTargets { get; init; }
+
+    // Non-positional: does not affect existing constructor call sites.
+    // Player position captured when the local player entered combat (false→true transition).
+    // Null if no combat-start transition was observed in the current session.
+    public WorldPosition? CombatStartPosition { get; init; }
+
+    // Non-positional: does not affect existing constructor call sites.
+    // Zone captured when the local player entered combat (false→true transition).
+    public int CombatStartZone { get; init; }
 
     // Non-positional. True when the player confirmed a SelectYesno prompt during this
     // recording window. Distinct from DialogueOptionSelected (SelectIconString list choices)

@@ -12,5 +12,6 @@ public enum InferredFrom
     MovementChange,
     Manual,
     None,
-    InventoryChange
+    InventoryChange,
+    Combat
 }
