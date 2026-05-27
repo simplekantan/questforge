@@ -1,5 +1,6 @@
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Types;
+using QuestForge.Engine.Combat;
 using QuestForge.Predicates;
 using QuestForge.Schema;
 using AdaptersAetheryteId = QuestForge.Adapters.Types.AetheryteId; // disambiguates from Schema.AetheryteId
@@ -115,6 +116,12 @@ public sealed class PredicateEvaluator
                 new AdaptersAetheryteId((uint)(long)args[0]), ct)).ValueOrThrow,
             "playerHasItem" when args.Length == 1 =>
                 (await _gameState.GetItemCount(new ItemId((uint)(long)args[0]), ct)).ValueOrThrow >= 1,
+            // job predicates
+            "playerJobId" => (long)(await _gameState.GetCurrentJob(ct)).ValueOrThrow.Value,
+            "isDiscipleOfWar" => JobRangeTable.Classify((await _gameState.GetCurrentJob(ct)).ValueOrThrow)
+                is CombatRole.Tank or CombatRole.Melee or CombatRole.PhysicalRanged,
+            "isDiscipleOfMagic" => JobRangeTable.Classify((await _gameState.GetCurrentJob(ct)).ValueOrThrow)
+                is CombatRole.Caster or CombatRole.Healer,
             _ => throw new UnknownStateFunctionException(name)
         };
     }
