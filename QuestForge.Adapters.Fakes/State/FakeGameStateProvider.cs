@@ -16,6 +16,7 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     private (string Reason, string? Detail)? _currentJobFailure;
     private (string Reason, string? Detail)? _currentPositionFailure;
     private bool _inCombat;
+    private (string Reason, string? Detail)? _inCombatFailure;
     private MountState _mountState = MountState.Dismounted;
     private bool _dead;
     private bool _diving;
@@ -54,7 +55,9 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     public void ClearCurrentJobFail()                { lock (_lock) _currentJobFailure = null; }
     public void SetPositionFailure(string reason, string? detail = null) { lock (_lock) _currentPositionFailure = (reason, detail); }
     public void ClearPositionFailure()               { lock (_lock) _currentPositionFailure = null; }
-    public void SetInCombat(bool v)                  { lock (_lock) _inCombat = v; }
+    public void SetInCombat(bool v)                  { lock (_lock) { _inCombat = v; _inCombatFailure = null; } }
+    public void SetInCombatFailure(string reason, string? detail = null) { lock (_lock) _inCombatFailure = (reason, detail); }
+    public void ClearInCombatFailure()               { lock (_lock) _inCombatFailure = null; }
     public void SetMountState(MountState v)          { lock (_lock) _mountState = v; }
     public void SetDead(bool v)                      { lock (_lock) _dead = v; }
     public void SetDiving(bool v)                    { lock (_lock) _diving = v; }
@@ -155,7 +158,12 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     {
         ct.ThrowIfCancellationRequested();
         Record(nameof(IsPlayerInCombat));
-        lock (_lock) return Task.FromResult<Result<bool>>(Result.Ok(_inCombat));
+        lock (_lock)
+        {
+            if (_inCombatFailure is { } f)
+                return Task.FromResult<Result<bool>>(Result.Fail<bool>(f.Reason, f.Detail));
+            return Task.FromResult<Result<bool>>(Result.Ok(_inCombat));
+        }
     }
 
     public Task<Result<MountState>> GetMountState(CancellationToken ct)

@@ -186,9 +186,9 @@ public sealed class CombatControllerResetAsyncTests
         // FAILS TO COMPILE until Builder adds ResetAsync.
         await controller.ResetAsync(CancellationToken.None);
 
-        // THEN NO ClearTarget recorded AND NO Stop recorded. No exception.
+        // THEN exactly one ClearTarget recorded (unconditional defensive clear), NO Stop. No exception.
         var clears = combat.RecordedTargets.Snapshot().Where(t => t.IsClear).ToList();
-        Assert.Empty(clears);
+        Assert.Single(clears);
         Assert.Empty(navigator.RecordedStops.Snapshot());
     }
 

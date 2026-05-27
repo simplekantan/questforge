@@ -41,11 +41,14 @@ public sealed class CombatController
     //   combat step regardless of tick count, which also keeps the per-tick trace-replay
     //   fixture surface flat. A transient job-read failure is NOT cached (falls back to
     //   FallbackRange for that tick only), so a later tick recovers the real range.
+    // _mopUpStartedAt: wall-clock instant when mop-up was first entered for the current step.
+    //   Null while no mop-up is active. Cleared by Reset() and ClearMopUpTimer().
     private KillTarget? _currentTarget;
     private KillTarget? _approachTarget;
     private WorldPosition? _approachPosition;
     private bool _wasInCombat;
     private float? _cachedAttackRange;
+    private DateTimeOffset? _mopUpStartedAt;
 
     public CombatController(IGameStateProvider gameState, ICombat combat, INavigator navigator)
     {
@@ -75,11 +78,62 @@ public sealed class CombatController
 
         var actors = actorsResult.ValueOrThrow;
 
-        // D8 step 2: select target
+        // D8 step 2: select target using kill-set priority
         var killIds = new HashSet<uint>(step.KillEnemyDataIds);
         var target = KillPriority.SelectTarget(actors, killIds, step.Spawn);
 
-        // D8 step 3: SetTarget / ClearTarget on identity change
+        return await ApplyDecision(target, actors, ct);
+    }
+
+    /// <summary>
+    /// Mop-up selection: engage ONLY actors attacking the player (IsTargetingPlayer OR
+    /// OnPlayerEnmityList), independent of the step's kill-set. Reuses the same SetTarget /
+    /// approach / re-path / attack-range logic as Decide so a fleeing attacker is still chased
+    /// into attack range. Returns Target=null when no attacker is in scan range.
+    /// </summary>
+    public async Task<CombatDecision> DecideClearAggro(CancellationToken ct)
+    {
+        var actorsResult = await _gameState.GetHostileActors(ScanRadius, ct);
+        if (!actorsResult.IsSuccess)
+        {
+            if (_approachTarget is not null)
+            {
+                await _navigator.Stop(ct);
+                _approachTarget    = null;
+                _approachPosition  = null;
+            }
+            return new CombatDecision(null, RotationShouldRun: false, "hostile query failed", ApproachState.None);
+        }
+
+        var actors = actorsResult.ValueOrThrow;
+        var target = KillPriority.SelectAttacker(actors);
+
+        return await ApplyDecision(target, actors, ct);
+    }
+
+    /// <summary>
+    /// Records the mop-up start instant on first call for this step (idempotent thereafter).
+    /// Returns elapsed since the start instant.
+    /// </summary>
+    public TimeSpan StartOrElapsedMopUp(DateTimeOffset now)
+    {
+        _mopUpStartedAt ??= now;
+        return now - _mopUpStartedAt.Value;
+    }
+
+    /// <summary>Clears the mop-up timer. Called on confirm and on Reset().</summary>
+    public void ClearMopUpTimer() => _mopUpStartedAt = null;
+
+    /// <summary>
+    /// Post-selection tail shared by Decide and DecideClearAggro: issues SetTarget/ClearTarget
+    /// on identity change, resolves attack range, handles approach/re-path/in-range.
+    /// </summary>
+    private async Task<CombatDecision> ApplyDecision(
+        KillTarget? target,
+        IReadOnlyList<HostileActor> actors,
+        CancellationToken ct)
+    {
+        // SetTarget / ClearTarget on identity change
         if (target != _currentTarget)
         {
             if (target is not null)
@@ -94,12 +148,9 @@ public sealed class CombatController
             }
         }
 
-        // D8 step 4: resolve attack range. Cached for the step after the first successful
-        // job read; only re-queries GetCurrentJob while the cache is empty (i.e. until the
-        // first success). A failed read uses FallbackRange for this tick without caching it.
+        // Resolve attack range. Cached for the step after the first successful job read.
         var attackRange = await ResolveAttackRange(ct);
 
-        // D8 step 5: D4 cadence
         var approach = ApproachState.None;
 
         if (target is null)
@@ -183,8 +234,7 @@ public sealed class CombatController
     /// </summary>
     public async Task ResetAsync(CancellationToken ct)
     {
-        if (_currentTarget is not null)
-            await _combat.ClearTarget(ct);
+        await _combat.ClearTarget(ct);
         if (_approachTarget is not null)
             await _navigator.Stop(ct);
         Reset();
@@ -202,6 +252,7 @@ public sealed class CombatController
         _approachPosition  = null;
         _wasInCombat       = false;
         _cachedAttackRange = null;
+        _mopUpStartedAt    = null;
     }
 
     private static HostileActor? FindActor(IReadOnlyList<HostileActor> actors, ActorId id)
