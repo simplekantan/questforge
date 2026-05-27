@@ -84,6 +84,44 @@ public static class KillPriority
     }
 
     /// <summary>
+    /// Selects the highest-priority attacker: eligible iff alive, targetable, AND
+    /// (IsTargetingPlayer OR OnPlayerEnmityList). Kill-set membership is not considered.
+    /// Score: IsTargetingPlayer +10, OnPlayerEnmityList +5 (no +1000/+100 kill-set terms).
+    /// Tie-break: higher score → nearest (DistanceToPlayer asc) → lowest ActorId.Value.
+    /// Returns null when no eligible attacker is present.
+    /// </summary>
+    public static KillTarget? SelectAttacker(IReadOnlyList<HostileActor> actors)
+    {
+        HostileActor? best = null;
+        int bestScore = int.MinValue;
+
+        foreach (var actor in actors)
+        {
+            if (actor.IsDead || !actor.IsTargetable)
+                continue;
+
+            if (!actor.IsTargetingPlayer && !actor.OnPlayerEnmityList)
+                continue;
+
+            var score = 0;
+            if (actor.IsTargetingPlayer)  score += 10;
+            if (actor.OnPlayerEnmityList) score += 5;
+
+            if (best is null
+                || score > bestScore
+                || (score == bestScore && actor.DistanceToPlayer < best.DistanceToPlayer)
+                || (score == bestScore && actor.DistanceToPlayer == best.DistanceToPlayer
+                    && actor.Id.Value < best.Id.Value))
+            {
+                best = actor;
+                bestScore = score;
+            }
+        }
+
+        return best is null ? null : new KillTarget(best.Id, best.DataId);
+    }
+
+    /// <summary>
     /// Computes the priority score for a single actor.
     /// Exposed for unit assertions so tests can pin exact weight ordering.
     /// </summary>

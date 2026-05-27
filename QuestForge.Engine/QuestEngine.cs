@@ -416,13 +416,33 @@ public sealed class QuestEngine
 
             // 2. Expect: if true, confirm and skip. Confirmation persists until BeginRun or
             //    sequence change clears the cursor.
+            //    CombatStep case is split out: completion additionally requires the player to be
+            //    out of combat (D1). The IsPlayerInCombat read happens ONLY here — not in the
+            //    prelude — so non-combat steps and mid-fight combat steps never read it (D6).
             if (step.Expect is not null && await _expectEvaluator.Evaluate(step.Expect, ct))
             {
+                if (step is CombatStep cs)
+                {
+                    // Objective met. Only "done" once aggro is cleared.
+                    var inCombatResult = await _gameState.IsPlayerInCombat(ct);
+                    // Fail-open: a read failure is treated as NOT in combat so a satisfied
+                    // objective is never trapped in a mop-up loop by an adapter error.
+                    var inCombat = inCombatResult is Result<bool>.Success { Value: true };
+
+                    if (!inCombat)
+                    {
+                        _confirmedStepIds.Add(cs.Id);
+                        await _combatController.ResetAsync(ct);
+                        _combatController.ClearMopUpTimer();
+                        continue;
+                    }
+
+                    // Objective met but still in combat → mop up this tick.
+                    return await ResolveMopUp(cs, ct);
+                }
+
+                // Non-combat steps: unchanged.
                 _confirmedStepIds.Add(step.Id);
-                // If the confirmed step was a CombatStep, reset the controller so the next
-                // combat step starts with clean state.
-                if (step is CombatStep)
-                    await _combatController.ResetAsync(ct);
                 continue;
             }
 
@@ -513,6 +533,8 @@ public sealed class QuestEngine
 
     private const float DefaultStopDistance        = 3.0f;
     private const float DefaultAetheryteStopDistance = 7.0f; // crystals are large; need more clearance
+
+    private static readonly TimeSpan MopUpTimeout = TimeSpan.FromSeconds(15);
 
     private EngineAction ResolveActionForStep(Step step, UiState ui, WorldPosition? playerPos) => step switch
     {
@@ -668,4 +690,18 @@ public sealed class QuestEngine
         AbandonRecoverAction => new EngineAction.AwaitUser($"resume abandoned for step '{mainStep.Id}'"),
         _ => new EngineAction.AwaitUser($"resume recovery '{action.GetType().Name}' for step '{mainStep.Id}'")
     };
+
+    private async Task<(EngineAction action, string? stepId)> ResolveMopUp(
+        CombatStep cs, CancellationToken ct)
+    {
+        var elapsed = _combatController.StartOrElapsedMopUp(_clock.GetUtcNow());
+        if (elapsed >= MopUpTimeout)
+        {
+            await _combatController.ResetAsync(ct);
+            return (new EngineAction.AwaitUser("could not leave combat after objective complete"), cs.Id);
+        }
+
+        var decision = await _combatController.DecideClearAggro(ct);
+        return (new EngineAction.Engage(cs, decision.Target), cs.Id);
+    }
 }
