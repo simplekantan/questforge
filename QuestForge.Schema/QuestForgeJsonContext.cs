@@ -30,6 +30,7 @@ namespace QuestForge.Schema;
 [JsonSerializable(typeof(FragmentStep))]
 [JsonSerializable(typeof(AttunementStep))]
 [JsonSerializable(typeof(HandOverItemStep))]
+[JsonSerializable(typeof(WaitStep))]
 // RecoverAction subtypes
 [JsonSerializable(typeof(RetryRecoverAction))]
 [JsonSerializable(typeof(GotoRecoverAction))]

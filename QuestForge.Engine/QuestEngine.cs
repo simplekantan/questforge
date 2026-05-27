@@ -33,6 +33,7 @@ public sealed class QuestEngine
     private readonly ITimingProfile _timing;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
+    private readonly TimeProvider _clock;
     private readonly ExpectEvaluator _expectEvaluator;
 
     /// <summary>Exposed for test inspection (EX-reset-on-advance). Internal to the engine assembly.</summary>
@@ -42,6 +43,8 @@ public sealed class QuestEngine
     private string? _runId;
     private bool _runStartEmitted;
     private readonly HashSet<string> _confirmedStepIds = new();
+    private DateTimeOffset? _waitStepStart;
+    private string? _waitStepStartId;
     private int _lastKnownSequence = -1;
     private IReadOnlyDictionary<string, FragmentDefinition>? _fragments;
     private readonly HashSet<string> _resumePointExecutedIds = new();
@@ -66,9 +69,11 @@ public sealed class QuestEngine
         IDialogueResolver dialogue,
         ITimingProfile timing,
         ITraceWriter trace,
-        ILogger<QuestEngine> logger)
+        ILogger<QuestEngine> logger,
+        TimeProvider? clock = null)
     {
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
+        _clock = clock ?? TimeProvider.System;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
         _navigator = navigator ?? throw new ArgumentNullException(nameof(navigator));
         _teleporter = teleporter ?? throw new ArgumentNullException(nameof(teleporter));
@@ -382,6 +387,8 @@ public sealed class QuestEngine
             _confirmedStepIds.Clear();
             _resumePointExecutedIds.Clear();
             _activeResumeFragment = null;
+            _waitStepStart = null;
+            _waitStepStartId = null;
             await _combatController.ResetAsync(ct);
         }
         _lastKnownSequence = currentSeq;
@@ -475,6 +482,27 @@ public sealed class QuestEngine
                 // No target AND at/within Location (or Location unset): idle — waits for respawns.
                 // Engage(null) is a forward decision, never a stall (D6).
                 return (new EngineAction.Engage(combatStep, null), step.Id);
+            }
+
+            // 6. WaitStep arm — time-based completion, no game-state predicate consulted.
+            if (step is WaitStep waitStep)
+            {
+                if (_waitStepStartId != step.Id)
+                {
+                    _waitStepStart = _clock.GetUtcNow();
+                    _waitStepStartId = step.Id;
+                    return (new EngineAction.Wait($"waiting {waitStep.Seconds}s"), step.Id);
+                }
+
+                if (_clock.GetUtcNow() - _waitStepStart!.Value >= TimeSpan.FromSeconds(waitStep.Seconds))
+                {
+                    _confirmedStepIds.Add(step.Id);
+                    _waitStepStart = null;
+                    _waitStepStartId = null;
+                    continue;
+                }
+
+                return (new EngineAction.Wait($"waiting {waitStep.Seconds}s"), step.Id);
             }
 
             return (ResolveActionForStep(step, ui, playerPos), step.Id);
