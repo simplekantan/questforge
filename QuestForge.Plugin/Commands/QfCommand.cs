@@ -147,6 +147,9 @@ internal sealed class QfCommand : IDisposable
             case "debug" when parts.Length >= 3 && parts[1] == "rotation":
                 HandleDebugRotation(parts[2]);
                 break;
+            case "debug" when parts.Length >= 2 && parts[1] == "ngplus":
+                HandleDebugNgPlus();
+                break;
             case "test" when parts.Length >= 2:
                 HandleTest(parts[1..]);
                 break;
@@ -665,6 +668,32 @@ internal sealed class QfCommand : IDisposable
         {
             _log.Error(ex, "[debug hostiles] unexpected exception");
             _chat.PrintError($"QuestForge: debug hostiles error — {ex.Message}");
+        }
+    }
+
+    private void HandleDebugNgPlus()
+    {
+        try
+        {
+            var result = _host.DebugGameState.GetNewGamePlusState(CancellationToken.None).GetAwaiter().GetResult();
+            if (result is Result<QuestForge.Adapters.State.NewGamePlusState>.Failure f)
+            {
+                _chat.PrintError($"[QF] ngplus: failure — {f.Reason}");
+                return;
+            }
+
+            var s = ((Result<QuestForge.Adapters.State.NewGamePlusState>.Success)result).Value;
+            var chapter = s.CurrentChapter is { } c ? $"{c.ChapterId}:{c.Name}" : "null";
+            var activeQuest = s.ActiveReplayQuestId is { } q ? q.Value.ToString() : "null";
+            var line = $"[QF] NG+ IsActive={s.IsActive} chapter={chapter} suspended={s.IsSuspended} activeReplayQuestId={activeQuest}";
+            _log.Info(line);
+            _chat.Print(line);
+            _chat.Print("[QF] raw reads logged as '[QuestForge NG+ probe]' — see /xllog");
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "[debug ngplus] unexpected exception");
+            _chat.PrintError($"QuestForge: debug ngplus error — {ex.Message}");
         }
     }
 

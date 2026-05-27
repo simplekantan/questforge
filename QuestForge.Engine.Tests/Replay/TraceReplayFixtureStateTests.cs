@@ -275,20 +275,21 @@ public sealed class TraceReplayFixtureStateTests
         // Build enough observations to survive at least one engine tick for quest 66130.
         // The exact set depends on the engine's first-tick read pattern — we supply generous coverage.
         // Observations must be ordered to match the engine's actual read pattern per tick:
-        // GetQuestSequence, IsQuestComplete, GetUiState, GetPlayerPosition, GetPlayerZone
+        // GetQuestSequence, GetNewGamePlusState, IsQuestComplete, GetUiState, GetPlayerPosition, GetPlayerZone
         // (see QuestEngine.ResolveAction). The scanner's scan-forward cursor means an
         // observation placed before a key the engine reads first will be unreachable.
         var obsLines = new[]
         {
-            MakeObsLine("GetQuestSequence",  """{"value":66130}""",  """0"""),
-            MakeObsLine("IsQuestComplete",   """{"value":66130}""",  """false"""),
-            MakeObsLine("GetUiState",        null,                   """{"value":0}"""),
-            MakeObsLine("GetPlayerPosition", null,                   """{"x":44.7,"y":4.0,"z":-148.7}"""),
-            MakeObsLine("GetPlayerZone",     null,                   """{"value":182}"""),
-            MakeObsLine("GetQuestVariables", """{"value":66130}""",  """[0,0,0,0,0,0]"""),
-            MakeObsLine("GetQuestStatus",    """{"value":66130}""",  """0"""),
-            MakeObsLine("IsQuestAvailable",  """{"value":66130}""",  """true"""),
-            MakeObsLine("IsQuestAccepted",   """{"value":66130}""",  """false"""),
+            MakeObsLine("GetQuestSequence",     """{"value":66130}""",  """0"""),
+            MakeObsLine("GetNewGamePlusState",  null,                   """{"isActive":false,"currentChapter":null,"isSuspended":false,"activeReplayQuestId":null}"""),
+            MakeObsLine("IsQuestComplete",      """{"value":66130}""",  """false"""),
+            MakeObsLine("GetUiState",           null,                   """{"value":0}"""),
+            MakeObsLine("GetPlayerPosition",    null,                   """{"x":44.7,"y":4.0,"z":-148.7}"""),
+            MakeObsLine("GetPlayerZone",        null,                   """{"value":182}"""),
+            MakeObsLine("GetQuestVariables",    """{"value":66130}""",  """[0,0,0,0,0,0]"""),
+            MakeObsLine("GetQuestStatus",       """{"value":66130}""",  """0"""),
+            MakeObsLine("IsQuestAvailable",     """{"value":66130}""",  """true"""),
+            MakeObsLine("IsQuestAccepted",      """{"value":66130}""",  """false"""),
         };
 
         var path = WriteTempTrace(obsLines);
@@ -660,19 +661,20 @@ public sealed class TraceReplayFixtureStateTests
         // See QuestEngine.ResolveAction for the actual read order.
         var obsLines = new[]
         {
-            MakeObsLine("GetQuestSequence",  """{"value":66130}""",  """0"""),
-            MakeObsLine("IsQuestComplete",   """{"value":66130}""",  """false"""),
-            MakeObsLine("GetUiState",        null,                   """{"value":0}"""),
-            MakeObsLine("GetPlayerPosition", null,                   """{"x":44.7,"y":4.0,"z":-148.7}"""),
-            MakeObsLine("GetPlayerZone",     null,                   """{"value":182}"""),
-            MakeObsLine("GetQuestVariables", """{"value":66130}""",  """[0,0,0,0,0,0]"""),
-            MakeObsLine("GetQuestStatus",    """{"value":66130}""",  """0"""),
-            MakeObsLine("IsQuestAvailable",  """{"value":66130}""",  """true"""),
-            MakeObsLine("IsQuestAccepted",   """{"value":66130}""",  """false"""),
+            MakeObsLine("GetQuestSequence",     """{"value":66130}""",  """0"""),
+            MakeObsLine("GetNewGamePlusState",  null,                   """{"isActive":false,"currentChapter":null,"isSuspended":false,"activeReplayQuestId":null}"""),
+            MakeObsLine("IsQuestComplete",      """{"value":66130}""",  """false"""),
+            MakeObsLine("GetUiState",           null,                   """{"value":0}"""),
+            MakeObsLine("GetPlayerPosition",    null,                   """{"x":44.7,"y":4.0,"z":-148.7}"""),
+            MakeObsLine("GetPlayerZone",        null,                   """{"value":182}"""),
+            MakeObsLine("GetQuestVariables",    """{"value":66130}""",  """[0,0,0,0,0,0]"""),
+            MakeObsLine("GetQuestStatus",       """{"value":66130}""",  """0"""),
+            MakeObsLine("IsQuestAvailable",     """{"value":66130}""",  """true"""),
+            MakeObsLine("IsQuestAccepted",      """{"value":66130}""",  """false"""),
             // Extra coverage so the engine doesn't starve on follow-up reads
-            MakeObsLine("GetPlayerPosition", null,                   """{"x":44.7,"y":4.0,"z":-148.7}"""),
-            MakeObsLine("GetPlayerZone",     null,                   """{"value":182}"""),
-            MakeObsLine("GetQuestVariables", """{"value":66130}""",  """[0,0,0,0,0,0]"""),
+            MakeObsLine("GetPlayerPosition",    null,                   """{"x":44.7,"y":4.0,"z":-148.7}"""),
+            MakeObsLine("GetPlayerZone",        null,                   """{"value":182}"""),
+            MakeObsLine("GetQuestVariables",    """{"value":66130}""",  """[0,0,0,0,0,0]"""),
         };
 
         var tracePath = WriteTempTrace(obsLines);
