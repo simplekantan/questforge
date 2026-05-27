@@ -9,26 +9,11 @@ namespace QuestForge.Adapters.Tests.Fakes;
 /// Old EngageTarget / RecordedEngagements tests removed — those types are gone.
 /// New tests cover the rotation-module and targeting surfaces.
 /// FK-* tests from the GWT are in CombatFakeContractTests.cs.
+/// Default_IsRotationModuleAvailable and SetRotationModuleAvailable_False tests are
+/// canonical in CombatFakeContractTests (FK_RotationAvailability_*) — not duplicated here.
 /// </summary>
 public class FakeCombatTests
 {
-    [Fact]
-    public async Task Default_IsRotationModuleAvailable_ReturnsTrue()
-    {
-        var combat = new FakeCombat();
-        var result = await combat.IsRotationModuleAvailable(CancellationToken.None);
-        Assert.True(result.ValueOrThrow);
-    }
-
-    [Fact]
-    public async Task SetRotationModuleAvailable_False_IsRotationModuleAvailable_ReturnsFalse()
-    {
-        var combat = new FakeCombat();
-        combat.SetRotationModuleAvailable(false);
-        var result = await combat.IsRotationModuleAvailable(CancellationToken.None);
-        Assert.False(result.ValueOrThrow);
-    }
-
     [Fact]
     public async Task UseAction_ReturnsExecuted()
     {
