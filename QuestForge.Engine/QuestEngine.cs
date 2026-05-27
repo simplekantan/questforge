@@ -365,7 +365,7 @@ public sealed class QuestEngine
             _confirmedStepIds.Clear();
             _resumePointExecutedIds.Clear();
             _activeResumeFragment = null;
-            _combatController.Reset();
+            await _combatController.ResetAsync(ct);
         }
         _lastKnownSequence = currentSeq;
 
@@ -398,7 +398,7 @@ public sealed class QuestEngine
                 // If the confirmed step was a CombatStep, reset the controller so the next
                 // combat step starts with clean state.
                 if (step is CombatStep)
-                    _combatController.Reset();
+                    await _combatController.ResetAsync(ct);
                 continue;
             }
 
@@ -430,23 +430,34 @@ public sealed class QuestEngine
 
             // 5. CombatStep async arm — step-gated so GetHostileActors is NEVER called on the
             //    common per-tick path, preventing fixture-starvation for non-combat steps (D6).
+            //    Option B: controller consulted FIRST every combat tick. The fixed Location is
+            //    only a fall-back when no eligible target is in scan range (D1, D2).
             if (step is CombatStep combatStep)
             {
-                // Navigate-first leg: if Location is set and player is out of range, navigate there.
-                // Controller is NOT consulted this tick (no GetHostileActors read).
-                if (combatStep.Location is not null)
+                // Controller FIRST: scan for targets, select, issue approach navigation if needed.
+                var decision = await _combatController.Decide(combatStep, ct);
+
+                if (decision.Target is not null)
                 {
-                    var navigateAction = ResolveInteractOrNavigate(
-                        step, combatStep.Location.Position, playerPos,
-                        // Stand-in interact — will be replaced if in-range (irrelevant, overridden below):
-                        new EngineAction.Wait("combat-navigate-sentinel"));
-                    if (navigateAction is EngineAction.Navigate nav)
-                        return (nav, step.Id);
+                    // A target is in range — controller already owns approach navigation (it issued
+                    // NavigateTo inside Decide). Do NOT navigate to Location. Engage.
+                    return (new EngineAction.Engage(combatStep, decision.Target), step.Id);
                 }
 
-                // Engage leg: call controller for target selection.
-                var decision = await _combatController.Decide(combatStep, ct);
-                return (new EngineAction.Engage(combatStep, decision.Target), step.Id);
+                // No eligible target in scan range. If the player has drifted beyond StopDistance
+                // of the spawn anchor, navigate back so respawns land in scan range again.
+                if (combatStep.Location is not null)
+                {
+                    var fallback = ResolveInteractOrNavigate(
+                        step, combatStep.Location.Position, playerPos,
+                        new EngineAction.Wait("combat-roam-sentinel"));
+                    if (fallback is EngineAction.Navigate navAction)
+                        return (navAction, step.Id);
+                }
+
+                // No target AND at/within Location (or Location unset): idle — waits for respawns.
+                // Engage(null) is a forward decision, never a stall (D6).
+                return (new EngineAction.Engage(combatStep, null), step.Id);
             }
 
             return (ResolveActionForStep(step, ui, playerPos), step.Id);

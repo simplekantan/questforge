@@ -7,13 +7,13 @@ public enum CombatRole { Melee, PhysicalRanged, Caster, Healer, Tank, Unknown }
 /// <summary>
 /// Pure classifier: FFXIV ClassJob row id → combat role → attack range.
 /// Keyed on JobId.Value (the ClassJob sheet row id).
-/// All returned ranges are strictly less than the combat scan radius (30 m).
+/// All returned ranges are strictly less than the combat scan radius (50 m).
 /// </summary>
 public static class JobRangeTable
 {
-    public const float MeleeRange    = 3.0f;
+    public const float MeleeRange    = 1.0f;
     public const float RangedRange   = 20.0f;
-    public const float FallbackRange = 3.0f;
+    public const float FallbackRange = 1.0f;
 
     public static CombatRole Classify(JobId job) => job.Value switch
     {
