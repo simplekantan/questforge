@@ -148,7 +148,7 @@ public sealed class EngineHost : IDisposable
         var zone = _gameStateInner.GetPlayerZone(ct).GetAwaiter().GetResult().ValueOrDefault;
         var pos = _gameStateInner.GetPlayerPosition(ct).GetAwaiter().GetResult().ValueOrDefault;
         var job = _gameStateInner.GetCurrentJob(ct).GetAwaiter().GetResult().ValueOrDefault;
-        var level = _gameStateInner.GetJobLevel(default, ct).GetAwaiter().GetResult().ValueOrDefault;
+        var level = _gameStateInner.GetJobLevel(job, ct).GetAwaiter().GetResult().ValueOrDefault;
         var combat = _gameStateInner.IsPlayerInCombat(ct).GetAwaiter().GetResult().ValueOrDefault;
         var kind = _gameStateInner.GetCurrentInstanceKind(ct).GetAwaiter().GetResult().ValueOrDefault;
         return $"zone={zone.Value} pos=({pos.X:F1},{pos.Y:F1},{pos.Z:F1}) " +

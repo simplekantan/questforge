@@ -102,7 +102,7 @@ public sealed class Plugin : IDalamudPlugin
         _windowSystem.AddWindow(recordModal);
         _windowSystem.AddWindow(editModal);
         _windowSystem.AddWindow(exportDialog);
-        _playerStatePanel = new PlayerStatePanel(_authoringHost);
+        _playerStatePanel = new PlayerStatePanel(_authoringHost, _host.DebugGameState, dataManager, objectTable);
         _questStatePanel  = new QuestStatePanel(_authoringHost);
         _windowSystem.AddWindow(_playerStatePanel);
         _windowSystem.AddWindow(_questStatePanel);
