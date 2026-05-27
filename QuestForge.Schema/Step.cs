@@ -31,6 +31,7 @@ namespace QuestForge.Schema;
 [JsonDerivedType(typeof(FragmentStep),          "fragment")]
 [JsonDerivedType(typeof(AttunementStep),        "attune")]
 [JsonDerivedType(typeof(HandOverItemStep),      "hand-over-item")]
+[JsonDerivedType(typeof(WaitStep),              "wait")]
 public class Step
 {
     public string Id { get; init; } = default!;
@@ -219,4 +220,9 @@ public class HandOverItemStep : Step
 {
     public NpcLocation Target { get; init; } = default!;
     public uint[] Items { get; init; } = [];
+}
+
+public class WaitStep : Step
+{
+    public double Seconds { get; init; }
 }
