@@ -844,4 +844,124 @@ public class RoundTripTests
         Assert.Equal(7.5f, result.StopDistance);
     }
 
+    // =========================================================================
+    // Group E — PurchaseItemStep schema round-trip tests (RED PHASE)
+    // All tests in this group will fail to compile until Builder implements
+    // PurchaseItemStep + PurchaseCurrency in QuestForge.Schema (Step.cs +
+    // QuestForgeJsonContext.cs). That compile failure IS the correct RED.
+    // =========================================================================
+
+    // Test constants: vendor NpcId 1001234, Zone 128, Position (10.5, 0, -20.0), ItemId 1601.
+
+    /// <summary>E1 — PurchaseItemStep round-trips with the "purchase-item" discriminator.</summary>
+    [Fact]
+    public void PurchaseItemStep_RoundTrips_WithDiscriminator()
+    {
+        // CONTRACT: Given PurchaseItemStep with all fields set, serialized as Step,
+        //           Then JSON contains "type":"purchase-item"; deserialized runtime type is
+        //           PurchaseItemStep; ItemId, Quantity, and Target.NpcId are preserved.
+        // RED: Fails to compile — PurchaseItemStep does not exist yet.
+
+        var step = new PurchaseItemStep   // RED: type does not exist yet
+        {
+            Id       = "buy-thing",
+            Target   = new NpcLocation(NpcId: 1001234, Zone: 128, Position: new Position3(10.5f, 0f, -20.0f)),
+            ItemId   = 1601,
+            Quantity = 2,
+            Currency = PurchaseCurrency.Gil   // RED: enum does not exist yet
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"type\":\"purchase-item\"", compactJson, StringComparison.Ordinal);
+
+        var result = RoundTrip(step);   // RED: RoundTrip<PurchaseItemStep> won't resolve yet
+
+        Assert.Equal(1601u, result.ItemId);
+        Assert.Equal(2, result.Quantity);
+        Assert.Equal(1001234u, result.Target.NpcId);
+    }
+
+    /// <summary>E2 — Currency serializes camelCase and round-trips both members.</summary>
+    [Theory]
+    [InlineData(PurchaseCurrency.GcSeals, "gcSeals")]   // RED: enum does not exist yet
+    [InlineData(PurchaseCurrency.Gil,     "gil")]        // RED: enum does not exist yet
+    public void PurchaseItemStep_Currency_SerializesCamelCase(PurchaseCurrency currency, string expectedToken)
+    {
+        // CONTRACT: Given PurchaseItemStep with the given Currency value,
+        //           When serialized, Then JSON contains "currency":"<expectedToken>";
+        //           deserialization yields the same PurchaseCurrency member.
+        // RED: Fails to compile — PurchaseCurrency does not exist yet.
+
+        var step = new PurchaseItemStep   // RED: type does not exist yet
+        {
+            Id       = "buy-thing",
+            Target   = new NpcLocation(NpcId: 1001234, Zone: 128, Position: new Position3(10.5f, 0f, -20.0f)),
+            ItemId   = 1601,
+            Currency = currency
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains($"\"currency\":\"{expectedToken}\"", compactJson, StringComparison.Ordinal);
+
+        var deserialized = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+        var purchase = Assert.IsType<PurchaseItemStep>(deserialized);   // RED: type does not exist yet
+        Assert.Equal(currency, purchase.Currency);
+    }
+
+    /// <summary>E3 — Quantity defaults to 1 when omitted from JSON.</summary>
+    [Fact]
+    public void PurchaseItemStep_MissingQuantityField_DefaultsToOne()
+    {
+        // CONTRACT: Given JSON with type "purchase-item" and no "quantity" field,
+        //           When deserialized, Then Quantity == 1 (no exception).
+        // RED: Fails to compile — PurchaseItemStep does not exist yet.
+
+        var json = """
+            {
+              "type": "purchase-item",
+              "id": "buy-thing-no-qty",
+              "target": {
+                "npcId": 1001234,
+                "zone": 128,
+                "position": { "x": 10.5, "y": 0, "z": -20.0 }
+              },
+              "itemId": 1601
+            }
+            """;
+
+        var step = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+
+        var purchase = Assert.IsType<PurchaseItemStep>(step);   // RED: type does not exist yet
+        Assert.Equal(1, purchase.Quantity);
+    }
+
+    /// <summary>E3b — Currency defaults to Gil when omitted from JSON.</summary>
+    [Fact]
+    public void PurchaseItemStep_MissingCurrencyField_DefaultsToGil()
+    {
+        // CONTRACT: Given JSON with type "purchase-item" and no "currency" field,
+        //           When deserialized, Then Currency == PurchaseCurrency.Gil (no exception).
+        // RED: Fails to compile — PurchaseItemStep / PurchaseCurrency do not exist yet.
+
+        var json = """
+            {
+              "type": "purchase-item",
+              "id": "buy-thing-no-currency",
+              "target": {
+                "npcId": 1001234,
+                "zone": 128,
+                "position": { "x": 10.5, "y": 0, "z": -20.0 }
+              },
+              "itemId": 1601
+            }
+            """;
+
+        var step = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+
+        var purchase = Assert.IsType<PurchaseItemStep>(step);   // RED: type does not exist yet
+        Assert.Equal(PurchaseCurrency.Gil, purchase.Currency);  // RED: enum does not exist yet
+    }
+
 }
