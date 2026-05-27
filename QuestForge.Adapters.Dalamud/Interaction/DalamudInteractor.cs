@@ -64,24 +64,6 @@ public sealed class DalamudInteractor : IInteractor
 
     public Task<Result<DialogueOutcome>> AdvanceDialogue(CancellationToken ct)
     {
-        // SelectYesno: auto-confirm Yes — quest progression never requires No
-        var yesnoPtr = _svc.GameGui.GetAddonByName("SelectYesno");
-        if (!yesnoPtr.IsNull && yesnoPtr.IsReady)
-        {
-            if (DateTimeOffset.UtcNow - _lastAdvanceAt >= AdvanceThrottle)
-            {
-                _lastAdvanceAt = DateTimeOffset.UtcNow;
-                unsafe
-                {
-                    var addon = (AtkUnitBase*)yesnoPtr.Address;
-                    var values = stackalloc AtkValue[1];
-                    values[0] = new AtkValue { Type = AtkValueType.Int, Int = 0 }; // 0 = Yes
-                    addon->FireCallback(1, values);
-                }
-            }
-            return Task.FromResult<Result<DialogueOutcome>>(Result.Ok(DialogueOutcome.Advanced));
-        }
-
         var addonPtr = _svc.GameGui.GetAddonByName("Talk");
         // IsReady is the preferred check (per AtkUnitBase docs); IsVisible can be false
         // even when the addon is rendering and accepting events.

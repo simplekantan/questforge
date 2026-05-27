@@ -150,6 +150,12 @@ internal sealed class QfCommand : IDisposable
             case "debug" when parts.Length >= 2 && parts[1] == "ngplus":
                 HandleDebugNgPlus();
                 break;
+            case "debug" when parts.Length >= 2 && parts[1] == "yesno":
+                // Diagnostic: fire our exact SelectYesno callback on demand (mirrors
+                // DalamudInteractor.ConfirmYesNoPrompt). Lets us test whether FireCallback
+                // takes effect during a non-skippable cutscene. /qf debug yesno [yes|no]
+                HandleDebugYesno(parts.Length >= 3 && parts[2] == "no");
+                break;
             case "test" when parts.Length >= 2:
                 HandleTest(parts[1..]);
                 break;
@@ -213,6 +219,22 @@ internal sealed class QfCommand : IDisposable
         var runId = _host.ActiveRunId;
         _host.StopRun();
         _chat.Print($"QuestForge: run {runId} stopped");
+    }
+
+    private unsafe void HandleDebugYesno(bool no)
+    {
+        var ptr = _gameGui.GetAddonByName("SelectYesno");
+        if (ptr.IsNull) { _chat.Print("[QF] SelectYesno not open"); return; }
+        var addon = (FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase*)ptr.Address;
+        var ready = addon->IsReady;
+        var values = stackalloc FFXIVClientStructs.FFXIV.Component.GUI.AtkValue[1];
+        values[0] = new FFXIVClientStructs.FFXIV.Component.GUI.AtkValue
+        {
+            Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int,
+            Int  = no ? 1 : 0
+        };
+        addon->FireCallback(1, values);
+        _chat.Print($"[QF] fired SelectYesno {(no ? "No(1)" : "Yes(0)")} (IsReady={ready}) — did it close?");
     }
 
     private unsafe void HandleDebugAddon(string addonName)

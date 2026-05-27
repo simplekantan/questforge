@@ -14,6 +14,7 @@ using QuestForge.Adapters.Timing;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Combat;
+using QuestForge.Engine.Dialogue;
 using QuestForge.Engine.Predicates;
 using QuestForge.Schema;
 
@@ -49,6 +50,7 @@ public sealed class QuestEngine
     private IReadOnlyDictionary<string, FragmentDefinition>? _fragments;
     private readonly HashSet<string> _resumePointExecutedIds = new();
     private ActiveResumeFragment? _activeResumeFragment;
+    private Step? _lastResolvedStep;
 
     private sealed record ActiveResumeFragment(
         string ForStepId,
@@ -235,6 +237,24 @@ public sealed class QuestEngine
     }
 
     public string? CurrentRunId => _runId;
+
+    public YesNoAnswer? CurrentYesNoAnswer => ExtractYesNo(_lastResolvedStep);
+
+    private static YesNoAnswer? ExtractYesNo(Step? step)
+    {
+        DialogueChoice[] choices = step switch
+        {
+            TalkStep t    => t.DialogueChoices,
+            TurnInStep ti => ti.DialogueChoices,
+            TravelStep tr => tr.RouteHint?.NpcDialogue?.DialogueChoices ?? [],
+            _             => []
+        };
+        foreach (var c in choices)
+            if (string.Equals(c.Type, "yesno", StringComparison.OrdinalIgnoreCase))
+                return string.Equals(c.Answer, "no", StringComparison.OrdinalIgnoreCase)
+                    ? YesNoAnswer.No : YesNoAnswer.Yes;
+        return null;
+    }
 
     public void BeginRun(string runId)
     {
@@ -466,6 +486,7 @@ public sealed class QuestEngine
                 {
                     _resumePointExecutedIds.Add(step.Id);
                     _activeResumeFragment = null;
+                    _lastResolvedStep = step;
                     return (ResolveActionForStep(step, ui, playerPos), step.Id);
                 }
                 _activeResumeFragment = armed;
@@ -525,6 +546,7 @@ public sealed class QuestEngine
                 return (new EngineAction.Wait($"waiting {waitStep.Seconds}s"), step.Id);
             }
 
+            _lastResolvedStep = step;
             return (ResolveActionForStep(step, ui, playerPos), step.Id);
         }
 

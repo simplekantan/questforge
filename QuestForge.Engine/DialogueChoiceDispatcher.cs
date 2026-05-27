@@ -12,8 +12,7 @@ public static class DialogueChoiceDispatcher
         bool selectStringOpen,
         ref int progress,
         IInteractor interactor,
-        CancellationToken ct,
-        bool selectYesnoOpen = false)
+        CancellationToken ct)
     {
         DialogueChoice[] choices = currentStep switch
         {
@@ -24,15 +23,6 @@ public static class DialogueChoiceDispatcher
         if (choices.Length == 0 || progress >= choices.Length) return false;
 
         var choice = choices[progress];
-
-        if (choice.Type == "yesno")
-        {
-            if (!selectYesnoOpen) return false;
-            var yes = string.Equals(choice.Answer, "yes", StringComparison.OrdinalIgnoreCase);
-            interactor.ConfirmYesNoPrompt(yes, ct).GetAwaiter().GetResult();
-            progress++;
-            return true;
-        }
 
         if (choice.Type == "list")
         {
