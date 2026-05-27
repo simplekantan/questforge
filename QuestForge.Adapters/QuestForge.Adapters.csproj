@@ -6,4 +6,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>QuestForge.Adapters</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\QuestForge.Schema\QuestForge.Schema.csproj" />
+  </ItemGroup>
 </Project>

@@ -34,6 +34,9 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     private int _freeInventorySlots;
     private readonly Dictionary<ItemId, int> _itemCounts = new();
     private long _gil;
+    private (string Reason, string? Detail)? _gilFailure;
+    private int _gcSeals;
+    private (string Reason, string? Detail)? _gcSealsFailure;
     private readonly Dictionary<ZoneId, TravelCapability> _travelCapabilities = new();
 
     // ---- observable recording ----
@@ -69,7 +72,12 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     public void SetUiState(UiState v)                { lock (_lock) _uiState = v; }
     public void SetFreeInventorySlots(int v)         { lock (_lock) _freeInventorySlots = v; }
     public void SetItemCount(ItemId item, int count) { lock (_lock) _itemCounts[item] = count; }
-    public void SetGil(long v)                       { lock (_lock) _gil = v; }
+    public void SetGil(long v)                       { lock (_lock) { _gil = v; _gilFailure = null; } }
+    public void SetGilFailure(string reason, string? detail = null) { lock (_lock) _gilFailure = (reason, detail); }
+    public void ClearGilFailure()                    { lock (_lock) _gilFailure = null; }
+    public void SetGrandCompanySeals(int v)          { lock (_lock) { _gcSeals = v; _gcSealsFailure = null; } }
+    public void SetGrandCompanySealsFailure(string reason, string? detail = null) { lock (_lock) _gcSealsFailure = (reason, detail); }
+    public void ClearGrandCompanySealsFailure()      { lock (_lock) _gcSealsFailure = null; }
 
     public void SetTravelCapability(ZoneId zone, TravelCapability cap)
         { lock (_lock) _travelCapabilities[zone] = cap; }
@@ -363,7 +371,24 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     {
         ct.ThrowIfCancellationRequested();
         Record(nameof(GetGil));
-        lock (_lock) return Task.FromResult<Result<long>>(Result.Ok(_gil));
+        lock (_lock)
+        {
+            if (_gilFailure is { } f)
+                return Task.FromResult<Result<long>>(Result.Fail<long>(f.Reason, f.Detail));
+            return Task.FromResult<Result<long>>(Result.Ok(_gil));
+        }
+    }
+
+    public Task<Result<int>> GetGrandCompanySeals(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        Record(nameof(GetGrandCompanySeals));
+        lock (_lock)
+        {
+            if (_gcSealsFailure is { } f)
+                return Task.FromResult<Result<int>>(Result.Fail<int>(f.Reason, f.Detail));
+            return Task.FromResult<Result<int>>(Result.Ok(_gcSeals));
+        }
     }
 
     public Task<Result<TravelCapability>> GetTravelCapability(ZoneId destination, CancellationToken ct)

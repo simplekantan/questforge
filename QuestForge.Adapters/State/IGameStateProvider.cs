@@ -40,6 +40,7 @@ public interface IGameStateProvider
     Task<Result<int>> GetFreeInventorySlots(CancellationToken ct);
     Task<Result<int>> GetItemCount(ItemId item, CancellationToken ct);
     Task<Result<long>> GetGil(CancellationToken ct);
+    Task<Result<int>> GetGrandCompanySeals(CancellationToken ct);
 
     // Composite/derived
     Task<Result<TravelCapability>> GetTravelCapability(ZoneId destination, CancellationToken ct);

@@ -148,7 +148,10 @@
         }
       },
       "questforge.adapters": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "QuestForge.Schema": "[0.1.0, )"
+        }
       },
       "questforge.adapters.fakes": {
         "type": "Project",

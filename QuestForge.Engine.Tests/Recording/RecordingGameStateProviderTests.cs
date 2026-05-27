@@ -471,6 +471,9 @@ file sealed class FailureGameStateProvider : IGameStateProvider
 
     public Task<Result<IReadOnlyList<HostileActor>>> GetHostileActors(float radius, CancellationToken ct) =>
         Task.FromResult<Result<IReadOnlyList<HostileActor>>>(Result.Fail<IReadOnlyList<HostileActor>>(_reason));
+
+    public Task<Result<int>> GetGrandCompanySeals(CancellationToken ct) =>
+        Task.FromResult<Result<int>>(Result.Fail<int>(_reason));
 }
 
 /// <summary>

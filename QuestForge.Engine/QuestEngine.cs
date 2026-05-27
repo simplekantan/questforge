@@ -32,6 +32,7 @@ public sealed class QuestEngine
     private readonly IMinigameSkipper _minigames;
     private readonly IDialogueResolver _dialogue;
     private readonly ITimingProfile _timing;
+    private readonly IVendor? _vendor;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly TimeProvider _clock;
@@ -72,8 +73,10 @@ public sealed class QuestEngine
         ITimingProfile timing,
         ITraceWriter trace,
         ILogger<QuestEngine> logger,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        IVendor? vendor = null)
     {
+        _vendor = vendor;
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
         _clock = clock ?? TimeProvider.System;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
@@ -129,7 +132,7 @@ public sealed class QuestEngine
         {
             if (step is not FragmentStep fragmentStep)
             {
-                yield return step;
+                yield return SynthesizePurchaseExpect(step);
                 continue;
             }
 
@@ -175,9 +178,23 @@ public sealed class QuestEngine
             {
                 var scopedId   = $"{scopePrefix}{innerStep.Id}";
                 var substituted = SubstituteExpect(innerStep.Expect, fragmentStep.Params);
-                yield return CloneStepWith(innerStep, scopedId, substituted);
+                yield return SynthesizePurchaseExpect(CloneStepWith(innerStep, scopedId, substituted));
             }
         }
+    }
+
+    /// <summary>
+    /// When <paramref name="step"/> is a <see cref="PurchaseItemStep"/> with no authored <c>Expect</c>,
+    /// synthesises a default <c>playerHasItem(ItemId,Quantity)</c> expect so the Expect-first loop
+    /// in <see cref="ResolveAction"/> confirms and skips the step when the item is already owned.
+    /// Authored <c>Expect</c> values are left untouched.
+    /// </summary>
+    private static Step SynthesizePurchaseExpect(Step step)
+    {
+        if (step is not PurchaseItemStep ps || ps.Expect is not null)
+            return step;
+        var synthesized = new PredicateExpect { Predicate = $"playerHasItem({ps.ItemId},{ps.Quantity})" };
+        return CloneStepWith(ps, ps.Id, synthesized);
     }
 
     /// <summary>
@@ -525,7 +542,15 @@ public sealed class QuestEngine
                 return (new EngineAction.Engage(combatStep, null), step.Id);
             }
 
-            // 6. WaitStep arm — time-based completion, no game-state predicate consulted.
+            // 6. PurchaseItemStep async arm — step-gated so GetGil/GetGrandCompanySeals are NEVER
+            //    called on the common per-tick path, preventing fixture starvation for non-purchase steps.
+            if (step is PurchaseItemStep purchaseStep)
+            {
+                var purchaseAction = await ResolvePurchaseAction(purchaseStep, playerPos, ct);
+                return (purchaseAction, step.Id);
+            }
+
+            // 7. WaitStep arm — time-based completion, no game-state predicate consulted.
             if (step is WaitStep waitStep)
             {
                 if (_waitStepStartId != step.Id)
@@ -712,6 +737,50 @@ public sealed class QuestEngine
         AbandonRecoverAction => new EngineAction.AwaitUser($"resume abandoned for step '{mainStep.Id}'"),
         _ => new EngineAction.AwaitUser($"resume recovery '{action.GetType().Name}' for step '{mainStep.Id}'")
     };
+
+    private async Task<EngineAction> ResolvePurchaseAction(
+        PurchaseItemStep step, WorldPosition? playerPos, CancellationToken ct)
+    {
+        var purchaseAction = new EngineAction.Purchase(
+            new NpcId(step.Target.NpcId),
+            new ItemId(step.ItemId),
+            step.Quantity,
+            step.Currency,
+            Origin: step);
+
+        // Implied navigation: if player is out of range, navigate first.
+        var navOrPurchase = ResolveInteractOrNavigate(
+            step, step.Target.Position, playerPos, purchaseAction);
+
+        if (navOrPurchase is EngineAction.Navigate)
+            return navOrPurchase;
+
+        // Affordability pre-check (coarse gate — adapter is the real backstop).
+        long balance;
+        if (step.Currency == PurchaseCurrency.GcSeals)
+        {
+            var sealsResult = await _gameState.GetGrandCompanySeals(ct);
+            if (sealsResult is not Result<int>.Success { Value: var sealsVal })
+                return purchaseAction; // fail-open: read failed
+            balance = sealsVal;
+        }
+        else
+        {
+            var gilResult = await _gameState.GetGil(ct);
+            if (gilResult is not Result<long>.Success { Value: var gilVal })
+                return purchaseAction; // fail-open: read failed
+            balance = gilVal;
+        }
+
+        if (balance <= 0)
+        {
+            var currencyName = step.Currency == PurchaseCurrency.GcSeals ? "GcSeals" : "Gil";
+            return new EngineAction.AwaitUser(
+                $"cannot afford item {step.ItemId}: 0 {currencyName}");
+        }
+
+        return purchaseAction;
+    }
 
     private async Task<(EngineAction action, string? stepId)> ResolveMopUp(
         CombatStep cs, CancellationToken ct)

@@ -6,6 +6,7 @@ using QuestForge.Adapters.Fakes.Combat;
 using QuestForge.Adapters.Fakes.Gear;
 using QuestForge.Adapters.Fakes.Interaction;
 using QuestForge.Adapters.Fakes.Minigames;
+using QuestForge.Adapters.Interaction;
 using QuestForge.Adapters.Fakes.Movement;
 using QuestForge.Adapters.Recording;
 using QuestForge.Adapters.Fakes.State;
@@ -38,6 +39,7 @@ public sealed class EngineTestHarness
     public FakeMinigameSkipper MinigameSkipper { get; } = new FakeMinigameSkipper();
     public FakeDialogueResolver DialogueResolver { get; }
     public FakeTimingProfile TimingProfile { get; } = new FakeTimingProfile();
+    public FakeVendor Vendor { get; }
 
     /// <summary>
     /// The FakeTraceWriter used for assertions in tests. In the default constructor,
@@ -78,6 +80,7 @@ public sealed class EngineTestHarness
         Teleporter = new FakeTeleporter(GameState);
         Interactor = new FakeInteractor(GameState, QuestState);
         DialogueResolver = new FakeDialogueResolver();
+        Vendor = new FakeVendor(GameState);
 
         // Wrap GameState and QuestState with recording proxies.
         // The proxy reads runId lazily from the engine via the accessor.
@@ -100,7 +103,8 @@ public sealed class EngineTestHarness
             DialogueResolver,
             TimingProfile,
             _effectiveTrace,
-            NullLogger<QuestEngine>.Instance);
+            NullLogger<QuestEngine>.Instance,
+            vendor: Vendor);
     }
 
     /// <summary>
@@ -153,6 +157,13 @@ public sealed class EngineTestHarness
                     EmitActionSubmitted("HandOver", JsonSerializer.SerializeToElement(handOver.Target, _jsonOpts));
                     var handOverResult = await Interactor.HandOverItem(handOver.Items, handOver.Target, ct);
                     EmitActionCompleted("HandOver", handOverResult.IsSuccess ? handOverResult.ValueOrThrow.ToString() : "Failed");
+                    break;
+
+                case EngineAction.Purchase purchase:
+                    actions.Add(action);
+                    EmitActionSubmitted("Purchase", JsonSerializer.SerializeToElement(purchase.Vendor, _jsonOpts));
+                    var purchaseResult = await Vendor.Purchase(purchase.Vendor, purchase.Item, purchase.Quantity, purchase.Currency, ct);
+                    EmitActionCompleted("Purchase", purchaseResult.IsSuccess ? purchaseResult.ValueOrThrow.ToString() : "Failed");
                     break;
 
                 case EngineAction.Wait:
