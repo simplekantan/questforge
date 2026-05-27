@@ -126,10 +126,13 @@ public sealed class CombatEngineTests
         Assert.Equal(100f, nav.Destination.X, precision: 0);
         Assert.Equal(100f, nav.Destination.Z, precision: 0);
 
-        // Assert: no GetHostileActors read this tick (step-gating)
-        var reads = harness.GameState.RecordedReads.Snapshot();
-        Assert.False(reads.Any(r => r.Method == nameof(QuestForge.Adapters.State.IGameStateProvider.GetHostileActors)),
-            $"GetHostileActors must not be called on a navigate-first tick. Reads: {FormatReads(harness.GameState)}");
+        // NOTE (EH-1 retirement of old no-read assertion): under option B (Decide-first),
+        // GetHostileActors IS called every combat tick because Decide runs before the Location
+        // fall-back. The "no read on navigate-first tick" contract no longer holds. The Navigate
+        // behaviour is preserved (still navigates to Location when no mob in range), but the
+        // old assertion that GetHostileActors must NOT be read is deliberately DROPPED here.
+        // The correct replacement guard is EH-1 in CombatApproachHandoffTests.cs, which asserts
+        // the Navigate action is returned AND that GetHostileActors IS called (Decide ran first).
     }
 
     // =========================================================================
@@ -455,9 +458,12 @@ public sealed class CombatEngineTests
         var tick3 = await harness.Engine.Tick(CancellationToken.None);
         Assert.IsType<EngineAction.Engage>(tick3);
 
-        // After tick 3, RecordedTargets should have 2 entries (one from tick 1, one from tick 3)
-        // because Reset() cleared the "current target" state
-        Assert.Equal(2, harness.Combat.RecordedTargets.Count);
+        // After tick 3, there should be 2 non-clear SetTarget entries (one from tick 1, one from
+        // tick 3) because ResetAsync cleared the "current target" state.
+        // NOTE (EH-7): ResetAsync now also inserts a ClearTarget between the two SetTargets, so
+        // the total RecordedTargets.Count may be 3. We filter to non-clear entries only.
+        var setTargets = harness.Combat.RecordedTargets.Snapshot().Where(t => !t.IsClear).ToList();
+        Assert.Equal(2, setTargets.Count);
     }
 
     // =========================================================================

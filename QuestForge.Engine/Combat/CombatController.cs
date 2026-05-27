@@ -19,7 +19,14 @@ namespace QuestForge.Engine.Combat;
 public sealed class CombatController
 {
     // Scan radius in metres. Not author-configurable in v1; overworldEnemies can roam.
-    private const float ScanRadius = 30f;
+    // 50m (wider than melee/ranged attack ranges) so the controller acquires and reroutes
+    // to a valid kill-set enemy seen "along the way" instead of walking back to the spawn
+    // anchor — kill-set members outscore aggro adds, so distant adds don't hijack selection.
+    private const float ScanRadius = 50f;
+
+    // Navigate stop distance: decoupled from attack range so the no-strand proof holds.
+    // drift ≤ (attackRange − ApproachStopBuffer) ⟹ player within attackRange after stopping.
+    private const float ApproachStopBuffer = 0.5f;
 
     private readonly IGameStateProvider _gameState;
     private readonly ICombat _combat;
@@ -36,6 +43,7 @@ public sealed class CombatController
     //   FallbackRange for that tick only), so a later tick recovers the real range.
     private KillTarget? _currentTarget;
     private KillTarget? _approachTarget;
+    private WorldPosition? _approachPosition;
     private bool _wasInCombat;
     private float? _cachedAttackRange;
 
@@ -59,7 +67,8 @@ public sealed class CombatController
             if (_approachTarget is not null)
             {
                 await _navigator.Stop(ct);
-                _approachTarget = null;
+                _approachTarget    = null;
+                _approachPosition  = null;
             }
             return new CombatDecision(null, RotationShouldRun: false, "hostile query failed", ApproachState.None);
         }
@@ -98,37 +107,41 @@ public sealed class CombatController
             if (_approachTarget is not null)
             {
                 await _navigator.Stop(ct);
-                _approachTarget = null;
+                _approachTarget   = null;
+                _approachPosition = null;
             }
             approach = ApproachState.None;
         }
         else
         {
-            var actor = FindActor(actors, target.Value.Id);
+            var actor    = FindActor(actors, target.Value.Id);
             var distance = actor?.DistanceToPlayer ?? float.MaxValue;
-            var position  = actor?.Position ?? new WorldPosition(0f, 0f, 0f);
+            var position = actor?.Position ?? new WorldPosition(0f, 0f, 0f);
 
             if (distance <= attackRange)
             {
                 if (_approachTarget is not null)
                 {
                     await _navigator.Stop(ct);
-                    _approachTarget = null;
+                    _approachTarget   = null;
+                    _approachPosition = null;
                 }
                 approach = ApproachState.InRange;
             }
-            else if (target != _approachTarget)
-            {
-                // New or changed out-of-range target — issue NavigateTo and set latch
-                // regardless of nav result (don't spam a dead navmesh)
-                _approachTarget = target;
-                var opts = new NavigationOptions(StoppingDistance: attackRange, UseMount: false, UseFlight: false);
-                await _navigator.NavigateTo(position, opts, ct);
-                approach = ApproachState.Approaching;
-            }
             else
             {
-                // Already heading toward this target — do nothing
+                var repath = attackRange - ApproachStopBuffer;
+                var needsNav = target != _approachTarget
+                    || _approachPosition is null
+                    || _approachPosition.Value.DistanceTo(position) > repath;
+
+                if (needsNav)
+                {
+                    _approachTarget   = target;
+                    _approachPosition = position;
+                    var opts = new NavigationOptions(StoppingDistance: ApproachStopBuffer, UseMount: false, UseFlight: false);
+                    await _navigator.NavigateTo(position, opts, ct);
+                }
                 approach = ApproachState.Approaching;
             }
         }
@@ -162,6 +175,22 @@ public sealed class CombatController
     }
 
     /// <summary>
+    /// Step-exit cleanup. Idempotent. Issues ClearTarget so the game drops the leftover
+    /// target and Stop so any in-flight approach navigation halts. Then clears all per-step
+    /// latches via Reset().
+    ///
+    /// Does NOT call StopRotation — the rotation lease is owned by RotationLeaseLatch.
+    /// </summary>
+    public async Task ResetAsync(CancellationToken ct)
+    {
+        if (_currentTarget is not null)
+            await _combat.ClearTarget(ct);
+        if (_approachTarget is not null)
+            await _navigator.Stop(ct);
+        Reset();
+    }
+
+    /// <summary>
     /// Called by the engine when it leaves the combat step (confirmed / sequence advance).
     /// Clears all per-combat-step state so the next combat step starts fresh.
     /// Does NOT call Stop — cross-step movement is the engine's responsibility.
@@ -170,6 +199,7 @@ public sealed class CombatController
     {
         _currentTarget     = null;
         _approachTarget    = null;
+        _approachPosition  = null;
         _wasInCombat       = false;
         _cachedAttackRange = null;
     }

@@ -138,9 +138,10 @@ public sealed class CombatFixtureTests
             Serialize(new ObservationEvent(runId, "GetQuestStatus",
                 Elem(new { value = questId }), Elem(0), At)),
 
-            // GetHostileActors in segment-0 (the combat read for the Engage tick)
+            // GetHostileActors in segment-0 (the combat read for the Engage tick).
+            // Arg matches CombatController.ScanRadius (50m) so the replay provider serves it.
             Serialize(new ObservationEvent(runId, "GetHostileActors",
-                Elem(30f), actorsJson, At)),
+                Elem(50f), actorsJson, At)),
 
             // GetCurrentJob — approach-range resolution (added when CombatController gained job-aware ranging)
             Serialize(new ObservationEvent(runId, "GetCurrentJob",

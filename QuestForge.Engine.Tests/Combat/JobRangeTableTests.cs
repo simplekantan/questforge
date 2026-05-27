@@ -31,10 +31,11 @@ public sealed class JobRangeTableTests
     }
 
     [Fact]
-    public void AttackRange_PGL_Returns3m()
+    public void AttackRange_PGL_Returns1m()
     {
+        // A2: MeleeRange changed 3.0 -> 1.0 (addendum)
         var range = JobRangeTable.AttackRange(new JobId(2));
-        Assert.Equal(3.0f, range);
+        Assert.Equal(1.0f, range);
     }
 
     // G2 — tank classify (PLD, row id 19)
@@ -46,10 +47,11 @@ public sealed class JobRangeTableTests
     }
 
     [Fact]
-    public void AttackRange_PLD_Returns3m()
+    public void AttackRange_PLD_Returns1m()
     {
+        // A2: Tank maps to MeleeRange, which changed 3.0 -> 1.0 (addendum — pins Tank->Melee at new value)
         var range = JobRangeTable.AttackRange(new JobId(19));
-        Assert.Equal(3.0f, range);
+        Assert.Equal(1.0f, range);
     }
 
     // G3 — physical ranged (BRD, row id 23)
@@ -106,14 +108,15 @@ public sealed class JobRangeTableTests
     }
 
     [Fact]
-    public void AttackRange_UnknownId_ReturnsFallback3m()
+    public void AttackRange_UnknownId_ReturnsFallback1m()
     {
+        // A2: FallbackRange changed 3.0 -> 1.0 (addendum)
         var range = JobRangeTable.AttackRange(new JobId(999));
         Assert.Equal(JobRangeTable.FallbackRange, range);
-        Assert.Equal(3.0f, range);
+        Assert.Equal(1.0f, range);
     }
 
-    // G7 — all mapped ranges < ScanRadius (30 m)
+    // G7 — all mapped ranges < ScanRadius (50 m)
     // Pins every row id listed in the spec's role table.
     [Theory]
     // Tanks
@@ -154,18 +157,19 @@ public sealed class JobRangeTableTests
     [InlineData(40u)]  // SGE
     public void AttackRange_AllMappedIds_IsUnderScanRadius(uint jobIdValue)
     {
-        const float ScanRadius = 30f;
+        const float ScanRadius = 50f;
         var range = JobRangeTable.AttackRange(new JobId(jobIdValue));
         Assert.True(range < ScanRadius,
             $"JobId({jobIdValue}) has range {range} m which is >= ScanRadius ({ScanRadius} m)");
     }
 
     // Constants are exposed on the class and match the canonical values.
+    // A2 (addendum): MeleeRange 3.0->1.0, FallbackRange 3.0->1.0, RangedRange unchanged.
     [Fact]
     public void Constants_HaveExpectedValues()
     {
-        Assert.Equal(3.0f,  JobRangeTable.MeleeRange);
+        Assert.Equal(1.0f,  JobRangeTable.MeleeRange);
         Assert.Equal(20.0f, JobRangeTable.RangedRange);
-        Assert.Equal(3.0f,  JobRangeTable.FallbackRange);
+        Assert.Equal(1.0f,  JobRangeTable.FallbackRange);
     }
 }
