@@ -312,9 +312,26 @@ public sealed class QuestEngine
         if (seqResult is Result<int>.Failure f1)
             return (new EngineAction.AwaitUser($"adapter failure reading sequence: {f1.Reason}"), null);
 
-        var completeResult = await _questState.IsQuestComplete(questId, ct);
-        if (completeResult is Result<bool>.Success { Value: true })
-            return (new EngineAction.Done(), null);
+        // Read NG+ state once per tick, fail-open: a failed read treats IsActive=false
+        // so the normal-play gate is preserved. A NG+ read failure must never suppress it.
+        var ngpResult = await _gameState.GetNewGamePlusState(ct);
+        var ngp = ngpResult is Result<NewGamePlusState>.Success { Value: var ngpVal }
+            ? ngpVal
+            : new NewGamePlusState(false, null, false);
+
+        bool replayActive = ngp.IsActive && !ngp.IsSuspended;
+
+        if (ngp.IsActive && ngp.IsSuspended)
+            return (new EngineAction.Wait("ng+ replay suspended"), null);
+
+        if (!replayActive)
+        {
+            var completeResult = await _questState.IsQuestComplete(questId, ct);
+            if (completeResult is Result<bool>.Success { Value: true })
+                return (new EngineAction.Done(), null);
+        }
+        // else: replay active and not suspended — skip the IsQuestComplete gate (bitmap lies)
+        //       and fall through to the live-sequence loop below.
 
         var currentSeq = seqResult.ValueOrThrow;
         var matchingBlock = _quest.Sequences.FirstOrDefault(s => s.Sequence == currentSeq);

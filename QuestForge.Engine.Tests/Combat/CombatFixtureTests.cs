@@ -125,6 +125,8 @@ public sealed class CombatFixtureTests
             // segment-0: quest state observations
             Serialize(new ObservationEvent(runId, "GetQuestSequence",
                 Elem(new { value = questId }), Elem(0), At)),
+            Serialize(new ObservationEvent(runId, "GetNewGamePlusState",
+                null, Elem(new { isActive = false, currentChapter = (object?)null, isSuspended = false, activeReplayQuestId = (object?)null }), At)),
             Serialize(new ObservationEvent(runId, "IsQuestComplete",
                 Elem(new { value = questId }), Elem(false), At)),
             Serialize(new ObservationEvent(runId, "GetUiState",
@@ -153,6 +155,8 @@ public sealed class CombatFixtureTests
             // terminal-tail: IsQuestComplete flips to true (satisfies expect)
             Serialize(new ObservationEvent(runId, "GetQuestSequence",
                 Elem(new { value = questId }), Elem(1), At.AddSeconds(2))),
+            Serialize(new ObservationEvent(runId, "GetNewGamePlusState",
+                null, Elem(new { isActive = false, currentChapter = (object?)null, isSuspended = false, activeReplayQuestId = (object?)null }), At.AddSeconds(2))),
             Serialize(new ObservationEvent(runId, "IsQuestComplete",
                 Elem(new { value = questId }), Elem(true), At.AddSeconds(2))),
             Serialize(new ObservationEvent(runId, "GetUiState",

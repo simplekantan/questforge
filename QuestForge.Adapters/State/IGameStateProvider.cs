@@ -94,8 +94,8 @@ public record DutyAvailability(
 public record NewGamePlusState(
     bool IsActive,
     NewGamePlusChapter? CurrentChapter,
-    bool IsSuspended
-);
+    bool IsSuspended,
+    QuestId? ActiveReplayQuestId = null);
 
 public record NewGamePlusChapter(int ChapterId, string Name);
 

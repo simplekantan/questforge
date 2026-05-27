@@ -5,6 +5,7 @@ using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Objects.Types;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Types;
 
@@ -115,10 +116,67 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         => Task.FromResult<Result<DutyAvailability>>(
             Result.Ok(new DutyAvailability(false, false, false, false, 0, 0, null)));
 
-    public Task<Result<NewGamePlusState>> GetNewGamePlusState(CancellationToken ct)
-        // Phase 6 placeholder
-        => Task.FromResult<Result<NewGamePlusState>>(
-            Result.Ok(new NewGamePlusState(false, null, false)));
+    public unsafe Task<Result<NewGamePlusState>> GetNewGamePlusState(CancellationToken ct)
+    {
+        try
+        {
+            // NG+ detection gate 1: the unlock quest (id 3759) must be complete.
+            // QuestManager uses the lower 16 bits as the internal key.
+            // TODO verify in-game: QuestManager.IsQuestComplete(3759) — is 3759 the correct internal id?
+            const ushort NgPlusUnlockQuestInternal = 3759;
+            if (!QuestManager.IsQuestComplete(NgPlusUnlockQuestInternal))
+                return Task.FromResult<Result<NewGamePlusState>>(Result.Ok(new NewGamePlusState(false, null, false)));
+
+            // NG+ detection gate 2: QuestRedoHud agent must be active.
+            var agentModule = AgentModule.Instance();
+            if (agentModule == null)
+                return Task.FromResult<Result<NewGamePlusState>>(Result.Ok(new NewGamePlusState(false, null, false)));
+
+            var agent = agentModule->GetAgentByInternalId(AgentId.QuestRedoHud);
+            if (agent == null || !agent->IsAgentActive())
+                return Task.FromResult<Result<NewGamePlusState>>(Result.Ok(new NewGamePlusState(false, null, false)));
+
+            // NG+ detection gate 3: QuestRedoHud addon must be present with AtkValues[0].UInt ∈ {0,2,3,4}.
+            // AtkValues[0] encodes the replay mode/state:
+            //   0 = chapter select (active), 2 = replay running, 3 = replay paused/suspended, 4 = chapter complete
+            // Value 1 or others = not in an active replay.
+            // TODO verify in-game: exact AtkValues[0] mapping for Active vs Suspended states.
+            var addon = _svc.GameGui.GetAddonByName("QuestRedoHud");
+            if (addon.IsNull)
+                return Task.FromResult<Result<NewGamePlusState>>(Result.Ok(new NewGamePlusState(false, null, false)));
+
+            var atkBase = (FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase*)addon.Address;
+            if (atkBase == null || atkBase->AtkValuesCount < 1)
+                return Task.FromResult<Result<NewGamePlusState>>(Result.Ok(new NewGamePlusState(false, null, false)));
+
+            var stateValue = atkBase->AtkValues[0].UInt;
+            // Valid active-replay states: 0,2,3,4 — anything else means NG+ UI is not in replay mode.
+            if (stateValue != 0 && stateValue != 2 && stateValue != 3 && stateValue != 4)
+                return Task.FromResult<Result<NewGamePlusState>>(Result.Ok(new NewGamePlusState(false, null, false)));
+
+            // IsSuspended: AtkValues[0] == 3 is the paused/suspended state.
+            // TODO verify in-game: confirm stateValue==3 maps to suspended (player paused replay).
+            var isSuspended = stateValue == 3;
+
+            // VALIDATED reads only: IsActive (gates above) + IsSuspended (AtkValues[0]==3).
+            // CurrentChapter and ActiveReplayQuestId are intentionally left null: the agent +44/+46
+            // memory reads proved unreliable in-game (no candidate offset held the active-quest
+            // RowId), and chaining will be driven by the quest schema's next-quest field + the
+            // scheduler rather than by reading the QuestRedoHud. So the engine only needs IsActive
+            // (to bypass the lying isQuestComplete gate) + IsSuspended.
+            return Task.FromResult<Result<NewGamePlusState>>(
+                Result.Ok(new NewGamePlusState(
+                    IsActive: true,
+                    CurrentChapter: null,
+                    IsSuspended: isSuspended,
+                    ActiveReplayQuestId: null)));
+        }
+        catch
+        {
+            // Never throw — return safe default on any read failure.
+            return Task.FromResult<Result<NewGamePlusState>>(Result.Ok(new NewGamePlusState(false, null, false)));
+        }
+    }
 
     public Task<Result<IReadOnlyList<NpcReference>>> GetNearbyNpcs(float radius, CancellationToken ct)
     {

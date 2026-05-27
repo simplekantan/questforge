@@ -22,6 +22,7 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     private bool _casting;
     private InstanceKind _instanceKind = InstanceKind.None;
     private NewGamePlusState _ngpState = new(false, null, false);
+    private (string Reason, string? Detail)? _ngpFailure;
     private readonly List<NpcReference> _npcs = [];
     private readonly List<HostileActor> _hostileActors = [];
     private (string Reason, string? Detail)? _hostileActorsFailure;
@@ -59,7 +60,9 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     public void SetDiving(bool v)                    { lock (_lock) _diving = v; }
     public void SetCasting(bool v)                   { lock (_lock) _casting = v; }
     public void SetInstanceKind(InstanceKind v)      { lock (_lock) _instanceKind = v; }
-    public void SetNewGamePlusState(NewGamePlusState v) { lock (_lock) _ngpState = v; }
+    public void SetNewGamePlusState(NewGamePlusState v) { lock (_lock) { _ngpState = v; _ngpFailure = null; } }
+    public void SetNewGamePlusStateFailure(string reason, string? detail = null) { lock (_lock) _ngpFailure = (reason, detail); }
+    public void ClearNewGamePlusStateFailure() { lock (_lock) _ngpFailure = null; }
     public void SetUiState(UiState v)                { lock (_lock) _uiState = v; }
     public void SetFreeInventorySlots(int v)         { lock (_lock) _freeInventorySlots = v; }
     public void SetItemCount(ItemId item, int count) { lock (_lock) _itemCounts[item] = count; }
@@ -225,7 +228,12 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     {
         ct.ThrowIfCancellationRequested();
         Record(nameof(GetNewGamePlusState));
-        lock (_lock) return Task.FromResult<Result<NewGamePlusState>>(Result.Ok(_ngpState));
+        lock (_lock)
+        {
+            if (_ngpFailure is { } f)
+                return Task.FromResult<Result<NewGamePlusState>>(Result.Fail<NewGamePlusState>(f.Reason, f.Detail));
+            return Task.FromResult<Result<NewGamePlusState>>(Result.Ok(_ngpState));
+        }
     }
 
     public Task<Result<IReadOnlyList<NpcReference>>> GetNearbyNpcs(float radius, CancellationToken ct)
