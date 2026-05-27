@@ -8,6 +8,7 @@ using QuestForge.Adapters.Dalamud.Authoring;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Plugin.Authoring;
 using QuestForge.Plugin.Commands;
+using QuestForge.Plugin.Interaction;
 using QuestForge.Plugin.UI.Authoring;
 
 namespace QuestForge.Plugin;
@@ -16,6 +17,7 @@ public sealed class Plugin : IDalamudPlugin
 {
     private readonly TraceSession _traceSession;
     private readonly EngineHost _host;
+    private readonly SelectYesnoResponder _responder;
     private readonly AuthoringHost _authoringHost;
     private readonly QfCommand _command;
     private readonly IFramework _framework;
@@ -43,7 +45,8 @@ public sealed class Plugin : IDalamudPlugin
         IGameGui gameGui,
         IPluginLog log,
         IGameInteropProvider hooks,
-        IGameConfig gameConfig)
+        IGameConfig gameConfig,
+        IAddonLifecycle addonLifecycle)
     {
         _framework = framework;
         _pi = pi;
@@ -54,7 +57,7 @@ public sealed class Plugin : IDalamudPlugin
         var services = new PluginServices(
             pi, framework, clientState, condition,
             objectTable, dataManager, targetManager,
-            chatGui, gameGui, log, hooks, gameConfig);
+            chatGui, gameGui, log, hooks, gameConfig, addonLifecycle);
 
         var config = PluginConfig.Load(pi);
 
@@ -67,6 +70,8 @@ public sealed class Plugin : IDalamudPlugin
         _traceSession.OnPluginStart();
 
         _host = new EngineHost(services, _traceSession);
+        _responder = new SelectYesnoResponder(_host, addonLifecycle, gameGui, log);
+        _host.SetRunStartCallback(_responder.TryAnswerOpenPopup);
 
         var questsDir = Path.Combine(pi.GetPluginConfigDirectory(), "quests");
         var questCategories = BuildQuestCategories(questsDir);
@@ -156,6 +161,7 @@ public sealed class Plugin : IDalamudPlugin
         _pi.UiBuilder.Draw -= _windowSystem.Draw;
         _pi.UiBuilder.OpenMainUi -= _mainWindow.Toggle;
         _command.Dispose();
+        _responder.Dispose();
         _host.Dispose();
         _authoringHost.Dispose();
         _traceSession.OnPluginStop();

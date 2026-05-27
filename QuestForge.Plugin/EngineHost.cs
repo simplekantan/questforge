@@ -22,6 +22,7 @@ using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine;
 using QuestForge.Engine.Combat;
+using QuestForge.Engine.Dialogue;
 using QuestForge.Engine.Scheduling;
 using QuestForge.Plugin.Logging;
 using QuestForge.Schema;
@@ -65,6 +66,7 @@ public sealed class EngineHost : IDisposable
     private uint? _savedCutsceneSkipContents;
     private uint? _savedCutsceneSkipShip;
 
+    private Action? _onRunStart;
     private IQuestScheduler? _scheduler;
     private bool _autoMode;
     private bool _tracingEnabled;
@@ -98,6 +100,9 @@ public sealed class EngineHost : IDisposable
 
     public bool IsRunActive => _engine is not null;
     public string? ActiveRunId => _runId;
+    public YesNoAnswer? CurrentYesNoAnswer => _engine?.CurrentYesNoAnswer;
+
+    public void SetRunStartCallback(Action callback) => _onRunStart = callback;
 
     public bool IsAutoMode => _autoMode;
     public QuestId? CurrentQuestId => _engine is not null ? _currentQuestId : null;
@@ -188,6 +193,7 @@ public sealed class EngineHost : IDisposable
             _traceSession, new DalamudLogger<QuestEngine>(_services.Log));
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
+        _onRunStart?.Invoke();
     }
 
     public async Task TickAsync(CancellationToken ct)
@@ -300,17 +306,15 @@ public sealed class EngineHost : IDisposable
                 }
                 // Drive SelectIconString/SelectString choices from the step's DialogueChoices.
                 // If a choice was dispatched, skip AdvanceDialogue this tick so the selection
-                // can register before the SelectYesno confirmation opens.
+                // can register before the next prompt opens.
                 var sip = _services.GameGui.GetAddonByName("SelectIconString");
                 var ssp = _services.GameGui.GetAddonByName("SelectString");
-                var syn = _services.GameGui.GetAddonByName("SelectYesno");
                 var choiceDispatched = DialogueChoiceDispatcher.TryDispatch(
                     i.Origin,
                     !sip.IsNull && sip.IsReady,
                     !ssp.IsNull && ssp.IsReady,
                     ref _dialogueChoiceProgress,
-                    _interactor, ct,
-                    selectYesnoOpen: !syn.IsNull && syn.IsReady);
+                    _interactor, ct);
                 if (!choiceDispatched)
                     await _interactor.AdvanceDialogue(ct);
                 await _interactor.AcceptQuest(_currentQuestId, ct);

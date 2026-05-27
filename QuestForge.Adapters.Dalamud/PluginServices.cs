@@ -15,4 +15,5 @@ public sealed record PluginServices(
     IGameGui GameGui,
     IPluginLog Log,
     IGameInteropProvider Hooks,
-    IGameConfig GameConfig);
+    IGameConfig GameConfig,
+    IAddonLifecycle AddonLifecycle);
