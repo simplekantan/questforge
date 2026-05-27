@@ -384,6 +384,10 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         // Phase 6 placeholder
         => Task.FromResult<Result<long>>(Result.Ok(0L));
 
+    public Task<Result<int>> GetGrandCompanySeals(CancellationToken ct)
+        // TODO(Slice C): read from ClientStructs GrandCompany seal wallet
+        => Task.FromResult<Result<int>>(Result.Fail<int>("GetGrandCompanySeals not implemented until Slice C"));
+
     public Task<Result<AethernetId?>> GetLastAethernetDestination(CancellationToken ct)
         // Phase 7 placeholder: real TelepotTown hook implementation deferred
         => Task.FromResult<Result<AethernetId?>>(Result.Ok((AethernetId?)null));

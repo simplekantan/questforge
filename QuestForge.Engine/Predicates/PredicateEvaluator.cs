@@ -116,6 +116,8 @@ public sealed class PredicateEvaluator
                 new AdaptersAetheryteId((uint)(long)args[0]), ct)).ValueOrThrow,
             "playerHasItem" when args.Length == 1 =>
                 (await _gameState.GetItemCount(new ItemId((uint)(long)args[0]), ct)).ValueOrThrow >= 1,
+            "playerHasItem" when args.Length == 2 =>
+                (await _gameState.GetItemCount(new ItemId((uint)(long)args[0]), ct)).ValueOrThrow >= (long)args[1],
             // job predicates
             "playerJobId" => (long)(await _gameState.GetCurrentJob(ct)).ValueOrThrow.Value,
             "isDiscipleOfWar" => JobRangeTable.Classify((await _gameState.GetCurrentJob(ct)).ValueOrThrow)

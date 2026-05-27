@@ -17,8 +17,8 @@
       "ECommons": {
         "type": "Direct",
         "requested": "[3.*, )",
-        "resolved": "3.2.0.19",
-        "contentHash": "yqRy0/6nuGx47c2Xaem7dyrQmV5Wv8aT5V6mQ1Rd03wPGsAFh+CbxDSFtBTGLxt2ZMW+anj4JoBlxj7KEFIMBg=="
+        "resolved": "3.2.1.3",
+        "contentHash": "hkzLaKM6J4WICMp7O2bzuEZjHtgfDtRuwj6lY2bIzubZ4ON+G8Eu6QcB/jwvEZcwrcC76C8BOAvMcu6WOv7gCg=="
       },
       "Microsoft.Extensions.Logging.Abstractions": {
         "type": "Direct",
@@ -35,7 +35,10 @@
         "contentHash": "cjnRtsEAzU73aN6W7vkWy8Phj5t3Xm78HSqgrbh/O4Q9SK/yN73wZVa21QQY6amSLQRQ/M8N+koGnY6PuvKQsw=="
       },
       "questforge.adapters": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "QuestForge.Schema": "[0.1.0, )"
+        }
       },
       "questforge.adapters.dalamud": {
         "type": "Project",

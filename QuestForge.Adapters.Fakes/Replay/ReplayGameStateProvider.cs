@@ -189,6 +189,12 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
         return Task.FromResult(Materialize<long>(obs.Value));
     }
 
+    public Task<Result<int>> GetGrandCompanySeals(CancellationToken ct)
+    {
+        var obs = ScanNext(nameof(GetGrandCompanySeals), null);
+        return Task.FromResult(Materialize<int>(obs.Value));
+    }
+
     // ----- Composite/derived -----
 
     public Task<Result<TravelCapability>> GetTravelCapability(ZoneId destination, CancellationToken ct)

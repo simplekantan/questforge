@@ -257,6 +257,13 @@ public sealed class RecordingGameStateProvider : IGameStateProvider
         return result;
     }
 
+    public async Task<Result<int>> GetGrandCompanySeals(CancellationToken ct)
+    {
+        var result = await _inner.GetGrandCompanySeals(ct);
+        Record(nameof(GetGrandCompanySeals), null, result);
+        return result;
+    }
+
     public async Task<Result<TravelCapability>> GetTravelCapability(ZoneId destination, CancellationToken ct)
     {
         var result = await _inner.GetTravelCapability(destination, ct);

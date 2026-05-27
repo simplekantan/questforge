@@ -972,34 +972,32 @@ public sealed class PredicateEvaluatorTests
     }
 
     [Fact]
-    public async Task PlayerHasItem_TwoArgForm_ThrowsUnknownStateFunctionException()
+    public async Task PlayerHasItem_TwoArgForm_ReturnsTrueWhenCountMeetsQuantity()
     {
         /*
-         * RED: Will fail until Builder implements the playerHasItem switch arm.
+         * Updated by Slice B (purchase-item-engine): the two-arg form playerHasItem(itemId, qty)
+         * is now supported and returns true when GetItemCount >= qty.
+         * The previous contract (throw UnknownStateFunctionException) was superseded when
+         * PurchaseItemStep synthesis began emitting playerHasItem(id,qty) predicates.
          *
-         * CONTRACT: Given a predicate "playerHasItem(2000386, 3)" (two arguments),
-         *           When evaluating, Then UnknownStateFunctionException is thrown.
-         *           The two-arg form is not a supported overload — the function name
-         *           is used as the exception key to indicate the bad dispatch.
-         *
-         * BUILDER GUIDANCE: The switch arm uses a `when args.Count == 1` guard.
-         *   When args.Count != 1 the arm does not match, so the default arm
-         *   throws UnknownStateFunctionException("playerHasItem").
+         * CONTRACT: playerHasItem(2000386, 3) with count=3 → true; count=2 → false.
          */
 
         // Arrange
-        var evaluator = CreateEvaluator(new FakeGameStateProvider(), new FakeQuestState());
+        var gameState = new FakeGameStateProvider();
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
 
-        // Construct AST directly — the parser may not produce a two-arg playerHasItem node.
         var ast = new PredicateAst.FunctionCall(
             "playerHasItem",
             new PredicateAst[] { new PredicateAst.IntLiteral(2000386), new PredicateAst.IntLiteral(3) });
 
-        // Act & Assert
-        var ex = await Assert.ThrowsAsync<UnknownStateFunctionException>(
-            () => evaluator.Evaluate(ast, CancellationToken.None));
+        // count=3 meets qty=3 → true
+        gameState.SetItemCount(new ItemId(2000386), 3);
+        Assert.True(await evaluator.Evaluate(ast, CancellationToken.None));
 
-        Assert.Contains("playerHasItem", ex.Message, StringComparison.OrdinalIgnoreCase);
+        // count=2 does not meet qty=3 → false
+        gameState.SetItemCount(new ItemId(2000386), 2);
+        Assert.False(await evaluator.Evaluate(ast, CancellationToken.None));
     }
 
     // -------------------------------------------------------------------------
