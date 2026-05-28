@@ -234,6 +234,8 @@ public class PurchaseItemStep : Step
     public uint ItemId { get; init; }
     public int Quantity { get; init; } = 1;
     public PurchaseCurrency Currency { get; init; } = PurchaseCurrency.Gil;
+    public int? GcCategory { get; init; }
+    public int? GcRankTier { get; init; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<PurchaseCurrency>))]

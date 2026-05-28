@@ -11,7 +11,7 @@ public sealed class FakeVendor : IVendor
     private PurchaseOutcome? _nextOutcome;
     private readonly List<(ItemId Item, int Increment, FakeGameStateProvider GameState)> _onPurchasedCallbacks = new();
 
-    public record PurchaseCall(NpcId Vendor, ItemId Item, int Quantity, PurchaseCurrency Currency, DateTimeOffset At)
+    public record PurchaseCall(NpcId Vendor, ItemId Item, int Quantity, PurchaseCurrency Currency, DateTimeOffset At, int? GcCategory = null, int? GcRankTier = null)
         : AdapterCall(At);
 
     public CallLog<PurchaseCall> RecordedCalls { get; } = new();
@@ -34,10 +34,12 @@ public sealed class FakeVendor : IVendor
         ItemId item,
         int quantity,
         PurchaseCurrency currency,
-        CancellationToken ct)
+        CancellationToken ct = default,
+        int? gcCategory = null,
+        int? gcRankTier = null)
     {
         ct.ThrowIfCancellationRequested();
-        RecordedCalls.Add(new PurchaseCall(vendor, item, quantity, currency, DateTimeOffset.UtcNow));
+        RecordedCalls.Add(new PurchaseCall(vendor, item, quantity, currency, DateTimeOffset.UtcNow, gcCategory, gcRankTier));
 
         var outcome = _nextOutcome ?? PurchaseOutcome.ShopOpening;
         _nextOutcome = null;

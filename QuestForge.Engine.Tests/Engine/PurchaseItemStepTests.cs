@@ -466,6 +466,123 @@ public sealed class PurchaseItemStepTests
     }
 
     // =========================================================================
+    // G-A — engine resolve arm: GC navigation fields on EngineAction.Purchase
+    //
+    // RED PHASE: All G-A tests fail to compile until Builder adds:
+    //   - GcCategory: int? and GcRankTier: int? to EngineAction.Purchase (D14.2)
+    //   - GcCategory / GcRankTier fields on PurchaseItemStep schema type (G1, already landed)
+    //   - QuestEngine purchase branch to copy step.GcCategory / step.GcRankTier into
+    //     the emitted EngineAction.Purchase (Slice G2)
+    // =========================================================================
+
+    private const uint SealItem = 6141u;
+
+    // =========================================================================
+    // G-A1 — in range, GC fields set → Purchase carries GcCategory and GcRankTier
+    // =========================================================================
+
+    [Fact]
+    public async Task GA1_InRange_GcFieldsSet_PurchaseCarriesGcCategoryAndRankTier()
+    {
+        // CONTRACT: step.GcCategory=2, step.GcRankTier=1, Currency=GcSeals →
+        //           Purchase.GcCategory==2 && Purchase.GcRankTier==1 && Purchase.Currency==GcSeals
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(TestQuestId), TestSeq);
+        harness.GameState.SetPosition(new WorldPosition(10.5f, 0f, -20.0f));
+        harness.GameState.SetItemCount(new ItemId(SealItem), 0);
+        harness.GameState.SetGrandCompanySeals(2000);
+
+        var quest = BuildQuest(new PurchaseItemStep
+        {
+            Id          = "buy-gc-weapon",
+            Target      = TargetLoc,
+            ItemId      = SealItem,
+            Quantity    = 1,
+            Currency    = PurchaseCurrency.GcSeals,
+            GcCategory  = 2,    // RED: field does not exist until Builder adds it (G1 schema + G2 engine)
+            GcRankTier  = 1     // RED: field does not exist until Builder adds it
+        });
+        harness.Engine.StartQuest(quest);
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        var purchase = Assert.IsType<EngineAction.Purchase>(action);
+        Assert.Equal(PurchaseCurrency.GcSeals, purchase.Currency);
+        Assert.Equal(2, purchase.GcCategory);   // RED: property does not exist on EngineAction.Purchase
+        Assert.Equal(1, purchase.GcRankTier);   // RED: property does not exist on EngineAction.Purchase
+    }
+
+    // =========================================================================
+    // G-A2 — in range, GC fields null → Purchase carries nulls (back-compat)
+    // =========================================================================
+
+    [Fact]
+    public async Task GA2_InRange_GcFieldsNull_PurchaseCarriesNulls()
+    {
+        // CONTRACT: GcCategory=null, GcRankTier=null → engine never substitutes a default like 0;
+        //           both fields on the emitted Purchase record are null
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(TestQuestId), TestSeq);
+        harness.GameState.SetPosition(new WorldPosition(10.5f, 0f, -20.0f));
+        harness.GameState.SetItemCount(new ItemId(SealItem), 0);
+        harness.GameState.SetGrandCompanySeals(2000);
+
+        var quest = BuildQuest(new PurchaseItemStep
+        {
+            Id         = "buy-gc-weapon",
+            Target     = TargetLoc,
+            ItemId     = SealItem,
+            Quantity   = 1,
+            Currency   = PurchaseCurrency.GcSeals,
+            GcCategory = null,  // RED: field does not exist yet
+            GcRankTier = null   // RED: field does not exist yet
+        });
+        harness.Engine.StartQuest(quest);
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        var purchase = Assert.IsType<EngineAction.Purchase>(action);
+        Assert.Null(purchase.GcCategory);   // RED: property does not exist on EngineAction.Purchase
+        Assert.Null(purchase.GcRankTier);   // RED: property does not exist on EngineAction.Purchase
+    }
+
+    // =========================================================================
+    // G-A3 — gil step with GC fields set → engine still emits Purchase with both
+    // =========================================================================
+
+    [Fact]
+    public async Task GA3_GilCurrency_GcFieldsSet_PurchaseCarriesThem()
+    {
+        // CONTRACT: the engine is a value-passer; it copies GcCategory/GcRankTier regardless
+        //           of Currency — the validator's warning is the right gate, not the engine.
+        //           Currency==Gil, GcCategory=2, GcRankTier=1 → Purchase carries all three.
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(TestQuestId), TestSeq);
+        harness.GameState.SetPosition(new WorldPosition(10.5f, 0f, -20.0f));
+        harness.GameState.SetItemCount(new ItemId(TestItem), 0);
+        harness.GameState.SetGil(10_000L);
+
+        var quest = BuildQuest(new PurchaseItemStep
+        {
+            Id         = "buy-item",
+            Target     = TargetLoc,
+            ItemId     = TestItem,
+            Quantity   = 1,
+            Currency   = PurchaseCurrency.Gil,
+            GcCategory = 2,     // RED: field does not exist yet
+            GcRankTier = 1      // RED: field does not exist yet
+        });
+        harness.Engine.StartQuest(quest);
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        var purchase = Assert.IsType<EngineAction.Purchase>(action);
+        Assert.Equal(PurchaseCurrency.Gil, purchase.Currency);
+        Assert.Equal(2, purchase.GcCategory);   // RED: property does not exist on EngineAction.Purchase
+        Assert.Equal(1, purchase.GcRankTier);   // RED: property does not exist on EngineAction.Purchase
+    }
+
+    // =========================================================================
     // Factory
     // =========================================================================
 

@@ -746,7 +746,9 @@ public sealed class QuestEngine
             new ItemId(step.ItemId),
             step.Quantity,
             step.Currency,
-            Origin: step);
+            Origin: step,
+            GcCategory: step.GcCategory,
+            GcRankTier: step.GcRankTier);
 
         // Implied navigation: if player is out of range, navigate first.
         var navOrPurchase = ResolveInteractOrNavigate(

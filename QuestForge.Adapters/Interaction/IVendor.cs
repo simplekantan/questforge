@@ -10,7 +10,9 @@ public interface IVendor
         ItemId item,
         int quantity,
         PurchaseCurrency currency,
-        CancellationToken ct);
+        CancellationToken ct = default,
+        int? gcCategory = null,
+        int? gcRankTier = null);
 }
 
 public enum PurchaseOutcome
