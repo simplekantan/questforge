@@ -42,6 +42,8 @@ internal sealed class QfCommand : IDisposable
     private DateTime _debugCombatLastTick = DateTime.MinValue;
     private bool _debugCombatLoopActive;
 
+    private string _hookShopAddonName = "Shop";
+
     private unsafe delegate void FireCallbackDelegate(AtkUnitBase* thisPtr, int valueCount, AtkValue* atkValues, byte updateState);
     private Hook<FireCallbackDelegate>? _fireCallbackHook;
 
@@ -87,7 +89,7 @@ internal sealed class QfCommand : IDisposable
         _interop = interop;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
-            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off | /qf debug buy <itemId> [qty] | /qf config trace on|off"
+            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf config trace on|off"
         });
     }
 
@@ -133,8 +135,19 @@ internal sealed class QfCommand : IDisposable
                 HandleConfig(parts[1], parts[2]);
                 break;
             case "debug" when parts.Length >= 3 && parts[1] == "addon":
-                HandleDebugAddon(parts[2]);
+            {
+                var maxCount = 30;
+                if (parts.Length >= 4)
+                {
+                    if (!int.TryParse(parts[3], out maxCount))
+                    {
+                        _chat.Print("[QF] Invalid maxCount — defaulting to 30");
+                        maxCount = 30;
+                    }
+                }
+                HandleDebugAddon(parts[2], maxCount);
                 break;
+            }
             case "debug" when parts.Length >= 2 && parts[1] == "offered-quest":
                 HandleDebugOfferedQuest();
                 break;
@@ -172,7 +185,7 @@ internal sealed class QfCommand : IDisposable
                 HandleDebugShop();
                 break;
             case "debug" when parts.Length >= 3 && parts[1] == "hookshop":
-                HandleDebugHookShop(parts[2]);
+                HandleDebugHookShop(parts[2], parts.Length >= 4 ? parts[3] : "Shop");
                 break;
             case "debug" when parts.Length >= 3 && parts[1] == "buy":
                 HandleDebugBuy(parts[2..]);
@@ -258,7 +271,7 @@ internal sealed class QfCommand : IDisposable
         _chat.Print($"[QF] fired SelectYesno {(no ? "No(1)" : "Yes(0)")} (IsReady={ready}) — did it close?");
     }
 
-    private unsafe void HandleDebugAddon(string addonName)
+    private unsafe void HandleDebugAddon(string addonName, int maxCount = 30)
     {
         var addonPtr = _gameGui.GetAddonByName(addonName);
         if (addonPtr.IsNull) { _chat.Print($"Addon '{addonName}' not found (not open?)"); return; }
@@ -269,7 +282,7 @@ internal sealed class QfCommand : IDisposable
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"Addon '{addonName}' — {addon->AtkValuesCount} AtkValues:");
 
-        int count = Math.Min((int)addon->AtkValuesCount, 30);
+        int count = Math.Min((int)addon->AtkValuesCount, maxCount);
         for (var i = 0; i < count; i++)
         {
             var val = addon->AtkValues[i];
@@ -287,8 +300,8 @@ internal sealed class QfCommand : IDisposable
             _chat.Print(line);
         }
 
-        if (addon->AtkValuesCount > 30)
-            _chat.Print($"  ... (showing first 30 of {addon->AtkValuesCount})");
+        if (addon->AtkValuesCount > maxCount)
+            _chat.Print($"  ... (showing first {maxCount} of {addon->AtkValuesCount})");
 
         _log.Info($"[debug addon]\n{sb}");
     }
@@ -901,20 +914,21 @@ internal sealed class QfCommand : IDisposable
         _log.Info($"[debug shop]\n{sb}");
     }
 
-    private unsafe void HandleDebugHookShop(string onOff)
+    private unsafe void HandleDebugHookShop(string onOff, string addonName = "Shop")
     {
         switch (onOff)
         {
             case "on":
             {
+                _hookShopAddonName = addonName;
                 if (_fireCallbackHook == null)
                 {
                     var addr = (nint)FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase.MemberFunctionPointers.FireCallback;
                     _fireCallbackHook = _interop.HookFromAddress<FireCallbackDelegate>(addr, FireCallbackDetour);
                 }
                 _fireCallbackHook.Enable();
-                _chat.Print("[QF] hookshop ON — open the Shop, click Buy on one item, then /qf debug hookshop off and check /xllog");
-                _log.Info("[debug hookshop] hook enabled");
+                _chat.Print($"[QF] hookshop ON ({addonName}) — open the addon, click Buy on one item, then /qf debug hookshop off and check /xllog");
+                _log.Info($"[debug hookshop] hook enabled, filtering on '{addonName}'");
                 break;
             }
             case "off":
@@ -932,7 +946,7 @@ internal sealed class QfCommand : IDisposable
                 break;
             }
             default:
-                _chat.PrintError("QuestForge: /qf debug hookshop on|off");
+                _chat.PrintError("QuestForge: /qf debug hookshop on|off [addonName]");
                 break;
         }
     }
@@ -941,7 +955,7 @@ internal sealed class QfCommand : IDisposable
     {
         try
         {
-            if (thisPtr != null && thisPtr->NameString == "Shop")
+            if (thisPtr != null && thisPtr->NameString == _hookShopAddonName)
             {
                 _log.Info($"[hookshop] FireCallback called: valueCount={valueCount} updateState={updateState}");
                 for (var i = 0; i < valueCount; i++)
@@ -971,7 +985,7 @@ internal sealed class QfCommand : IDisposable
     {
         if (args.Length == 0 || !uint.TryParse(args[0], out var itemId))
         {
-            _chat.Print("usage: /qf debug buy <itemId> [qty]");
+            _chat.Print("usage: /qf debug buy <itemId> [qty] [gil|gcSeals]");
             return;
         }
 
@@ -979,11 +993,25 @@ internal sealed class QfCommand : IDisposable
         if (args.Length >= 2 && int.TryParse(args[1], out var parsedQty))
             qty = Math.Max(1, parsedQty);
 
+        var currency = PurchaseCurrency.Gil;
+        if (args.Length >= 3)
+        {
+            if (args[2].Equals("gil", StringComparison.OrdinalIgnoreCase))
+                currency = PurchaseCurrency.Gil;
+            else if (args[2].Equals("gcseals", StringComparison.OrdinalIgnoreCase))
+                currency = PurchaseCurrency.GcSeals;
+            else
+            {
+                _chat.Print("currency must be 'gil' or 'gcSeals'");
+                return;
+            }
+        }
+
         Result<PurchaseOutcome> result;
         try
         {
             result = _host.DebugVendor.Purchase(
-                new NpcId(0), new ItemId(itemId), qty, PurchaseCurrency.Gil, CancellationToken.None)
+                new NpcId(0), new ItemId(itemId), qty, currency, CancellationToken.None)
                 .GetAwaiter().GetResult();
         }
         catch (Exception ex)
@@ -995,13 +1023,13 @@ internal sealed class QfCommand : IDisposable
 
         if (result is Result<PurchaseOutcome>.Success { Value: var outcome })
         {
-            var msg = $"[debug buy] itemId={itemId} qty={qty} -> {outcome}";
+            var msg = $"[debug buy] itemId={itemId} qty={qty} currency={currency} -> {outcome}";
             _log.Info(msg);
             _chat.Print($"[QF] {msg}");
         }
         else if (result is Result<PurchaseOutcome>.Failure { Reason: var reason, Detail: var detail })
         {
-            var msg = $"[debug buy] itemId={itemId} qty={qty} -> FAIL({reason}) {detail}";
+            var msg = $"[debug buy] itemId={itemId} qty={qty} currency={currency} -> FAIL({reason}) {detail}";
             _log.Info(msg);
             _chat.Print($"[QF] {msg}");
         }
@@ -1010,7 +1038,7 @@ internal sealed class QfCommand : IDisposable
     }
 
     private void PrintUsage()
-        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off | /qf debug buy <itemId> [qty] | /qf config trace on|off");
+        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf config trace on|off");
 
     public void Dispose()
     {

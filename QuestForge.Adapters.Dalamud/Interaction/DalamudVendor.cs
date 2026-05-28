@@ -93,8 +93,7 @@ public sealed class DalamudVendor : IVendor
 
     private Task<Result<PurchaseOutcome>> PurchaseGcSeals(ItemId item, int quantity, CancellationToken ct)
     {
-        // VERIFY IN-GAME: the GC quartermaster exchange addon name. Public ClientStructs
-        // research consistently names this addon "GrandCompanyExchange".
+        // The GC quartermaster exchange addon is named "GrandCompanyExchange".
         var addonPtr = _svc.GameGui.GetAddonByName("GrandCompanyExchange");
         if (addonPtr.IsNull || !addonPtr.IsReady)
             return Task.FromResult<Result<PurchaseOutcome>>(Result.Ok(PurchaseOutcome.ShopOpening));
@@ -102,29 +101,53 @@ public sealed class DalamudVendor : IVendor
         if (DateTimeOffset.UtcNow - _lastBuyAt < BuyThrottle)
             return Task.FromResult<Result<PurchaseOutcome>>(Result.Ok(PurchaseOutcome.ShopOpening));
 
-        _lastBuyAt = DateTimeOffset.UtcNow;
-
         unsafe
         {
             var addon = (AtkUnitBase*)addonPtr.Address;
 
-            // VERIFY IN-GAME: the FireCallback signature for GrandCompanyExchange.
-            // Based on public FFXIVClientStructs research the GC exchange addon accepts
-            // a callback with eventId=0 and two AtkValues:
-            //   values[0] = Int : the zero-based row index of the item in the exchange list
-            //   values[1] = Int : the quantity to purchase
-            // Same v1 caveat as the gil shop: index 0 as a safe starting point; a real
-            // implementation should resolve item.Value → row index via the agent item list.
-            // TODO: resolve item.Value → GC exchange row index via AgentGrandCompanySupply or
-            //       iterate GrandCompanyExchange AtkValues to find the matching entry.
-            var values = stackalloc AtkValue[2];
-            values[0] = new AtkValue { Type = AtkValueType.Int, Int = 0 }; // row index — VERIFY IN-GAME
-            values[1] = new AtkValue { Type = AtkValueType.Int, Int = quantity };
-            addon->FireCallback(2, values);
+            // AtkValues layout for the GrandCompanyExchange addon (verified from a live struct dump):
+            //   [1]        UInt   = number of items for exchange
+            //   [17 + i]   String = item i's display name
+            //   [67 + i]   UInt   = item i's seal price
+            //   [167 + i]  UInt   = item i's icon id
+            //   [317 + i]  UInt   = item i's item id
+            if (addon->AtkValuesCount < 318)
+                return Task.FromResult<Result<PurchaseOutcome>>(Result.Ok(PurchaseOutcome.ShopOpening));
+
+            var count = (int)addon->AtkValues[1].UInt;
+            if (count <= 0)
+                return Task.FromResult<Result<PurchaseOutcome>>(Result.Ok(PurchaseOutcome.ShopOpening));
+
+            var row = ResolveExchangeRow(addon, item.Value, count);
+            if (row < 0)
+                return Task.FromResult<Result<PurchaseOutcome>>(Result.Ok(PurchaseOutcome.ItemNotSold));
+
+            _lastBuyAt = DateTimeOffset.UtcNow;
+
+            // Confirmed via live FireCallback capture: GrandCompanyExchange buy =
+            // FireCallback([Int 0 = buy, Int row, Int qty, Int 0, Bool true, Bool false]);
+            // the follow-up SelectYesno is dismissed by SelectYesnoResponder during an active run.
+            var values = stackalloc AtkValue[6];
+            values[0] = new AtkValue { Type = AtkValueType.Int,  Int  = 0 };
+            values[1] = new AtkValue { Type = AtkValueType.Int,  Int  = row };
+            values[2] = new AtkValue { Type = AtkValueType.Int,  Int  = quantity };
+            values[3] = new AtkValue { Type = AtkValueType.Int,  Int  = 0 };
+            values[4] = new AtkValue { Type = AtkValueType.Bool, Byte = 1 };
+            values[5] = new AtkValue { Type = AtkValueType.Bool, Byte = 0 };
+            addon->FireCallback(6, values);
         }
 
-        // VERIFY IN-GAME: confirm that the GC exchange buy also raises SelectYesno and that
-        // the existing SelectYesnoResponder dismisses it correctly.
         return Task.FromResult<Result<PurchaseOutcome>>(Result.Ok(PurchaseOutcome.Purchased));
+    }
+
+    private static unsafe int ResolveExchangeRow(AtkUnitBase* addon, uint itemId, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var idx = 317 + i;
+            if (idx >= addon->AtkValuesCount) break;
+            if (addon->AtkValues[idx].UInt == itemId) return i;
+        }
+        return -1;
     }
 }
