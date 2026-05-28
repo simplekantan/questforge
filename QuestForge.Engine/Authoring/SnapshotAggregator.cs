@@ -32,6 +32,15 @@ public sealed class SnapshotAggregator
     private bool _selectYesnoConfirmed;
     private IReadOnlyList<byte>? _questVariables;
 
+    // ── purchase span state ────────────────────────────────────────────────
+    private bool _shopOpen;
+    private bool _purchaseSpanStarted;
+    private long? _purchaseBaselineGil;
+    private int? _purchaseBaselineSeals;
+    private long _currentGil;
+    private int _currentSeals;
+    private readonly Dictionary<uint, int> _spanItemDeltas = new();
+
     // ── combat span state ──────────────────────────────────────────────────
     private bool _inCombat;
     private WorldPosition? _combatStartPosition;
@@ -90,7 +99,8 @@ public sealed class SnapshotAggregator
         InCombat                     = _inCombat,
         KillCorrelatedTargets        = BuildKillCorrelatedTargets(),
         CombatStartPosition          = _combatStartPosition,
-        CombatStartZone              = _combatStartZone
+        CombatStartZone              = _combatStartZone,
+        PurchaseDetected             = BuildPurchaseDetected()
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -213,6 +223,47 @@ public sealed class SnapshotAggregator
                 _spanBattleNpcTargets.Add(t);
         }
         _inCombat = inCombat;
+    }
+
+    /// <summary>
+    /// Called when the player's currency balances are observed.
+    /// Always updates the current balances. If a purchase span is active (or not yet started),
+    /// the values are available as baselines when <see cref="OnShopOpened"/> fires.
+    /// </summary>
+    public void OnCurrencyChanged(long gil, int seals)
+    {
+        _currentGil   = gil;
+        _currentSeals = seals;
+    }
+
+    /// <summary>
+    /// Called when the shop-open state transitions.
+    /// On false→true: captures the current balance as baseline and starts a new span.
+    /// On true→false: the span is retained (mirror of combat span retention).
+    /// </summary>
+    public void OnShopOpened(bool open)
+    {
+        if (open && !_shopOpen)
+        {
+            _purchaseSpanStarted    = true;
+            _purchaseBaselineGil    = _currentGil;
+            _purchaseBaselineSeals  = _currentSeals;
+            _spanItemDeltas.Clear();
+        }
+        _shopOpen = open;
+    }
+
+    /// <summary>
+    /// Called when an item count change is observed in the vendor window.
+    /// Accumulates deltas while a purchase span is active (open or retained-after-close).
+    /// </summary>
+    public void OnVendorItemCountChanged(uint itemId, int count)
+    {
+        if (!_purchaseSpanStarted) return;
+        if (_spanItemDeltas.TryGetValue(itemId, out var existing))
+            _spanItemDeltas[itemId] = existing + count;
+        else
+            _spanItemDeltas[itemId] = count;
     }
 
     public void OnInteraction(NpcId npc, WorldPosition npcPosition)
@@ -377,9 +428,27 @@ public sealed class SnapshotAggregator
         // against the last known values, not from zero. (GWT-T7)
         _spanBattleNpcTargets.Clear();
         _spanNibbleBumps.Clear();
+        // Clear purchase span so Current.PurchaseDetected is null for the next window.
+        _spanItemDeltas.Clear();
+        _shopOpen             = false;
+        _purchaseSpanStarted  = false;
+        _purchaseBaselineGil  = null;
+        _purchaseBaselineSeals = null;
     }
 
     // ── Private span-correlation helper ──────────────────────────────────────
+
+    private PurchaseDetection? BuildPurchaseDetected()
+    {
+        if (!_purchaseSpanStarted) return null;
+        var baselineGil   = _purchaseBaselineGil   ?? _currentGil;
+        var baselineSeals = _purchaseBaselineSeals  ?? _currentSeals;
+        return new PurchaseDetection(
+            ShopWasOpen: true,
+            ItemDeltas:  new Dictionary<uint, int>(_spanItemDeltas),
+            GilDropped:  Math.Max(0L, baselineGil - _currentGil),
+            SealsDropped: Math.Max(0, baselineSeals - _currentSeals));
+    }
 
     private IReadOnlyDictionary<NibbleKey, KillCorrelation>? BuildKillCorrelatedTargets()
     {

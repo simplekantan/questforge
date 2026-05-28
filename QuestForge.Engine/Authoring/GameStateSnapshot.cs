@@ -6,6 +6,15 @@ namespace QuestForge.Engine.Authoring;
 public sealed record AethernetHop(AetheryteId? From, AethernetId To);
 
 /// <summary>
+/// Signals that a vendor shop was opened and purchases were detected during an authoring window.
+/// </summary>
+public sealed record PurchaseDetection(
+    bool ShopWasOpen,
+    IReadOnlyDictionary<uint, int> ItemDeltas,
+    long GilDropped,
+    int SealsDropped);
+
+/// <summary>
 /// Associates a set of enemy data-ids with the quest variable (or sequence) value that was
 /// reached after those kills were observed within the correlation window.
 /// </summary>
@@ -103,4 +112,9 @@ public sealed record GameStateSnapshot(
     // Null when no variables have been observed (e.g. Inspect mode, or before the first
     // heartbeat poll). Always length 6 when non-null.
     public IReadOnlyList<byte>? QuestVariables { get; init; }
+
+    // Non-positional. Set when a shop was opened and vendor activity was detected
+    // during an authoring recording window. Null when no purchase span has occurred.
+    // Cleared by ResetDeltas so it is a per-window delta signal.
+    public PurchaseDetection? PurchaseDetected { get; init; }
 }

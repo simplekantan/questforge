@@ -29,6 +29,7 @@ public sealed class UIObserver : IDisposable
     private readonly IGameProbe? _gameProbe;
     private readonly ITargetProbe? _targetProbe;
     private readonly ICombatProbe? _combatProbe;
+    private readonly IVendorProbe? _vendorProbe;
     private readonly IClock _clock;
 
     // ── aggregator (swappable) ───────────────────────────────────────────────
@@ -49,6 +50,11 @@ public sealed class UIObserver : IDisposable
     // ── combat tracking ───────────────────────────────────────────────────
     private readonly Dictionary<ulong, CombatHostileState> _hostileStates = new();
     private bool _lastInCombat;
+
+    // ── vendor tracking ───────────────────────────────────────────────────
+    private bool _lastShopOpen;
+    private long _lastGil;
+    private int _lastSeals;
 
     // ── key-items tracking ─────────────────────────────────────────────────
     private Dictionary<uint, int> _previousKeyItemsMap = new();
@@ -97,7 +103,8 @@ public sealed class UIObserver : IDisposable
         IGameProbe? gameProbe = null,
         IClock? clock = null,
         ITargetProbe? targetProbe = null,
-        ICombatProbe? combatProbe = null)
+        ICombatProbe? combatProbe = null,
+        IVendorProbe? vendorProbe = null)
     {
         ArgumentNullException.ThrowIfNull(framework);
         ArgumentNullException.ThrowIfNull(traceSession);
@@ -110,6 +117,7 @@ public sealed class UIObserver : IDisposable
         _gameProbe    = gameProbe;
         _targetProbe  = targetProbe;
         _combatProbe  = combatProbe;
+        _vendorProbe  = vendorProbe;
         _clock        = clock ?? SystemClock.Instance;
 
         _framework.Subscribe(OnFrameworkUpdate);
@@ -172,6 +180,9 @@ public sealed class UIObserver : IDisposable
         _previousKeyItemsMap.Clear();
         _hostileStates.Clear();
         _lastInCombat = false;
+        _lastShopOpen = false;
+        _lastGil      = 0;
+        _lastSeals    = 0;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -203,6 +214,7 @@ public sealed class UIObserver : IDisposable
         // the hostile target is forwarded. (The non-combat PollTargetNpc stays every-frame above.)
         PollCombat();
         PollBattleNpcTarget();
+        PollVendor();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -448,6 +460,59 @@ public sealed class UIObserver : IDisposable
         var runId = CurrentRunId;
         WriteObservation("GetTarget", 0u, new { baseId = bn.Value.BaseId, kind = "hostile" }, runId, now);
         _aggregator?.OnBattleNpcTargeted(bn.Value.BaseId);
+    }
+
+    private void PollVendor()
+    {
+        if (_vendorProbe is null) return;
+
+        var now   = _clock.UtcNow;
+        var runId = CurrentRunId;
+
+        // Shop-open transition
+        var open = _vendorProbe.IsShopOpen();
+        if (open != _lastShopOpen)
+        {
+            _lastShopOpen = open;
+            var valueEl = JsonSerializer.SerializeToElement(new { value = open }, JsonOpts);
+            _traceSession.Write(new ObservationEvent(
+                RunId:    runId,
+                Method:   "ShopOpened",
+                Argument: null,
+                Value:    valueEl,
+                At:       now));
+            _aggregator?.OnShopOpened(open);
+        }
+
+        // Currency balance
+        var gil   = _vendorProbe.GetGil();
+        var seals = _vendorProbe.GetGrandCompanySeals();
+        if (gil != _lastGil || seals != _lastSeals)
+        {
+            _lastGil   = gil;
+            _lastSeals = seals;
+            var valueEl = JsonSerializer.SerializeToElement(new { gil, seals }, JsonOpts);
+            _traceSession.Write(new ObservationEvent(
+                RunId:    runId,
+                Method:   "CurrencyBalance",
+                Argument: null,
+                Value:    valueEl,
+                At:       now));
+            _aggregator?.OnCurrencyChanged(gil, seals);
+        }
+
+        // Item count changes (one-shot list)
+        foreach (var (itemId, count) in _vendorProbe.GetChangedItemCounts())
+        {
+            var valueEl = JsonSerializer.SerializeToElement(new { itemId, count }, JsonOpts);
+            _traceSession.Write(new ObservationEvent(
+                RunId:    runId,
+                Method:   "VendorItemCount",
+                Argument: null,
+                Value:    valueEl,
+                At:       now));
+            _aggregator?.OnVendorItemCountChanged(itemId, count);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
