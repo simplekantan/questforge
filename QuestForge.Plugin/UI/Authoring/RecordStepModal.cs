@@ -3,6 +3,7 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using QuestForge.Engine.Authoring;
 using QuestForge.Plugin.Authoring;
+using QuestForge.Plugin.Tracing.Authoring;
 using QuestForge.Schema;
 
 namespace QuestForge.Plugin.UI.Authoring;
@@ -40,6 +41,8 @@ public sealed class RecordStepModal : Window
     private string _editPurchaseItemId = "";
     private string _editPurchaseQuantity = "";
     private string _editPurchaseCurrency = "gil";
+    private string _editPurchaseGcCategory = "";
+    private string _editPurchaseGcRankTier = "";
 
     // Async save tracking
     private Task? _saveTask;
@@ -69,6 +72,8 @@ public sealed class RecordStepModal : Window
         _editPurchaseItemId = "";
         _editPurchaseQuantity = "";
         _editPurchaseCurrency = "gil";
+        _editPurchaseGcCategory = "";
+        _editPurchaseGcRankTier = "";
         _saveError = "";
         IsOpen = true;
     }
@@ -155,12 +160,17 @@ public sealed class RecordStepModal : Window
                     : pd.SealsDropped > 0 && pd.GilDropped == 0 ? "gcSeals"
                     : pd.GilDropped >= pd.SealsDropped ? "gil"
                     : "gcSeals";
+                var (gcCat, gcTier) = PurchaseModalSeeder.SeedGcAxes(pd);
+                _editPurchaseGcCategory = gcCat;
+                _editPurchaseGcRankTier = gcTier;
             }
             else
             {
                 _editPurchaseItemId = "";
                 _editPurchaseQuantity = "1";
                 _editPurchaseCurrency = "gil";
+                _editPurchaseGcCategory = "";
+                _editPurchaseGcRankTier = "";
             }
             _state = RecordState.InferenceReady;
         }
@@ -225,6 +235,12 @@ public sealed class RecordStepModal : Window
             ImGui.TextUnformatted("Currency (gil / gcSeals):");
             ImGui.SetNextItemWidth(120f);
             ImGui.InputText("##purchasecurrency", ref _editPurchaseCurrency, 16);
+            ImGui.TextUnformatted("GC Category:");
+            ImGui.SetNextItemWidth(80f);
+            ImGui.InputText("##purchasegccategory", ref _editPurchaseGcCategory, 16);
+            ImGui.TextUnformatted("GC Rank Tier:");
+            ImGui.SetNextItemWidth(80f);
+            ImGui.InputText("##purchasegcranktier", ref _editPurchaseGcRankTier, 16);
         }
 
         ImGui.TextUnformatted("Expect (predicate):");
@@ -369,6 +385,9 @@ public sealed class RecordStepModal : Window
                 _         => PurchaseCurrency.Gil
             };
 
+            int? gcCategory = int.TryParse(_editPurchaseGcCategory.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var catVal) ? catVal : null;
+            int? gcRankTier = int.TryParse(_editPurchaseGcRankTier.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var tierVal) ? tierVal : null;
+
             return new PurchaseItemStep
             {
                 Id = stepId,
@@ -378,7 +397,9 @@ public sealed class RecordStepModal : Window
                 Target = new NpcLocation(NpcId: npcId, Zone: zone, Position: npcPos),
                 ItemId = itemId,
                 Quantity = qty,
-                Currency = currency
+                Currency = currency,
+                GcCategory = gcCategory,
+                GcRankTier = gcRankTier
             };
         }
 
@@ -424,6 +445,8 @@ public sealed class RecordStepModal : Window
         _editPurchaseItemId = "";
         _editPurchaseQuantity = "";
         _editPurchaseCurrency = "gil";
+        _editPurchaseGcCategory = "";
+        _editPurchaseGcRankTier = "";
         _state = RecordState.WaitingForAction;
         _saveTask = null;
         _saveError = "";

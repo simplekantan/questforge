@@ -243,4 +243,130 @@ public sealed class PurchaseSnapshotAggregatorTests
         Assert.NotNull(pd2);
         Assert.Equal(500L, pd2!.GilDropped);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // G-S1 (refined) — both API entry points populate ActiveGcCategory/ActiveGcRankTier (§14.9.6)
+    //
+    // RED: SnapshotAggregator.OnShopOpened no-op stub does not apply GC axes;
+    //      OnActiveGcAxesObserved is a no-op.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GS1_Refined_OnShopOpened_WithAxes_PopulatesGcFields()
+    {
+        // CONTRACT (§14.9.6 G-S1 refined — transition path):
+        // OnShopOpened(true, activeGcCategory: 2, activeGcRankTier: 1) + purchase signal
+        // → PurchaseDetected.ActiveGcCategory==2 && ActiveGcRankTier==1.
+
+        var clock = new FakeClock(Epoch);
+        var agg   = new SnapshotAggregator(BuyQuest, clock);
+
+        agg.OnCurrencyChanged(10_000L, 0);
+
+        // Transition with GC axes — RED: stub does not store these
+        agg.OnShopOpened(true, activeGcCategory: 2, activeGcRankTier: 1);
+
+        agg.OnVendorItemCountChanged(Item, 1);
+        agg.OnCurrencyChanged(9_000L, 0);
+
+        var pd = agg.Current.PurchaseDetected;
+        Assert.NotNull(pd);
+
+        // RED: ActiveGcCategory should be 2 but stub leaves it null
+        Assert.Equal(2, pd!.ActiveGcCategory);
+        Assert.Equal(1, pd.ActiveGcRankTier);
+    }
+
+    [Fact]
+    public void GS1_Refined_OnActiveGcAxesObserved_AfterOpen_PopulatesGcFields()
+    {
+        // CONTRACT (§14.9.6 G-S1 refined — heartbeat path):
+        // OnShopOpened(true) without axes, then OnActiveGcAxesObserved(2, 1) + purchase signal
+        // → PurchaseDetected.ActiveGcCategory==2 && ActiveGcRankTier==1.
+
+        var clock = new FakeClock(Epoch);
+        var agg   = new SnapshotAggregator(BuyQuest, clock);
+
+        agg.OnCurrencyChanged(10_000L, 0);
+        agg.OnShopOpened(true);  // no axes on transition
+
+        // Heartbeat path — RED: no-op stub does not store these
+        agg.OnActiveGcAxesObserved(2, 1);
+
+        agg.OnVendorItemCountChanged(Item, 1);
+        agg.OnCurrencyChanged(9_000L, 0);
+
+        var pd = agg.Current.PurchaseDetected;
+        Assert.NotNull(pd);
+
+        // RED: ActiveGcCategory should be 2 but stub leaves it null
+        Assert.Equal(2, pd!.ActiveGcCategory);
+        Assert.Equal(1, pd.ActiveGcRankTier);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // G-S2 — null probe reads keep nulls (§14.6, unchanged)
+    //
+    // GREEN (trivially): PurchaseDetection already defaults both fields to null,
+    // and the stub does not populate them. Passes even without Builder work.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GS2_NullProbeReads_KeepNullsOnPurchaseDetected()
+    {
+        // CONTRACT (§14.6 G-S2):
+        // OnShopOpened(true, null, null) + purchase signal → projection has both axes null.
+
+        var clock = new FakeClock(Epoch);
+        var agg   = new SnapshotAggregator(BuyQuest, clock);
+
+        agg.OnCurrencyChanged(10_000L, 0);
+        agg.OnShopOpened(true, activeGcCategory: null, activeGcRankTier: null);
+        agg.OnVendorItemCountChanged(Item, 1);
+        agg.OnCurrencyChanged(9_000L, 0);
+
+        var pd = agg.Current.PurchaseDetected;
+        Assert.NotNull(pd);
+        Assert.Null(pd!.ActiveGcCategory);
+        Assert.Null(pd.ActiveGcRankTier);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // G-S3 (refined) — "last seen non-null wins"; intermediate nulls preserve prior value (§14.9.6)
+    //
+    // RED: OnActiveGcAxesObserved is a no-op stub.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GS3_Refined_LastSeenNonNullWins_IntermediateNullsPreservePriorValue()
+    {
+        // CONTRACT (§14.9.6 G-S3 refined):
+        // OnShopOpened(true, 2, 1)
+        //   → OnActiveGcAxesObserved(null, null)   ← intermediate null must NOT clear 2/1
+        //   → OnActiveGcAxesObserved(3, 1)         ← should update category to 3
+        // Then PurchaseDetected.ActiveGcCategory==3 && ActiveGcRankTier==1.
+        // The intermediate null did NOT clear the 2.
+
+        var clock = new FakeClock(Epoch);
+        var agg   = new SnapshotAggregator(BuyQuest, clock);
+
+        agg.OnCurrencyChanged(10_000L, 0);
+        agg.OnShopOpened(true, activeGcCategory: 2, activeGcRankTier: 1);
+
+        // Intermediate null — RED: stub is no-op; but even when wired, null must NOT clear 2
+        agg.OnActiveGcAxesObserved(null, null);
+
+        // Non-null update — RED: stub is no-op
+        agg.OnActiveGcAxesObserved(3, 1);
+
+        agg.OnVendorItemCountChanged(Item, 1);
+        agg.OnCurrencyChanged(9_000L, 0);
+
+        var pd = agg.Current.PurchaseDetected;
+        Assert.NotNull(pd);
+
+        // RED: Builder must implement "last seen non-null wins" for both to work
+        Assert.Equal(3, pd!.ActiveGcCategory);
+        Assert.Equal(1, pd.ActiveGcRankTier);
+    }
 }

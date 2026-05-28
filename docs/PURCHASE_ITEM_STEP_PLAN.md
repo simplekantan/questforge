@@ -1161,6 +1161,348 @@ Targets `QuestForge.Engine.Tests` (engine arm + aggregator + factory), `QuestFor
 5. **No GC field set on a quest authored for a GC quartermaster (degenerate Slice C case).** Behavior is unchanged from today: try resolve, `ItemNotSold` if not on the current tab, `AwaitUser`. Safe; the validator does not require these fields (they are optional).
 6. **Both currencies set with GC fields (e.g. `Currency=Gil, GcCategory=2`).** Warning surfaced by `structural/purchase-gc-fields-on-gil`; engine ignores the fields at runtime (gil path does not look at them). Safe + author-visible.
 
+### 14.9 G5 implementation refinements (architect, 2026-05-28)
+
+> **Why this exists.** §14.5 / §14.6 left two material questions for "G5 implementation": (a) the on-the-wire shape that carries the active GC axes into the trace and (b) the exact "last-seen" semantics for the aggregator span. This sub-section pins both, decides modal/factory propagation in light of the existing code, and pins the sub-slicing. It is a refinement of §14.5/§14.6 — not a rewrite. **Replaced GWT specs are listed in §14.9.6 with explicit `REPLACES §14.6.X` headers; §14.6 is left untouched so the chain of decisions is auditable.**
+>
+> **Authority over the rest of §14:** where this sub-section contradicts §14.5/§14.6/§14.7, this sub-section wins (it ran after in-game verification and after audit of the live Slice E code).
+
+#### 14.9.1 Wire-shape decision — **Option A: extend the existing `ShopOpened` payload**
+
+**Pinned: Option A** — the existing authoring observation `ShopOpened` (emitted by `UIObserver.PollVendor`, see `QuestForge.Plugin.Tracing/UIObserver.cs:472-485`) gains two new optional fields on its payload object:
+
+```jsonc
+// before (current Slice E wire shape, verified):
+{ "type":"observation", "method":"ShopOpened", "value": { "value": true },  ... }
+
+// after (G5):
+{ "type":"observation", "method":"ShopOpened",
+  "value": { "value": true, "activeGcCategory": 2, "activeGcRankTier": 1 }, ... }
+```
+
+The two new keys are **always present in writes from a G5-or-newer plugin**, with `null` payloads when the probe returns `null` (addon closed, fail-quiet, or not a GC quartermaster — see D14.4). Readers built before G5 silently ignore extra object keys; readers built at G5-or-later treat absent / `null` axes as `null`.
+
+**File-level rationale (citing what was read):**
+
+1. **Existing `ShopOpened` payload is already a JSON object, not a bare bool.** `UIObserver.cs:477` writes `JsonSerializer.SerializeToElement(new { value = open }, JsonOpts)` and the offline parser `SnapshotState.cs:175-183` accepts BOTH `true|false` (bare bool) AND an object with a `value` key. Adding sibling keys on that same object is a *strictly* additive shape change; no parser branch needs to widen, and no extra event type joins the trace.
+
+2. **Zero new event types means zero new `case "X":` branches in `SnapshotState.Apply` AND zero new `method` discriminators in `TraceEventParser.DetectAndDeserialize` (`questforge-tools/.../TraceEventParser.cs:113`).** The existing `ObservationEvent` deserializer (`ObservationEvent.cs:6-16`) takes the value as a `JsonElement?`, so new sibling keys deserialize for free. Option B or C would each add at least one new method discriminator and at least one new apply-case (counted via the parallel apply-cases for `EnemyKilled`/`InCombat` at `SnapshotState.cs:124-153`). Option A adds **one** code edit per consumer (live emit + offline read), not one-per-new-event.
+
+3. **Fixture-cascade analysis (the load-bearing concern, §14.7 done-criterion #9).** Walked the corpus:
+   - `questforge-data/fixtures/engine/simple-linear-acceptance.json` — no `.trace.jsonl`; pure scripted state. **Unaffected.**
+   - `questforge-data/fixtures/engine/with-attunement.{json,trace.jsonl}` — `grep -l "ShopOpened\|VendorItemCount\|CurrencyBalance" with-attunement.trace.jsonl` returned **zero matches**. No vendor observations exist in any engine replay fixture today. **Unaffected.**
+   - `QuestForge.Engine.Tests/Replay/Quest66130ReplayTests.cs` and related scripted-state files do not consume vendor events. **Unaffected.**
+   - The only consumers of `ShopOpened` outside of authoring are `SnapshotState.Apply` (offline mirror) and `UIObserver.PollVendor` (live emit). Option A's additive sibling keys are byte-compatible with both: the live emit appends two new keys; the offline parser deserializes them as `JsonElement?` via the existing `ObservationEvent` shape and only `SnapshotState.Apply("ShopOpened", …)` peeks for them — and only when they are present.
+
+   **Verdict (and the gate for §14.7 done-criterion #9):** **NO engine replay fixture re-recording is required.** The new sibling keys land only on `ShopOpened` events emitted by a G5 plugin; existing fixtures emit none of these events at all, so the additive change is invisible to them. The Tester MUST assert this with a regression by running the existing engine fixture suite unchanged after G5 — the parametric `Quest66130ReplayTests` / `EngineFixtureTests` runs must remain green with byte-identical fixtures.
+
+4. **Why Option B (two dedicated events) is rejected.** Two new method discriminators (`ActiveGcCategory`, `ActiveGcRankTier`) mean:
+   - Two more apply-cases in `SnapshotState.cs` and two more entries in any test/`MakeTrace` helper that round-trips events.
+   - Worse, they create a **temporal-ordering ambiguity** the aggregator must resolve: does the active-axis observation arrive **before**, **at**, or **after** the `ShopOpened {true}` heartbeat? Today the heartbeat polls `IsShopOpen()`, balances, and item-counts in *one* atomic block (`UIObserver.cs:465-516`), with `ShopOpened` written first and `_aggregator?.OnShopOpened(open)` forwarded immediately. Two new events would have to slot into that same heartbeat (otherwise the aggregator's "last seen" cannot guarantee "during the open span") — at which point they are *semantically* part of the `ShopOpened` heartbeat anyway, and Option A is the more honest shape.
+   - Risk of fixture-cascade is non-zero if a non-vendor heartbeat accidentally drives an axis read in some future patch; bundling them into `ShopOpened` proves at the code level that they only fire when the shop-open path fires.
+
+5. **Why Option C (one combined `ActiveGcAxesObserved`) is rejected.** Same "two paths into the same aggregator" temporal-ordering issue as B; loses the cohesion benefit of "the same JSON object that says the shop opened also says which tab"; still adds one new event type vs zero.
+
+**Concrete production-side edit (the only wire-shape edit):**
+
+```csharp
+// QuestForge.Plugin.Tracing/UIObserver.cs PollVendor — current shape at line 477:
+var valueEl = JsonSerializer.SerializeToElement(new { value = open }, JsonOpts);
+
+// G5 shape:
+var activeCat  = _vendorProbe.GetActiveGcCategory();
+var activeTier = _vendorProbe.GetActiveGcRankTier();
+var valueEl = JsonSerializer.SerializeToElement(
+    new { value = open, activeGcCategory = activeCat, activeGcRankTier = activeTier },
+    JsonOpts);
+_traceSession.Write(new ObservationEvent(
+    RunId:    runId,
+    Method:   "ShopOpened",
+    Argument: null,
+    Value:    valueEl,
+    At:       now));
+_aggregator?.OnShopOpened(open, activeCat, activeTier);  // signature change, §14.9.2
+```
+
+Both probe reads are issued every transition (i.e. only when `IsShopOpen()` changes), keeping the per-heartbeat cost identical to today. **An additional periodic read** (so axis changes WHILE the shop stays open are captured) is specified in §14.9.2 as a non-`ShopOpened` heartbeat extension that **forwards to the aggregator only** — it does NOT emit a new trace event. (This is the small concession that keeps fixture-cascade at zero while still capturing mid-span axis changes.)
+
+#### 14.9.2 Aggregator data structure — exact fields and "last seen" semantics
+
+**Pinned fields on the span state in `SnapshotAggregator`** (added next to the existing `_shopOpen`/`_purchaseSpanStarted` block at `SnapshotAggregator.cs:35-42`):
+
+```csharp
+// ── purchase span state (additive: GC axes) ────────────────────────────
+private int? _spanActiveGcCategory;   // last non-null value observed while span is open OR retained
+private int? _spanActiveGcRankTier;   // same lifecycle as _spanActiveGcCategory
+```
+
+**One nullable field per axis (NOT a `(int?, int?)` tuple, NOT a single `GcAxes?` pair).** Rationale:
+
+- The two axes update **independently** during a session — the player clicks Weapons (category changes; rank-tier unchanged) and then clicks rank tier 1 (rank-tier changes; category unchanged). A tuple/pair would force the aggregator to either (a) overwrite both fields on every update — losing the older axis — or (b) carry per-axis last-seen logic anyway and just re-pack into a tuple at projection time. The independent-field shape is simpler and matches the probe's two independent reads (`GetActiveGcCategory()` and `GetActiveGcRankTier()` from D14.4).
+- "Last seen non-null wins" is the field's sole rule (see below); making it per-field keeps that rule trivially local to each setter.
+
+**Aggregator API extension (one of two options — the Builder picks ONE; the Tester asserts behavior, not signature shape):**
+
+- **Option (i) — extend `OnShopOpened`** to carry the two `int?` axes alongside `bool open`:
+  ```csharp
+  public void OnShopOpened(bool open, int? activeGcCategory = null, int? activeGcRankTier = null);
+  ```
+  Backward-compatible defaults preserve existing call sites in tests.
+
+- **Option (ii) — add a dedicated forwarder** invoked by `PollVendor` every heartbeat:
+  ```csharp
+  public void OnActiveGcAxesObserved(int? activeGcCategory, int? activeGcRankTier);
+  ```
+  Called every `PollVendor` tick while a span is alive; the aggregator drops the call on the floor when no span is active (mirror of `OnVendorItemCountChanged`'s `if (!_purchaseSpanStarted) return;` at `SnapshotAggregator.cs:262`).
+
+**Recommendation: BOTH.** Use (i) on the `false→true` transition (so the span baselines come with the axes seen at open) and (ii) every heartbeat thereafter (so mid-span axis changes update `_spanActiveGcCategory`/`_spanActiveGcRankTier`). `UIObserver.PollVendor` would call (i) only at the transition (line 484 today: `_aggregator?.OnShopOpened(open);`) and add an unconditional `_aggregator?.OnActiveGcAxesObserved(activeCat, activeTier);` outside the `if (open != _lastShopOpen)` guard, gated on `_vendorProbe is not null`. (ii) is **not** trace-emitting — it is in-process forwarding only — which is what keeps fixture-cascade at zero while capturing mid-span axis edits.
+
+**"Last seen non-null wins" — exact rule (resolves G-S3):**
+
+```csharp
+// Inside the aggregator, in BOTH the OnShopOpened(open, cat, tier) and the
+// OnActiveGcAxesObserved(cat, tier) setters:
+
+if (cat is not null) _spanActiveGcCategory = cat;
+if (tier is not null) _spanActiveGcRankTier = tier;
+// NOTE the asymmetry: a NULL observation does NOT clear a previously-set value.
+```
+
+**Specifically:** between two non-null observations, a null observation **keeps** the prior value. This is intentional — `null` from the probe means "the addon was closed at this moment OR the read failed" (D14.4 fail-quiet contract), which is precisely the situation where we want to retain whatever we *did* see while the shop was open. A `(2 → null → 3)` sequence yields `3` (G-S3 already asserts this for the (2 → 3) case; G-S3-bis below covers the null in the middle).
+
+**Span lifecycle interaction:**
+
+- On `OnShopOpened(true, cat, tier)` `false→true`: the existing baseline-snapshot + `_spanItemDeltas.Clear()` runs (lines 246-252); ALSO `_spanActiveGcCategory = null; _spanActiveGcRankTier = null;` is set **before** the "last seen non-null wins" application of the `(cat, tier)` carried with the transition. (A new span MUST start with cleared axes — otherwise a previous span's tab choice would bleed into the new one's projection.)
+- While the span is **open** (`_shopOpen == true`): `OnActiveGcAxesObserved` updates per the rule above.
+- While the span is **retained** post-close (`_shopOpen == false` but `_purchaseSpanStarted == true` — mirror of combat retention, lines 252-253): `OnActiveGcAxesObserved` calls are dropped (`if (!_shopOpen) return;`). The retained span keeps whatever axes were observed during the open phase; we do not let post-close stale probe reads mutate them.
+- On `ResetDeltas` (`SnapshotAggregator.cs:431-436`): both axis fields are cleared alongside `_spanItemDeltas`/`_shopOpen`/`_purchaseSpanStarted`/baselines.
+
+**`BuildPurchaseDetected` projection update (`SnapshotAggregator.cs:441-451`):**
+
+```csharp
+private PurchaseDetection? BuildPurchaseDetected()
+{
+    if (!_purchaseSpanStarted) return null;
+    var baselineGil   = _purchaseBaselineGil   ?? _currentGil;
+    var baselineSeals = _purchaseBaselineSeals  ?? _currentSeals;
+    return new PurchaseDetection(
+        ShopWasOpen:        true,
+        ItemDeltas:         new Dictionary<uint, int>(_spanItemDeltas),
+        GilDropped:         Math.Max(0L, baselineGil  - _currentGil),
+        SealsDropped:       Math.Max(0,  baselineSeals - _currentSeals),
+        ActiveGcCategory:   _spanActiveGcCategory,    // NEW (named arg — D14.5 record uses defaults)
+        ActiveGcRankTier:   _spanActiveGcRankTier);   // NEW
+}
+```
+
+`PurchaseDetection`'s two new fields are already declared with `= null` defaults per D14.5; the constructor call simply passes them by name.
+
+**Why "at-purchase-instant" was rejected** (rephrasing D14.5's prose decision with the concrete reason now visible from the code): there is no instant-correlation mechanism between an item count change and a tab state. Item-count changes arrive via `OnVendorItemCountChanged`; tab state arrives via the new probe read. Stitching them at instant granularity would require timestamping every probe read and every item-delta and picking the axes "just before" the rise — a complexity that buys nothing because (a) authors rarely flip tabs *between* the buy click and the count rise, and (b) wrong pre-fill is one click in the modal to fix. "Last seen non-null wins" is the smallest rule that correctly handles the common case (the player browses tabs, settles on the right one, clicks buy — the *last* tab they were on is the one we want).
+
+#### 14.9.3 Modal UI — concrete control description and seeding
+
+**Existing infrastructure (audited):** `QuestForge.Plugin/UI/Authoring/RecordStepModal.cs` already has three editable text fields for the purchase-item type override (`_editPurchaseItemId`/`_editPurchaseQuantity`/`_editPurchaseCurrency` at lines 40-42), seeded from `_after.PurchaseDetected` at lines 145-164, and rendered with `ImGui.InputText` at lines 217-228. The reset/clear paths exist at lines 69-71 and 424-426. **The pattern is established — G5 needs to mirror it for the two GC axes.**
+
+**Pinned controls — two new text-input fields next to the currency input, NOT `ImGui.InputInt` numerics:**
+
+```csharp
+// Class fields (additive, near line 42):
+private string _editPurchaseGcCategory = "";
+private string _editPurchaseGcRankTier = "";
+
+// DrawInferenceState — after line 228, only when StepType == "purchase-item":
+ImGui.TextUnformatted("GC Category (0..3, blank for any):");
+ImGui.SetNextItemWidth(80f);
+ImGui.InputText("##purchasegccategory", ref _editPurchaseGcCategory, 8);
+ImGui.TextUnformatted("GC Rank Tier (0..2, blank for any):");
+ImGui.SetNextItemWidth(80f);
+ImGui.InputText("##purchasegcranktier", ref _editPurchaseGcRankTier, 8);
+```
+
+**Why `ImGui.InputText`, not `ImGui.InputInt`** (matches existing precedent and supports the null/blank case G-S6 requires):
+
+- All three existing purchase fields are `InputText` (lines 221, 224, 227). Mixing a numeric input alongside three text inputs is visually jarring and code-noise (two parse paths instead of one).
+- `InputInt` cannot represent `null` — it always carries an `int`. G-S6 requires "when both axes are null, the inputs are blank/`""`" — that is trivially expressible with `InputText` and a `""` initial value, but with `InputInt` the user would see `0` (which is a legal axis value — Weapons / lowest tier!) and confuse "no opinion" with "axis = 0."
+- Parsing on Confirm uses the same `int.TryParse` pattern as the existing quantity parse (line 363) — a blank string yields `false`/zero, which maps to `null` for the optional field.
+
+**Seeding (extends the existing block at lines 145-164):**
+
+```csharp
+if (_inference.StepType == "purchase-item" && _after?.PurchaseDetected is { } pd && pd.ItemDeltas.Count > 0)
+{
+    // ... existing item/quantity/currency seeding ...
+
+    _editPurchaseGcCategory = pd.ActiveGcCategory is { } cat
+        ? cat.ToString(System.Globalization.CultureInfo.InvariantCulture) : "";
+    _editPurchaseGcRankTier = pd.ActiveGcRankTier is { } tier
+        ? tier.ToString(System.Globalization.CultureInfo.InvariantCulture) : "";
+}
+else
+{
+    // ... existing else-branch ...
+    _editPurchaseGcCategory = "";
+    _editPurchaseGcRankTier = "";
+}
+```
+
+**Confirm-time parse (extends `BuildRawStep` at lines 349-383):**
+
+```csharp
+int? gcCategory = null;
+if (int.TryParse(_editPurchaseGcCategory.Trim(), out var catParsed)) gcCategory = catParsed;
+int? gcRankTier = null;
+if (int.TryParse(_editPurchaseGcRankTier.Trim(), out var tierParsed)) gcRankTier = tierParsed;
+
+return new PurchaseItemStep
+{
+    // ... existing properties ...
+    GcCategory = gcCategory,
+    GcRankTier = gcRankTier
+};
+```
+
+**Open + reset paths:** `Open()` (line 59), `ResetAndClose()` (line 417), and the unused-after-validator `Reset()` (lines 64-72) all set the two new fields to `""` — mirroring exactly how `_editPurchaseItemId` etc. are cleared.
+
+**G-S6 specifics:** when both `ActiveGcCategory` and `ActiveGcRankTier` are non-null on `pd`, the two InputText controls show `"2"` and `"1"` respectively (after `.ToString(InvariantCulture)`). When both are null on `pd`, the controls show `""`. The Tester asserts the field state, not the rendered pixels — the existing modal tests already follow this convention.
+
+**No new UI code beyond the additive controls is needed.** The modal already supports re-opening with new pre-fills (the Open/Reset chain is idempotent), and the validator's "axes ignored when currency=gil" warning (D14.6) is surfaced as the existing yellow notes block at line 200 — no additional inline UI work.
+
+#### 14.9.4 StepFactory propagation — exact added lines
+
+`StepFactory.BuildPurchaseItemStep` (in `QuestForge.Engine/Authoring/StepFactory.cs:288-332`) already builds a `PurchaseItemStep` from `after.PurchaseDetected` and `after.LastNpcInteracted`. Adding G5 is two property-init lines in the existing object initializer (lines 321-331):
+
+```csharp
+return new PurchaseItemStep
+{
+    Id = stepId,
+    Expect = expectValue,
+    Zone = zoneStr,
+    RequiredZone = zoneStr,
+    Target = new NpcLocation(NpcId: npcId, Zone: zone, Position: npcPos),
+    ItemId = primaryId,
+    Quantity = primaryQty,
+    Currency = currency,
+    GcCategory = after?.PurchaseDetected?.ActiveGcCategory,   // NEW (G-S4)
+    GcRankTier = after?.PurchaseDetected?.ActiveGcRankTier    // NEW (G-S5: null when null on pd)
+};
+```
+
+That is the full factory change. No new branches; no new helpers. The `?.` chain copes with `after is null` and with `after.PurchaseDetected is null` — both produce `null` on the resulting step, which G-S5 asserts is the correct behavior. The modal's `BuildRawStep` (RecordStepModal.cs:372-382) does NOT delegate to `StepFactory` for `purchase-item` (it inlines the build — see line 372), so the modal's two property-inits in §14.9.3 are independent of the factory's two property-inits here.
+
+**Equality of live and offline:** both `SnapshotAggregator.BuildPurchaseDetected` (live) and `SnapshotState.BuildPurchaseDetected` (offline, `questforge-tools/QuestForge.Tools.Trace/SnapshotState.cs:489-497`) project into the *same* `PurchaseDetection` record. The factory therefore reads from the same shape regardless of consumer — the line above is correct for both live (E.2) and offline (E.3) paths because `TraceToQuestExtractor.cs:219` calls `StepFactory.Build("purchase-item", …)`.
+
+#### 14.9.5 Sub-slicing plan — **G5 as ONE branch per repo, with G5a (questforge) merged BEFORE G5b (questforge-tools)**
+
+**Pinned: two branches, strictly ordered.**
+
+- **G5a — `feat/purchase-item-gc-authoring`** on `questforge`. Lands all of: `IVendorProbe` extension (`GetActiveGcCategory`/`GetActiveGcRankTier`), `FakeVendorProbe` extension, `UIObserver.PollVendor` payload change (§14.9.1's Option A wire shape) and the `OnActiveGcAxesObserved` heartbeat forward, `SnapshotAggregator` two new fields + setters + lifecycle (§14.9.2), `PurchaseDetection` two new fields wired through `BuildPurchaseDetected`, `StepFactory` two property inits (§14.9.4), `RecordStepModal` two new InputText controls + seeding + Confirm parse + Open/Reset (§14.9.3). Tests in scope: GWT-PU* extensions for the `ShopOpened` payload, G-S1..G-S6 (six tests), `UIObserverVendorTests`/`UIObserverVendorForwardingTests` updates to assert the new payload + forward.
+- **G5b — `feat/purchase-item-gc-offline`** on `questforge-tools`. Lands: `SnapshotState.Apply("ShopOpened", …)` extended to peek `activeGcCategory`/`activeGcRankTier` siblings on the payload object and store them on the same two new private fields with the same "last seen non-null wins" rule; `SnapshotState.BuildPurchaseDetected` projects them onto `PurchaseDetection`. (`TraceToQuestExtractor` requires NO change — it already calls `StepFactory.Build("purchase-item", …)`, which now propagates the fields per §14.9.4 since `questforge-tools` already references the engine project's `StepFactory`.) Tests: G-O1..G-O3.
+
+**Why G5a strictly before G5b** (not parallel branches in one PR each):
+
+- **Wire shape is the contract between the halves.** G5b's `Apply("ShopOpened", …)` parses the *exact* JSON the G5a `PollVendor` emits. If G5b lands first, the test fixtures it writes will have a guessed shape; if G5a then ships a different shape, the offline tests pass on stale fixtures and the live-vs-offline projections diverge silently. Landing G5a first pins the production-emitted shape (committed in `UIObserver.cs`), against which G5b's parser can be authored and asserted.
+- **`StepFactory` is in `questforge` and is referenced by `questforge-tools`.** G5b's `TraceToQuestExtractor` invokes `StepFactory.Build("purchase-item", …)` from G5a's project. The two new property inits in §14.9.4 ship in G5a; G5b inherits them via the project reference. Trying to ship G5b first means either (a) duplicating the property inits in `questforge-tools` (forbidden by the "live and offline use the SAME StepFactory" precedent at `TraceToQuestExtractor.cs:200-205`) or (b) shipping G5b against an unmerged G5a (introduces inter-PR coupling for no benefit).
+- **CI signal is cleaner.** G5a's tests live entirely in `questforge`; G5b's live entirely in `questforge-tools`. Each PR is a complete, mergeable unit. The strict order is enforced by the human reviewer (G5b's PR description should cite the G5a merge commit).
+
+**Why NOT sub-sub-slicing within questforge (G5.1 = probe; G5.2 = aggregator + factory; G5.3 = modal):**
+
+- The probe extension is two interface methods + a fake implementation. Splitting it into its own PR means a merged but-unconsumed probe surface — exactly the "interfaces shipped without consumers" anti-pattern that bit Slice E pre-PR-#80. Bundling probe + aggregator forward + factory ensures the new fields have a producer-to-consumer chain in one merge.
+- The modal is the only piece that depends on the GameStateSnapshot projection (`PurchaseDetection` extension). It is conceptually one step downstream of the aggregator, but the aggregator's tests are pure and the modal's tests are pure — they share zero test infrastructure. Splitting them adds a PR for ~30 lines of UI code that has no behavioral test in isolation (it asserts pre-fill via `_editPurchaseGc*` field state in the existing modal test project).
+- The CI runtime difference between "G5a as one PR" (~6-9 tests added) and "G5a as three sub-PRs" (~2-3 tests each) is not material; the review burden of three PRs is.
+
+**Strict-ordering implications and protocol:**
+
+1. Open G5a as `feat/purchase-item-gc-authoring` on `questforge`. Land all of §14.9.1's wire-shape edit, §14.9.2's aggregator extension, §14.9.3's modal extension, §14.9.4's factory extension, and all GWT-PU* updates + Group G-S tests. Merge to main when green.
+2. Then open G5b as `feat/purchase-item-gc-offline` on `questforge-tools`. Land `SnapshotState.Apply("ShopOpened", …)`'s sibling-key peek + projection + Group G-O tests. PR description cites the G5a merge SHA. Merge when green.
+3. **No sub-slicing within G5a or G5b.** Each is a single TDD red→green cycle.
+
+The Slice G6 in-game (probe implementation: `DalamudVendorProbe.GetActiveGcCategory`/`GetActiveGcRankTier`) follows G5b and is unchanged from §14.5.
+
+#### 14.9.6 Updated / refined GWT specs (REPLACES — §14.6 left untouched)
+
+> Each entry below explicitly states which §14.6 spec it replaces. The Tester MUST use these refined versions; the originals in §14.6 are kept verbatim for audit but are superseded.
+
+**REPLACES §14.6 G-O1** (the original deferred the wire shape to "G5 implementation"; now pinned):
+
+- **G-O1 (refined) — offline `SnapshotState` mirrors the active-axis projection from the extended `ShopOpened` payload.**
+  *Given* `SnapshotState(70001)`;
+  *When* an `ObservationEvent` is applied with `Method == "ShopOpened"` and `Value == { "value": true, "activeGcCategory": 2, "activeGcRankTier": 1 }`, then a `CurrencyBalance { gil: 10000, seals: 0 }` event, then a `VendorItemCount { itemId: 1601, count: 1 }` event, then a `CurrencyBalance { gil: 9000, seals: 0 }` event;
+  *Then* `ToSnapshot(t).PurchaseDetected` has `ItemDeltas[1601] == 1`, `GilDropped == 1000`, **`ActiveGcCategory == 2`, `ActiveGcRankTier == 1`**.
+  *And* `Apply` returns `true` for the `ShopOpened` event (recognised-no-op discipline — the additional sibling keys do not break recognition).
+
+**REPLACES §14.6 G-O3** (the original phrased "absent values" loosely; now pinned to two concrete sub-cases):
+
+- **G-O3 (refined a) — pre-G5 trace: `ShopOpened` payload has no `activeGcCategory`/`activeGcRankTier` siblings.**
+  *Given* `SnapshotState(70001)`;
+  *When* a `ShopOpened` event with `Value == { "value": true }` (legacy shape — no GC keys at all) is applied, then the rest of a clean purchase trace;
+  *Then* `ToSnapshot(t).PurchaseDetected` has `ActiveGcCategory == null && ActiveGcRankTier == null`. The downstream `PurchaseItemStep` emitted by `Extract` has both fields null.
+
+- **G-O3 (refined b) — G5 trace with null-valued payload (probe fail-quiet).**
+  *Given* `SnapshotState(70001)`;
+  *When* a `ShopOpened` event with `Value == { "value": true, "activeGcCategory": null, "activeGcRankTier": null }` is applied;
+  *Then* the projection yields `ActiveGcCategory == null && ActiveGcRankTier == null`. (Distinguishes G5-but-probe-failed from pre-G5 absent-keys; both must project to null and produce a step with null GC fields.)
+
+**REPLACES §14.6 G-O2** (refining the precondition wording to match §14.9.1's concrete wire shape):
+
+- **G-O2 (refined) — `TraceToQuestExtractor` writes the new fields onto the emitted `PurchaseItemStep`.**
+  *Given* a synthetic trace whose only `ShopOpened` event carries `Value == { "value": true, "activeGcCategory": 2, "activeGcRankTier": 1 }`, plus the standard `CurrencyBalance`/`VendorItemCount`/`ShopOpened {false}` sequence that drives an extracted `PurchaseItemStep` (mirror PE1's shape);
+  *When* `Extract` runs;
+  *Then* the resulting `PurchaseItemStep` has `GcCategory == 2` and `GcRankTier == 1` (carried through `StepFactory.Build` per §14.9.4).
+
+**REPLACES §14.6 G-S3** (clarifying the intermediate-null case the original under-specified):
+
+- **G-S3 (refined) — "last seen non-null wins"; intermediate nulls preserve the prior value.**
+  *Given* `SnapshotAggregator` for `BuyQuest`; `OnShopOpened(true, activeGcCategory: 2, activeGcRankTier: 1)`;
+  *When* `OnActiveGcAxesObserved(null, null)` is called (probe momentarily returned null), then `OnActiveGcAxesObserved(3, 1)` is called;
+  *Then* `Current.PurchaseDetected.ActiveGcCategory == 3 && ActiveGcRankTier == 1`. (The intermediate null did NOT clear the `2`; the subsequent `3` then replaced it. Combined with the original G-S3 (`(2 → 3)` → `3`), this pins the rule.)
+
+**REPLACES §14.6 G-S1** (concretizing the API the probe-to-aggregator wiring uses, per §14.9.2):
+
+- **G-S1 (refined) — `PurchaseDetection.ActiveGcCategory`/`ActiveGcRankTier` populate from the aggregator's two API entry points.**
+  *Given* `SnapshotAggregator` for `BuyQuest`;
+  *When* `OnShopOpened(true, activeGcCategory: 2, activeGcRankTier: 1)` is called (transition forwards the axes) and the rest of the §13.1 purchase signal arrives (`OnVendorItemCountChanged(1601, +1)`, `OnCurrencyChanged(seals dropped)`);
+  *Then* `Current.PurchaseDetected.ActiveGcCategory == 2 && ActiveGcRankTier == 1` alongside the existing fields.
+  *Also* (heartbeat path): with no axes on `OnShopOpened(true)` but a subsequent `OnActiveGcAxesObserved(2, 1)`, the same projection holds — confirms both APIs feed the same span fields.
+
+**ADDS — GWT-PU6 (new; covers §14.9.1's wire-shape change in `UIObserver.PollVendor`):**
+
+- **GWT-PU6 — `ShopOpened` payload carries `activeGcCategory`/`activeGcRankTier` siblings from the probe.**
+  *Given* `UIObserver` with a `FakeVendorProbe` that reports `IsShopOpen()==true` and `GetActiveGcCategory()==2`, `GetActiveGcRankTier()==1`;
+  *When* a heartbeat fires and `_lastShopOpen` was previously `false` (transition);
+  *Then* exactly one `ObservationEvent` with `Method=="ShopOpened"` is written and its `Value` parses as an object with `value: true`, `activeGcCategory: 2`, `activeGcRankTier: 1`; `_aggregator?.OnShopOpened(true, 2, 1)` is forwarded.
+  *Negative*: when the probe returns `null` for both axes, the `Value` contains `activeGcCategory: null`/`activeGcRankTier: null` (keys present, values null) and the forwarded `OnShopOpened(true, null, null)` carries nulls.
+
+**ADDS — GWT-PU7 (covers the mid-span heartbeat forward path that does NOT emit a new trace event):**
+
+- **GWT-PU7 — `OnActiveGcAxesObserved` is forwarded every heartbeat while a span is alive, without emitting a new trace event.**
+  *Given* `UIObserver` with `FakeVendorProbe` after a `ShopOpened {true}` heartbeat has already fired (so `_lastShopOpen == true`);
+  *When* a subsequent heartbeat fires with `IsShopOpen()` still true but `GetActiveGcCategory()` returning `3` (changed from `2`);
+  *Then* NO new `ShopOpened` `ObservationEvent` is written (the open-state did not transition), but `_aggregator?.OnActiveGcAxesObserved(3, …)` IS forwarded.
+  *Asserts* the "mid-span axis changes update the aggregator without inflating the trace" property — the load-bearing guard against fixture-cascade.
+
+(All of §14.6 G-S2, G-S4, G-S5, G-S6, G-E1..G-E3, G-A1..G-A3, G-D1..G-D3, G-F1..G-F9, G-O remaining (the refined replacements above cover G-O1/G-O2/G-O3) stand as written.)
+
+#### 14.9.7 Risks and explicit non-goals
+
+**Risks (additive to §14.8):**
+
+1. **A future reader parses `Value` as a bare bool when it is in fact an object.** Mitigated by `SnapshotState.cs:175-183` already accepting both forms; any new parser MUST follow that pattern. The Tester asserts both legacy `{ value: true }` AND `true` (bare) AND the G5 object-with-siblings shape all deserialize without error (G-O3a covers the legacy-keyless case; an additional bare-bool case is folded into the existing parsing tests for `ShopOpened`).
+2. **Mid-span axis-flip storm.** If the player rapidly clicks tabs, every heartbeat (1Hz at most) updates `_spanActiveGcCategory`/`_spanActiveGcRankTier`. Cost: O(1) per update, no allocations. The trace is **unaffected** (no new event fires per the §14.9.2 design — `OnActiveGcAxesObserved` is in-process forwarding only). Accepted.
+3. **Probe-fail oscillation while shop stays open.** The `null` observations during a transient probe failure no longer clear the prior non-null value (G-S3 refined). If the probe never recovers, the projection retains the last-known good axes; the Confirm-stage modal pre-fills correctly. Accepted; the alternative ("null clears") was rejected as making one transient probe glitch corrupt an otherwise clean detection.
+4. **Sibling-key collision in `ShopOpened` `value` payload.** The two new keys (`activeGcCategory`, `activeGcRankTier`) are namespaced enough that no current or planned key collides; the validator does not lint observation payloads (they are post-mortem trace data). Accepted.
+
+**Explicit non-goals (G5 does NOT do):**
+
+1. **No probe for character GC rank.** §14.8 risk #1 (potential 5th category at high GC ranks) is unchanged; G5 reads only the *currently visible* radio button selection, not what tabs the character can see.
+2. **No UI exposure of the high-rank 5th category.** The validator still rejects `GcCategory == 4` (D14.6); G5 inherits that limit. Widening is a separate slice once an in-game rank-3 character verifies.
+3. **No validator change.** §14.4's three rules are unchanged; G5 is invisible to the validator (the schema fields already exist from G1; no new rules apply).
+4. **No new TraceEvent type.** §14.9.1 specifically picks Option A to avoid this; G5 adds zero entries to `TraceEventParser.DetectAndDeserialize`, zero entries to `TraceEventJsonContext`.
+5. **No new authoring-mode poller.** `PollVendor` is extended in-place; no `PollGcExchange` or similar new heartbeat method is introduced.
+6. **No engine runtime change.** The engine's `EngineAction.Purchase` already carries `GcCategory`/`GcRankTier` from G2; the engine emits them whether or not authoring detection has populated them. G5 is authoring-time only.
+7. **No live-switching of `IVendorProbe` implementation.** Plugins constructed without a probe (Inspect mode, tests) still get back-compat behavior — no `ShopOpened` events at all, no aggregator forwards. Live switching is out of scope (matches the `TraceMode` reload-required note in CLAUDE.md).
+8. **No "split into multiple purchase steps" auto-emission.** §11's stance ("auto-splitting one recording window with multiple distinct purchases is out of scope") stands; if both axes flip mid-session because the player bought from two different tabs, the resulting single drafted step still pre-fills only the LAST-seen axes, and `Notes` on the inference result already flags multi-item windows for author split (existing §13.1 behavior).
+
+
 ---
 
 ## Report summary

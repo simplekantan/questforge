@@ -66,6 +66,16 @@ public sealed class DalamudVendorProbe : IVendorProbe
         return mgr->GetInventoryItemCount(sealItemId, isHq: false, checkEquipped: false, checkArmory: false);
     }
 
+    // G6: implement radio-Selected reads. Per D14.4 the implementation walks the
+    // AtkComponentRadioButton group on the GrandCompanyExchange addon (node ids 44+i for
+    // category, 37+i for tier — see DalamudVendor.cs §G3) and returns the index of the
+    // button whose Selected flag is true, or null on any traversal failure.
+    // VERIFY IN-GAME: the exact AtkComponentRadioButton node path.
+    // Returning null (fail-quiet) is safe — the aggregator treats null as "no opinion",
+    // the modal falls back to blank inputs (D14.4), the rest of the pipeline works unchanged.
+    public int? GetActiveGcCategory() => null;
+    public int? GetActiveGcRankTier() => null;
+
     public unsafe IReadOnlyList<(uint ItemId, int Count)> GetChangedItemCounts()
     {
         // VERIFY IN-GAME: Inventory1-4 cover the four regular inventory bags. Purchases land

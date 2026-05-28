@@ -327,7 +327,9 @@ public static class StepFactory
             Target = new NpcLocation(NpcId: npcId, Zone: zone, Position: npcPos),
             ItemId = primaryId,
             Quantity = primaryQty,
-            Currency = currency
+            Currency = currency,
+            GcCategory = after?.PurchaseDetected?.ActiveGcCategory,
+            GcRankTier = after?.PurchaseDetected?.ActiveGcRankTier
         };
     }
 
