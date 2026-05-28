@@ -16,7 +16,8 @@ public sealed class DalamudVendor : IVendor
     public DalamudVendor(PluginServices svc) => _svc = svc;
 
     public Task<Result<PurchaseOutcome>> Purchase(
-        NpcId vendor, ItemId item, int quantity, PurchaseCurrency currency, CancellationToken ct)
+        NpcId vendor, ItemId item, int quantity, PurchaseCurrency currency,
+        CancellationToken ct = default, int? gcCategory = null, int? gcRankTier = null)
         => currency switch
         {
             PurchaseCurrency.Gil     => PurchaseGil(item, quantity, ct),

@@ -96,4 +96,61 @@ public sealed class FakeVendorTests
         Assert.Equal(PurchaseOutcome.ShopOpening, result.ValueOrThrow);
         Assert.Equal(1, vendor.RecordedCalls.Count);
     }
+
+    // =========================================================================
+    // G-D — FakeVendor records the two new GC navigation fields (Slice G2)
+    //
+    // RED PHASE: All G-D tests fail to compile until Builder adds:
+    //   - gcCategory: int? and gcRankTier: int? optional params to IVendor.Purchase (G2)
+    //   - GcCategory: int? and GcRankTier: int? fields to FakeVendor.PurchaseCall record (G2)
+    //   - FakeVendor.Purchase accepts and forwards the two new params (G2)
+    //
+    // BACK-COMPAT NOTE: the existing D1-D3 tests above call Purchase without the new args
+    // and serve as the implicit back-compat probe — they must still compile and pass without
+    // modification after G2 lands (because the new params default to null).
+    // =========================================================================
+
+    // =========================================================================
+    // G-D1 — Purchase captures gcCategory and gcRankTier on the recorded call
+    // =========================================================================
+
+    [Fact]
+    public async Task GD1_Purchase_CapturesGcCategoryAndRankTier()
+    {
+        // CONTRACT: Purchase called with gcCategory:2, gcRankTier:1 → PurchaseCall records both
+        var vendor = CreateVendor();
+        var npcId  = new NpcId(VendorNpc);
+        var itemId = new ItemId(ItemNum);
+
+        vendor.ScriptNextOutcome(PurchaseOutcome.Purchased);
+
+        await vendor.Purchase(
+            npcId, itemId, 1, PurchaseCurrency.GcSeals,
+            gcCategory: 2,   // RED: IVendor.Purchase does not have this parameter yet
+            gcRankTier: 1,   // RED: IVendor.Purchase does not have this parameter yet
+            ct: CancellationToken.None);
+
+        Assert.Equal(1, vendor.RecordedCalls.Count);
+        Assert.Equal(2, vendor.RecordedCalls[0].GcCategory);   // RED: PurchaseCall.GcCategory does not exist
+        Assert.Equal(1, vendor.RecordedCalls[0].GcRankTier);   // RED: PurchaseCall.GcRankTier does not exist
+    }
+
+    // =========================================================================
+    // G-D2 — gcCategory and gcRankTier default to null when not supplied
+    // =========================================================================
+
+    [Fact]
+    public async Task GD2_Purchase_DefaultsGcFieldsToNull_WhenNotSpecified()
+    {
+        // CONTRACT: Purchase called without new args → PurchaseCall.GcCategory==null, GcRankTier==null
+        var vendor = CreateVendor();
+
+        await vendor.Purchase(
+            new NpcId(VendorNpc), new ItemId(ItemNum), 1, PurchaseCurrency.Gil,
+            CancellationToken.None);
+
+        Assert.Equal(1, vendor.RecordedCalls.Count);
+        Assert.Null(vendor.RecordedCalls[0].GcCategory);    // RED: PurchaseCall.GcCategory does not exist
+        Assert.Null(vendor.RecordedCalls[0].GcRankTier);    // RED: PurchaseCall.GcRankTier does not exist
+    }
 }
