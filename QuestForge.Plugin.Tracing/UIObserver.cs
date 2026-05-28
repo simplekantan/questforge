@@ -469,20 +469,30 @@ public sealed class UIObserver : IDisposable
         var now   = _clock.UtcNow;
         var runId = CurrentRunId;
 
+        // Read GC axes once per heartbeat (cached locally — each Get* called exactly once).
+        var activeCat  = _vendorProbe.GetActiveGcCategory();
+        var activeTier = _vendorProbe.GetActiveGcRankTier();
+
         // Shop-open transition
         var open = _vendorProbe.IsShopOpen();
         if (open != _lastShopOpen)
         {
             _lastShopOpen = open;
-            var valueEl = JsonSerializer.SerializeToElement(new { value = open }, JsonOpts);
+            var valueEl = JsonSerializer.SerializeToElement(
+                new { value = open, activeGcCategory = activeCat, activeGcRankTier = activeTier },
+                JsonOpts);
             _traceSession.Write(new ObservationEvent(
                 RunId:    runId,
                 Method:   "ShopOpened",
                 Argument: null,
                 Value:    valueEl,
                 At:       now));
-            _aggregator?.OnShopOpened(open);
+            _aggregator?.OnShopOpened(open, activeCat, activeTier);
         }
+
+        // Heartbeat forward while shop is open (no new trace event)
+        if (open)
+            _aggregator?.OnActiveGcAxesObserved(activeCat, activeTier);
 
         // Currency balance
         var gil   = _vendorProbe.GetGil();

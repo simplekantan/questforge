@@ -133,4 +133,87 @@ public sealed class PurchaseStepFactoryTests
         Assert.Equal(3,      ps.Quantity);
         Assert.Equal(PurchaseCurrency.GcSeals, ps.Currency);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // G-S4 — StepFactory writes GcCategory/GcRankTier from PurchaseDetection (§14.9.6)
+    //
+    // RED: StepFactory.BuildPurchaseItemStep does not yet propagate
+    //      after.PurchaseDetected.ActiveGcCategory/ActiveGcRankTier into the step.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GS4_FactoryWritesGcFieldsFromPurchaseDetection()
+    {
+        // CONTRACT (§14.9.4 + §14.9.6 G-S4):
+        // Given after.PurchaseDetected has ActiveGcCategory=2, ActiveGcRankTier=1
+        // When StepFactory.Build("purchase-item", ...) is called
+        // Then the resulting PurchaseItemStep has GcCategory==2 && GcRankTier==1.
+
+        var after = MakeAfterSnapshot(
+            purchaseDetected: new PurchaseDetection(
+                ShopWasOpen:       true,
+                ItemDeltas:        new Dictionary<uint, int> { [6141u] = 1 },
+                GilDropped:        0L,
+                SealsDropped:      600,
+                ActiveGcCategory:  2,     // G5 new field
+                ActiveGcRankTier:  1),    // G5 new field
+            lastNpcInteracted: Vendor,
+            lastNpcPosition:   new WorldPosition(10, 0, 20),
+            zone:              new ZoneId(128u));
+
+        var step = StepFactory.Build(
+            stepType: "purchase-item",
+            stepId:   "buy-gc-item",
+            expect:   "playerHasItem(6141,1)",
+            after:    after);
+
+        Assert.IsType<PurchaseItemStep>(step);
+        var ps = (PurchaseItemStep)step;
+
+        // RED: factory does not yet pass ActiveGcCategory/ActiveGcRankTier into the step
+        Assert.Equal(2, ps.GcCategory);
+        Assert.Equal(1, ps.GcRankTier);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // G-S5 — factory falls back to null when PurchaseDetection has null axes (§14.6)
+    //
+    // This test verifies NO synthetic 0 default is introduced.
+    // GREEN once G-S4 is implemented (null is the default).
+    // May be trivially passing right now since GcCategory/GcRankTier default to null on the step,
+    // but RED once Builder adds the factory init lines (still null flow-through).
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GS5_FactoryNullAxes_StepGcFieldsAreNull()
+    {
+        // CONTRACT (§14.6 G-S5):
+        // Given after.PurchaseDetected with both axes null
+        // Then the resulting PurchaseItemStep has GcCategory==null && GcRankTier==null.
+        // The factory must NOT default to 0 — null means "author must fill in."
+
+        var after = MakeAfterSnapshot(
+            purchaseDetected: new PurchaseDetection(
+                ShopWasOpen:       true,
+                ItemDeltas:        new Dictionary<uint, int> { [1601u] = 1 },
+                GilDropped:        1000L,
+                SealsDropped:      0,
+                ActiveGcCategory:  null,  // no GC axis observed
+                ActiveGcRankTier:  null),
+            lastNpcInteracted: Vendor,
+            lastNpcPosition:   new WorldPosition(10, 0, 20),
+            zone:              new ZoneId(128u));
+
+        var step = StepFactory.Build(
+            stepType: "purchase-item",
+            stepId:   "buy-gil-item",
+            expect:   "playerHasItem(1601,1)",
+            after:    after);
+
+        Assert.IsType<PurchaseItemStep>(step);
+        var ps = (PurchaseItemStep)step;
+
+        Assert.Null(ps.GcCategory);
+        Assert.Null(ps.GcRankTier);
+    }
 }

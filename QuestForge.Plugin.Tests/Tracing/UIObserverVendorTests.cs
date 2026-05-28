@@ -41,9 +41,19 @@ public sealed class FakeVendorProbe : IVendorProbe
     private IReadOnlyList<(uint ItemId, int Count)> _changedItems = [];
     private bool _changedItemsConsumed = true; // start empty
 
+    // G5 GC-axes backing fields (§14.9 D14.4 — null = closed/fail-quiet)
+    private int? _activeGcCategory;
+    private int? _activeGcRankTier;
+
     public void SetShopOpen(bool value) => _shopOpen = value;
     public void SetGil(long value) => _gil = value;
     public void SetSeals(int value) => _seals = value;
+
+    /// <summary>Sets the active GC category returned by <see cref="GetActiveGcCategory"/>. Null = fail-quiet.</summary>
+    public void SetActiveGcCategory(int? value) => _activeGcCategory = value;
+
+    /// <summary>Sets the active GC rank-tier returned by <see cref="GetActiveGcRankTier"/>. Null = fail-quiet.</summary>
+    public void SetActiveGcRankTier(int? value) => _activeGcRankTier = value;
 
     /// <summary>
     /// Queues a one-shot changed-items list. The NEXT call to
@@ -59,6 +69,8 @@ public sealed class FakeVendorProbe : IVendorProbe
     public bool IsShopOpen() => _shopOpen;
     public long GetGil() => _gil;
     public int GetGrandCompanySeals() => _seals;
+    public int? GetActiveGcCategory() => _activeGcCategory;
+    public int? GetActiveGcRankTier() => _activeGcRankTier;
 
     public IReadOnlyList<(uint ItemId, int Count)> GetChangedItemCounts()
     {
@@ -334,6 +346,174 @@ public sealed class UIObserverVendorTests
             $"Expected ShopOpened re-emit after ResetHeartbeatState. Events: {FormatEvents(writer)}");
         Assert.True(GetShopOpenedValue(shopEventsAfterReset[0]),
             "Re-emitted ShopOpened after reset must be {value:true}");
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-PU6 — ShopOpened payload carries activeGcCategory/activeGcRankTier (§14.9.6)
+    //
+    // RED: UIObserver.PollVendor does not yet read GetActiveGcCategory()/GetActiveGcRankTier()
+    //      or include them in the ShopOpened payload.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GwtPU6_ShopOpenedTransition_WithGcAxes_PayloadCarriesAxes()
+    {
+        // CONTRACT (§14.9.6 GWT-PU6 positive case):
+        // Given FakeVendorProbe returning IsShopOpen==true, GetActiveGcCategory==2, GetActiveGcRankTier==1
+        // When the false→true transition heartbeat fires
+        // Then the emitted ShopOpened ObservationEvent value has:
+        //   value==true, activeGcCategory==2, activeGcRankTier==1
+        // And aggregator.OnShopOpened(true, 2, 1) is forwarded (verified via PurchaseDetection after
+        // the full purchase signal — the aggregator axes would be populated if wired).
+
+        var (observer, framework, vendorProbe, clock, writer) = BuildVendorFixture();
+
+        // Seed probe state: shop opens with GC category=2, tier=1
+        vendorProbe.SetShopOpen(true);
+        vendorProbe.SetActiveGcCategory(2);
+        vendorProbe.SetActiveGcRankTier(1);
+
+        DrivePoll(framework, clock); // false→true transition
+
+        var events = ShopOpenedEvents(writer);
+        Assert.True(events.Count >= 1,
+            $"Expected at least one ShopOpened event. Events: {FormatEvents(writer)}");
+
+        var ev = events[0];
+        Assert.NotNull(ev.Value);
+        var val = ev.Value!.Value;
+
+        // value==true
+        Assert.True(val.TryGetProperty("value", out var valueEl),
+            $"ShopOpened payload must have 'value' key. Got: {val.GetRawText()}");
+        Assert.True(valueEl.GetBoolean(),
+            "ShopOpened payload 'value' must be true on false→true transition.");
+
+        // activeGcCategory==2 — RED: Builder must add this to the payload
+        Assert.True(val.TryGetProperty("activeGcCategory", out var catEl),
+            $"ShopOpened payload must have 'activeGcCategory' key (§14.9.1). Got: {val.GetRawText()}");
+        Assert.False(catEl.ValueKind == System.Text.Json.JsonValueKind.Null,
+            "activeGcCategory must not be null when probe returns 2.");
+        Assert.Equal(2, catEl.GetInt32());
+
+        // activeGcRankTier==1 — RED: Builder must add this to the payload
+        Assert.True(val.TryGetProperty("activeGcRankTier", out var tierEl),
+            $"ShopOpened payload must have 'activeGcRankTier' key (§14.9.1). Got: {val.GetRawText()}");
+        Assert.False(tierEl.ValueKind == System.Text.Json.JsonValueKind.Null,
+            "activeGcRankTier must not be null when probe returns 1.");
+        Assert.Equal(1, tierEl.GetInt32());
+
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void GwtPU6_ShopOpenedTransition_NullGcAxes_PayloadCarriesNullKeys()
+    {
+        // CONTRACT (§14.9.6 GWT-PU6 negative case):
+        // When the probe returns null for both axes (fail-quiet or non-GC vendor),
+        // the ShopOpened payload still contains the activeGcCategory and activeGcRankTier keys,
+        // but their values are JSON null (not absent).
+
+        var (observer, framework, vendorProbe, clock, writer) = BuildVendorFixture();
+
+        vendorProbe.SetShopOpen(true);
+        vendorProbe.SetActiveGcCategory(null);
+        vendorProbe.SetActiveGcRankTier(null);
+
+        DrivePoll(framework, clock); // false→true transition
+
+        var events = ShopOpenedEvents(writer);
+        Assert.True(events.Count >= 1,
+            $"Expected at least one ShopOpened event. Events: {FormatEvents(writer)}");
+
+        var val = events[0].Value!.Value;
+
+        // activeGcCategory key present, value null — RED: Builder must emit key with null value
+        Assert.True(val.TryGetProperty("activeGcCategory", out var catEl),
+            $"ShopOpened payload must have 'activeGcCategory' key even when probe returns null (§14.9.1). Got: {val.GetRawText()}");
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, catEl.ValueKind);
+
+        // activeGcRankTier key present, value null — RED
+        Assert.True(val.TryGetProperty("activeGcRankTier", out var tierEl),
+            $"ShopOpened payload must have 'activeGcRankTier' key even when probe returns null (§14.9.1). Got: {val.GetRawText()}");
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, tierEl.ValueKind);
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GWT-PU7 — heartbeat forward of OnActiveGcAxesObserved, no new trace event (§14.9.6)
+    //
+    // RED: UIObserver.PollVendor does not yet call aggregator.OnActiveGcAxesObserved
+    //      on non-transition heartbeats.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GwtPU7_HeartbeatWhileOpen_ForwardsAxesObserved_NoNewShopOpenedEvent()
+    {
+        // CONTRACT (§14.9.6 GWT-PU7):
+        // After the shop-open transition has fired (_lastShopOpen==true),
+        // a subsequent heartbeat where IsShopOpen() is still true but GetActiveGcCategory() returns 3
+        // must NOT write a new ShopOpened ObservationEvent,
+        // but MUST forward OnActiveGcAxesObserved(3, ...) to the aggregator.
+        //
+        // Verifies "mid-span axis changes update the aggregator without inflating the trace."
+
+        var writer  = new FakeTraceWriter();
+        var session = new TraceSession(TraceMode.Always, Path.GetTempPath(), _ => writer);
+        session.OnPluginStart();
+
+        var clock       = new FakeClock(T0);
+        var vendorProbe = new FakeVendorProbe();
+        var framework   = new FakeFramework();
+        var aggregator  = new SnapshotAggregator(new QuestForge.Adapters.Types.QuestId(70001), clock);
+
+        var observer = new UIObserver(
+            framework:    framework,
+            traceSession: session,
+            passiveRunId: PassiveRunId,
+            vendorProbe:  vendorProbe,
+            clock:        clock);
+        observer.SetAggregator(aggregator, PassiveRunId);
+
+        // Poll 1: shop opens with cat=2 → transition → emits ShopOpened{true}
+        vendorProbe.SetShopOpen(true);
+        vendorProbe.SetActiveGcCategory(2);
+        vendorProbe.SetActiveGcRankTier(1);
+        DrivePoll(framework, clock);
+
+        var shopEventsAfterOpen = ShopOpenedEvents(writer).Count;
+        Assert.True(shopEventsAfterOpen >= 1,
+            "Expected ShopOpened{true} transition event after first poll.");
+
+        // Poll 2: shop still open, cat changed to 3 — must NOT emit a new ShopOpened event
+        //         but MUST forward OnActiveGcAxesObserved(3, 1) to the aggregator
+        vendorProbe.SetActiveGcCategory(3);
+        vendorProbe.SetActiveGcRankTier(1);
+        DrivePoll(framework, clock); // no shop state transition
+
+        var shopEventsAfterHeartbeat = ShopOpenedEvents(writer).Count;
+        Assert.Equal(shopEventsAfterOpen, shopEventsAfterHeartbeat);   // no new ShopOpened event
+
+        // RED: Builder must call aggregator.OnActiveGcAxesObserved(3, 1) in the non-transition path.
+        // With the no-op stub, aggregator._spanActiveGcCategory stays null → PurchaseDetected.ActiveGcCategory==null.
+        // After Builder wires it, the projected value should be 3.
+        // We drive a purchase signal to get a PurchaseDetected to inspect:
+        vendorProbe.SetChangedItems((Item, 1));
+        vendorProbe.SetGil(9000);
+        DrivePoll(framework, clock);
+
+        var pd = aggregator.Current.PurchaseDetected;
+        Assert.NotNull(pd);
+
+        // GWT-PU7 — both axes round-trip through the heartbeat path.
+        // Category was 2 on poll 1 (transition), then 3 on poll 2 (mid-span heartbeat) → 3.
+        // Tier was 1 on both polls (no change) → 1; asserts the heartbeat doesn't accidentally
+        // clear the stable axis when forwarding a changed sibling.
+        Assert.Equal(3, pd!.ActiveGcCategory);
+        Assert.Equal(1, pd!.ActiveGcRankTier);
 
         observer.Dispose();
     }

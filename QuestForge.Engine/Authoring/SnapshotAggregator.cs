@@ -41,6 +41,10 @@ public sealed class SnapshotAggregator
     private int _currentSeals;
     private readonly Dictionary<uint, int> _spanItemDeltas = new();
 
+    // ── purchase span state (additive: GC axes) ────────────────────────────
+    private int? _spanActiveGcCategory;   // last non-null value observed while span is open (§14.9.2)
+    private int? _spanActiveGcRankTier;   // same lifecycle as _spanActiveGcCategory
+
     // ── combat span state ──────────────────────────────────────────────────
     private bool _inCombat;
     private WorldPosition? _combatStartPosition;
@@ -240,8 +244,9 @@ public sealed class SnapshotAggregator
     /// Called when the shop-open state transitions.
     /// On false→true: captures the current balance as baseline and starts a new span.
     /// On true→false: the span is retained (mirror of combat span retention).
+    /// G5: optional axes forwarded on the transition so the span baselines with the initial tab state.
     /// </summary>
-    public void OnShopOpened(bool open)
+    public void OnShopOpened(bool open, int? activeGcCategory = null, int? activeGcRankTier = null)
     {
         if (open && !_shopOpen)
         {
@@ -249,8 +254,26 @@ public sealed class SnapshotAggregator
             _purchaseBaselineGil    = _currentGil;
             _purchaseBaselineSeals  = _currentSeals;
             _spanItemDeltas.Clear();
+            // New span: clear GC axes before applying the transition's axes (§14.9.2 lifecycle).
+            _spanActiveGcCategory = null;
+            _spanActiveGcRankTier = null;
+            // Apply "last seen non-null wins" from the transition's axes.
+            if (activeGcCategory is not null) _spanActiveGcCategory = activeGcCategory;
+            if (activeGcRankTier is not null) _spanActiveGcRankTier = activeGcRankTier;
         }
         _shopOpen = open;
+    }
+
+    /// <summary>
+    /// G5 (§14.9.2): Called every heartbeat while the vendor probe is active.
+    /// Forwards mid-span GC axis changes to the aggregator WITHOUT emitting a new trace event.
+    /// No-op when no purchase span is active (mirrors OnVendorItemCountChanged's guard).
+    /// </summary>
+    public void OnActiveGcAxesObserved(int? activeGcCategory, int? activeGcRankTier)
+    {
+        if (!_shopOpen) return;
+        if (activeGcCategory is not null) _spanActiveGcCategory = activeGcCategory;
+        if (activeGcRankTier is not null) _spanActiveGcRankTier = activeGcRankTier;
     }
 
     /// <summary>
@@ -430,10 +453,12 @@ public sealed class SnapshotAggregator
         _spanNibbleBumps.Clear();
         // Clear purchase span so Current.PurchaseDetected is null for the next window.
         _spanItemDeltas.Clear();
-        _shopOpen             = false;
-        _purchaseSpanStarted  = false;
-        _purchaseBaselineGil  = null;
-        _purchaseBaselineSeals = null;
+        _shopOpen               = false;
+        _purchaseSpanStarted    = false;
+        _purchaseBaselineGil    = null;
+        _purchaseBaselineSeals  = null;
+        _spanActiveGcCategory   = null;    // G5 (§14.9.2)
+        _spanActiveGcRankTier   = null;    // G5 (§14.9.2)
     }
 
     // ── Private span-correlation helper ──────────────────────────────────────
@@ -444,10 +469,12 @@ public sealed class SnapshotAggregator
         var baselineGil   = _purchaseBaselineGil   ?? _currentGil;
         var baselineSeals = _purchaseBaselineSeals  ?? _currentSeals;
         return new PurchaseDetection(
-            ShopWasOpen: true,
-            ItemDeltas:  new Dictionary<uint, int>(_spanItemDeltas),
-            GilDropped:  Math.Max(0L, baselineGil - _currentGil),
-            SealsDropped: Math.Max(0, baselineSeals - _currentSeals));
+            ShopWasOpen:        true,
+            ItemDeltas:         new Dictionary<uint, int>(_spanItemDeltas),
+            GilDropped:         Math.Max(0L, baselineGil - _currentGil),
+            SealsDropped:       Math.Max(0, baselineSeals - _currentSeals),
+            ActiveGcCategory:   _spanActiveGcCategory,    // G5 (§14.9.2) — null until Builder wires setters
+            ActiveGcRankTier:   _spanActiveGcRankTier);   // G5 (§14.9.2)
     }
 
     private IReadOnlyDictionary<NibbleKey, KillCorrelation>? BuildKillCorrelatedTargets()
