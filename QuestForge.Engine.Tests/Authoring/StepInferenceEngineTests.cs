@@ -30,7 +30,8 @@ public sealed class StepInferenceEngineTests
         uint inventoryHash = 0,
         DateTimeOffset? capturedAt = null,
         AetheryteId? lastAttuned = null,
-        AetheryteId? lastAethernetShardInteracted = null) =>
+        AetheryteId? lastAethernetShardInteracted = null,
+        PurchaseDetection? purchaseDetected = null) =>
         new(
             CapturedAt: capturedAt ?? T0,
             Zone: zone ?? new ZoneId(100),
@@ -48,6 +49,7 @@ public sealed class StepInferenceEngineTests
             LastAttuned: lastAttuned)
         {
             LastAethernetShardInteracted = lastAethernetShardInteracted,
+            PurchaseDetected = purchaseDetected,
         };
 
     // =========================================================================
@@ -699,6 +701,112 @@ public sealed class StepInferenceEngineTests
         // Assert
         Assert.Equal("accept", result.StepType);
         Assert.Equal(InferredFrom.QuestAccepted, result.InferredFrom);
+    }
+
+    // =========================================================================
+    // Slice E.2 — GWT-PI1..PI5: Purchase inference rule
+    //
+    // All four tests will compile-fail until Builder adds InferredFrom.Purchase.
+    // Once the enum member exists, the behavioral assertions fail until the
+    // purchase rule is inserted in StepInferenceEngine (after Rule 2.2, before
+    // Rule 2.3).
+    // =========================================================================
+
+    private static readonly NpcId Vendor       = new(1001234u);
+    private static readonly uint  Item         = 1601u;
+
+    [Fact]
+    public void GwtPI1_CleanGilPurchase_BeatsSequenceFallback()
+    {
+        // CONTRACT: purchase rule fires BEFORE Rule 3 (sequence/talk fallback).
+        // after has both a PurchaseDetected span AND seq advanced (0→3) —
+        // purchase must win. Confidence.Medium for single item + single currency.
+        var engine = new StepInferenceEngine();
+        var before = BaseSnapshot(questSequence: 0);
+        var after = BaseSnapshot(
+            questSequence: 3,
+            lastNpcInteracted: Vendor,
+            capturedAt: T1,
+            purchaseDetected: new PurchaseDetection(
+                ShopWasOpen: true,
+                ItemDeltas: new Dictionary<uint, int> { [Item] = 1 },
+                GilDropped: 1000L,
+                SealsDropped: 0));
+
+        var result = engine.Infer(before, after);
+
+        Assert.Equal("purchase-item", result.StepType);
+        Assert.Equal($"buy-item-{Item}", result.SuggestedStepId);
+        Assert.Equal($"playerHasItem({Item},1)", result.SuggestedExpect);
+        Assert.Equal(InferredFrom.Purchase, result.InferredFrom);
+        Assert.Equal(Confidence.Medium, result.Confidence);
+    }
+
+    [Fact]
+    public void GwtPI3_ShopOpenNoItemRise_DoesNotEmitPurchase()
+    {
+        // CONTRACT: guard requires ItemDeltas.Count > 0. Empty deltas (browsed, bought nothing)
+        // must fall through — here the seq also advanced so it falls to the talk rule.
+        var engine = new StepInferenceEngine();
+        var before = BaseSnapshot(questSequence: 0);
+        var after = BaseSnapshot(
+            questSequence: 1,
+            capturedAt: T1,
+            purchaseDetected: new PurchaseDetection(
+                ShopWasOpen: true,
+                ItemDeltas: new Dictionary<uint, int>(),
+                GilDropped: 1000L,
+                SealsDropped: 0));
+
+        var result = engine.Infer(before, after);
+
+        Assert.NotEqual("purchase-item", result.StepType);
+    }
+
+    [Fact]
+    public void GwtPI4_ItemRiseAndCurrencyDrop_ButNoShopOpen_DoesNotEmitPurchase()
+    {
+        // CONTRACT: guard requires ShopWasOpen == true. Item rose + gil dropped but
+        // shop was never open — could be a quest reward + teleport fee; must not emit purchase.
+        var engine = new StepInferenceEngine();
+        var before = BaseSnapshot(questSequence: 0);
+        var after = BaseSnapshot(
+            questSequence: 1,
+            capturedAt: T1,
+            purchaseDetected: new PurchaseDetection(
+                ShopWasOpen: false,
+                ItemDeltas: new Dictionary<uint, int> { [Item] = 1 },
+                GilDropped: 1000L,
+                SealsDropped: 0));
+
+        var result = engine.Infer(before, after);
+
+        Assert.NotEqual("purchase-item", result.StepType);
+    }
+
+    [Fact]
+    public void GwtPI5_MultiItem_PrimaryByLargestDelta_SplitNote_ConfidenceLow()
+    {
+        // CONTRACT: largest Δcount wins (1602 qty 2 > 1601 qty 1); tie → lowest id (not needed here).
+        // Confidence.Low for multi-item window. Notes is non-null and mentions "1601" and "split".
+        var engine = new StepInferenceEngine();
+        var before = BaseSnapshot();
+        var after = BaseSnapshot(
+            capturedAt: T1,
+            purchaseDetected: new PurchaseDetection(
+                ShopWasOpen: true,
+                ItemDeltas: new Dictionary<uint, int> { [1601u] = 1, [1602u] = 2 },
+                GilDropped: 2000L,
+                SealsDropped: 0));
+
+        var result = engine.Infer(before, after);
+
+        Assert.Equal("buy-item-1602", result.SuggestedStepId);
+        Assert.Equal("playerHasItem(1602,2)", result.SuggestedExpect);
+        Assert.Equal(Confidence.Low, result.Confidence);
+        Assert.NotNull(result.Notes);
+        Assert.Contains("1601", result.Notes, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("split", result.Notes, StringComparison.OrdinalIgnoreCase);
     }
 
     // =========================================================================

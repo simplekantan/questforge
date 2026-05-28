@@ -36,6 +36,11 @@ public sealed class RecordStepModal : Window
     // Combat step: comma-separated DataIds entered by the author (manual override)
     private string _editKillEnemyDataIds = "";
 
+    // Purchase step: editable item/quantity/currency fields (mirroring the combat DataIds field)
+    private string _editPurchaseItemId = "";
+    private string _editPurchaseQuantity = "";
+    private string _editPurchaseCurrency = "gil";
+
     // Async save tracking
     private Task? _saveTask;
     private string _saveError = "";
@@ -61,6 +66,9 @@ public sealed class RecordStepModal : Window
         _editExpect = "";
         _editNotes = "";
         _editKillEnemyDataIds = "";
+        _editPurchaseItemId = "";
+        _editPurchaseQuantity = "";
+        _editPurchaseCurrency = "gil";
         _saveError = "";
         IsOpen = true;
     }
@@ -133,6 +141,27 @@ public sealed class RecordStepModal : Window
             _editKillEnemyDataIds = _inference.StepType == "combat" && _after?.KillCorrelatedTargets is { } kct
                 ? string.Join(",", kct.Values.SelectMany(t => t.DataIds).Distinct().OrderBy(id => id))
                 : "";
+
+            // Seed purchase fields from the detected span so the author sees pre-filled values.
+            if (_inference.StepType == "purchase-item" && _after?.PurchaseDetected is { } pd && pd.ItemDeltas.Count > 0)
+            {
+                var primary = pd.ItemDeltas
+                    .OrderByDescending(kv => kv.Value)
+                    .ThenBy(kv => kv.Key)
+                    .First();
+                _editPurchaseItemId = primary.Key.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                _editPurchaseQuantity = primary.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                _editPurchaseCurrency = pd.GilDropped > 0 && pd.SealsDropped == 0 ? "gil"
+                    : pd.SealsDropped > 0 && pd.GilDropped == 0 ? "gcSeals"
+                    : pd.GilDropped >= pd.SealsDropped ? "gil"
+                    : "gcSeals";
+            }
+            else
+            {
+                _editPurchaseItemId = "";
+                _editPurchaseQuantity = "1";
+                _editPurchaseCurrency = "gil";
+            }
             _state = RecordState.InferenceReady;
         }
         ImGui.SameLine();
@@ -183,6 +212,19 @@ public sealed class RecordStepModal : Window
             ImGui.TextUnformatted("Kill Enemy DataIds (comma-separated uints):");
             ImGui.SetNextItemWidth(300f);
             ImGui.InputText("##killdataids", ref _editKillEnemyDataIds, 256);
+        }
+
+        if (_inference!.StepType == "purchase-item")
+        {
+            ImGui.TextUnformatted("Item ID:");
+            ImGui.SetNextItemWidth(150f);
+            ImGui.InputText("##purchaseitemid", ref _editPurchaseItemId, 32);
+            ImGui.TextUnformatted("Quantity:");
+            ImGui.SetNextItemWidth(80f);
+            ImGui.InputText("##purchasequantity", ref _editPurchaseQuantity, 16);
+            ImGui.TextUnformatted("Currency (gil / gcSeals):");
+            ImGui.SetNextItemWidth(120f);
+            ImGui.InputText("##purchasecurrency", ref _editPurchaseCurrency, 16);
         }
 
         ImGui.TextUnformatted("Expect (predicate):");
@@ -304,6 +346,42 @@ public sealed class RecordStepModal : Window
             };
         }
 
+        if (stepType == "purchase-item")
+        {
+            ExpectValue? expectValue = expect is { Length: > 0 }
+                ? new PredicateExpect { Predicate = expect }
+                : null;
+
+            var zone = (int)(after?.Zone.Value ?? 0);
+            var zoneStr = zone > 0 ? zone.ToString() : null;
+            var npcId = after?.LastNpcInteracted?.Value ?? 0u;
+            var npcPos = after?.LastNpcPosition is { } p
+                ? new Position3(p.X, p.Y, p.Z)
+                : new Position3(0, 0, 0);
+
+            uint.TryParse(_editPurchaseItemId, out var itemId);
+            int.TryParse(_editPurchaseQuantity, out var qty);
+            if (qty <= 0) qty = 1;
+
+            var currency = _editPurchaseCurrency.Trim() switch
+            {
+                "gcSeals" => PurchaseCurrency.GcSeals,
+                _         => PurchaseCurrency.Gil
+            };
+
+            return new PurchaseItemStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                Zone = zoneStr,
+                RequiredZone = zoneStr,
+                Target = new NpcLocation(NpcId: npcId, Zone: zone, Position: npcPos),
+                ItemId = itemId,
+                Quantity = qty,
+                Currency = currency
+            };
+        }
+
         return QuestForge.Engine.Authoring.StepFactory.Build(stepType, stepId, expect, after, before);
     }
 
@@ -343,6 +421,9 @@ public sealed class RecordStepModal : Window
         _inference = null;
         _overrideStepType = "";
         _editKillEnemyDataIds = "";
+        _editPurchaseItemId = "";
+        _editPurchaseQuantity = "";
+        _editPurchaseCurrency = "gil";
         _state = RecordState.WaitingForAction;
         _saveTask = null;
         _saveError = "";
