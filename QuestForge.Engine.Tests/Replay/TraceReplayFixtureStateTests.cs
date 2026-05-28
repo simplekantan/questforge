@@ -288,6 +288,8 @@ public sealed class TraceReplayFixtureStateTests
             MakeObsLine("GetPlayerZone",        null,                   """{"value":182}"""),
             MakeObsLine("GetQuestVariables",    """{"value":66130}""",  """[0,0,0,0,0,0]"""),
             MakeObsLine("GetQuestStatus",       """{"value":66130}""",  """0"""),
+            // IsPlayerInCombat — read by global defense rule on every tick (universal, no gate).
+            MakeObsLine("IsPlayerInCombat",     null,                   """false"""),
             MakeObsLine("IsQuestAvailable",     """{"value":66130}""",  """true"""),
             MakeObsLine("IsQuestAccepted",      """{"value":66130}""",  """false"""),
         };

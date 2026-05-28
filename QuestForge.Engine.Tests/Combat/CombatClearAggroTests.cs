@@ -482,22 +482,22 @@ public sealed class CombatClearAggroTests
 
     // =========================================================================
     // CA-4 (edge — no reachable attacker)
-    // No attackers → Engage(null), no confirm, no crash.
-    // ASSERTION FAIL: engine currently confirms immediately.
+    // Expect satisfied + in combat + no attacker in scan range
+    // → defense returns null (no attacker), cursor confirms step.
+    // Global defense subsumes mop-up: without an attacking target, the step
+    // simply confirms rather than looping on Engage(null).
     // =========================================================================
 
     [Fact]
-    public async Task CA_4_MopUp_NoAttackerInScan_ReturnsEngageNull_NoConfirm()
+    public async Task CA_4_MopUp_NoAttackerInScan_ConfirmsStep()
     {
         /*
          * Given Expect satisfied, SetInCombat(true), but NO attacker in scan range
          *       (only a non-attacking kill-set mob present).
          * When tick.
-         * Then action is Engage with Target == null (forward decision, no stall, no crash).
-         *      Step is NOT confirmed.
-         *
-         * ASSERTION FAIL: current engine confirms + returns Wait immediately when Expect is true,
-         * ignoring in-combat state.
+         * Then defense returns null (DecideClearAggro found no attacker).
+         *      Cursor branch runs: CombatStep Expect satisfied → confirms.
+         *      Action is NOT Engage (Wait "all steps satisfied").
          */
         // Given
         var harness = new EngineTestHarness();
@@ -505,7 +505,7 @@ public sealed class CombatClearAggroTests
         harness.QuestState.SetQuestSequence(new QuestId(questId), 0);
         harness.QuestState.SetQuestVariables(new QuestId(questId), 1, 0, 0, 0, 0, 0); // expect true
         harness.GameState.SetInCombat(true);
-        // Non-attacking kill-set mob only — no attackers
+        // Non-attacking kill-set mob only — no attackers (not IsTargetingPlayer, not OnEnmityList)
         harness.GameState.AddHostileActor(
             MakeHostile(5, 100, distance: 5, isTargetingPlayer: false, onEnmityList: false));
 
@@ -517,31 +517,27 @@ public sealed class CombatClearAggroTests
         // When
         var action = await harness.Engine.Tick(CancellationToken.None);
 
-        // Then — Engage(null), NOT confirmed, NOT AwaitUser
-        var engage = Assert.IsType<EngineAction.Engage>(action);
-        Assert.Null(engage.Target);
+        // Then — defense found no attacker → cursor confirms → NOT Engage
+        Assert.IsNotType<EngineAction.Engage>(action);
     }
 
     // =========================================================================
-    // CA-5 (timeout)
-    // Stuck in combat past MopUpTimeout → AwaitUser, AND boundary tick.
-    // Uses ManualTimeProvider. ASSERTION FAIL: no mop-up timeout in current engine.
+    // CA-5 (no timeout in v1)
+    // Attacker present → defense fires Engage every tick indefinitely.
+    // v1 has no MopUpTimeout. The engine never emits AwaitUser for stuck-in-combat.
     // =========================================================================
 
     [Fact]
-    public async Task CA_5_MopUpTimeout_ExpiredAfter15s_ReturnsAwaitUser()
+    public async Task CA_5_AttackerPresent_DefenseEngagesEveryTick_NoTimeout()
     {
         /*
-         * Given a directly-constructed engine with ManualTimeProvider at T0,
-         *       Expect satisfied, SetInCombat(true) held across ticks,
-         *       an attacker present.
-         * When tick 1 (arms mop-up timer) → Engage.
-         * Advance clock by 16s (> MopUpTimeout of 15s).
-         * When tick 2.
-         * Then action is EngineAction.AwaitUser with reason containing "could not leave combat".
-         *      AND ClearTarget is recorded (timeout path calls ResetAsync).
+         * Given Expect satisfied, SetInCombat(true), attacker present across multiple ticks.
+         * When tick 1 and tick 2 (with time advanced).
+         * Then both ticks return Engage (defense active each tick).
+         *      No AwaitUser is ever emitted — v1 has no defense timeout.
          *
-         * ASSERTION FAIL: current engine has no timeout — it will keep returning Wait/nothing.
+         * This replaces the old MopUpTimeout test: ResolveMopUp and its 15-second
+         * timeout are deleted. Global defense fires uniformly every tick.
          */
         // Given
         var clock = new ManualTimeProvider(T0);
@@ -551,45 +547,37 @@ public sealed class CombatClearAggroTests
         questState.SetQuestSequence(new QuestId(questId), 0);
         questState.SetQuestVariables(new QuestId(questId), 1, 0, 0, 0, 0, 0); // expect true
         gameState.SetInCombat(true);
-        gameState.AddHostileActor(
-            MakeHostile(9, 777, distance: 5, isTargetingPlayer: true));
-        // Provide job so controller can resolve attack range
-        gameState.SetJob(new JobId(2), 80); // Paladin level 80
+        gameState.AddHostileActor(MakeHostile(9, 777, distance: 5, isTargetingPlayer: true));
+        gameState.SetJob(new JobId(2), 80);
 
         var step = MakeCombatStep(questId, killDataIds: [100u]);
         engine.StartQuest(BuildCombatQuest(questId, step));
         engine.BeginRun("run-ca5");
 
-        // Tick 1 — arms the mop-up timer; should return Engage
+        // Tick 1 — defense fires, returns Engage
         gameState.Reset();
         var tick1 = await engine.Tick(CancellationToken.None);
-        Assert.IsType<EngineAction.Engage>(tick1); // RED: fails until feature built
+        Assert.IsType<EngineAction.Engage>(tick1);
 
-        // Advance past MopUpTimeout (15s)
-        clock.Advance(TimeSpan.FromSeconds(16));
+        // Advance well past the old 15-second timeout
+        clock.Advance(TimeSpan.FromSeconds(30));
 
-        // Tick 2 — timeout should fire → AwaitUser
+        // Tick 2 — still in combat, still an attacker → defense fires again (no timeout)
         gameState.Reset();
         var tick2 = await engine.Tick(CancellationToken.None);
 
-        var awaitUser = Assert.IsType<EngineAction.AwaitUser>(tick2);
-        Assert.Contains("could not leave combat", awaitUser.Reason, StringComparison.OrdinalIgnoreCase);
-
-        // ClearTarget recorded (ResetAsync called on timeout path)
-        var targets = combat.RecordedTargets.Snapshot();
-        Assert.True(targets.Any(t => t.IsClear),
-            $"Expected ClearTarget on timeout. Targets: {FormatTargets(combat)}");
+        // Must still be Engage (no AwaitUser — v1 has no timeout)
+        Assert.IsType<EngineAction.Engage>(tick2);
+        Assert.IsNotType<EngineAction.AwaitUser>(tick2);
     }
 
     [Fact]
-    public async Task CA_5b_MopUpTimeout_JustUnder15s_StillEngages()
+    public async Task CA_5b_AttackerPresent_MultipleTicksAllEngage()
     {
         /*
-         * Boundary: elapsed == MopUpTimeout - 1ms → still mopping (not yet expired).
-         * When tick after advancing by 14 999 ms.
-         * Then action is Engage (timer not yet tripped).
-         *
-         * ASSERTION FAIL: no timeout in current engine.
+         * Regression guard: defense fires on every tick as long as in combat + attacker present.
+         * Three consecutive ticks all return Engage — no state that would cause a transition
+         * to Wait or AwaitUser after a fixed number of ticks.
          */
         // Given
         var clock = new ManualTimeProvider(T0);
@@ -606,38 +594,34 @@ public sealed class CombatClearAggroTests
         engine.StartQuest(BuildCombatQuest(questId, step));
         engine.BeginRun("run-ca5b");
 
-        // Tick 1 — arms timer
-        await engine.Tick(CancellationToken.None);
-
-        // Advance to just under 15s
-        clock.Advance(TimeSpan.FromMilliseconds(14_999));
-
-        // Tick 2 — just under timeout → still Engage
-        var tick2 = await engine.Tick(CancellationToken.None);
-
-        Assert.IsType<EngineAction.Engage>(tick2);
+        for (var i = 0; i < 3; i++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(10));
+            var tick = await engine.Tick(CancellationToken.None);
+            Assert.IsType<EngineAction.Engage>(tick);
+        }
     }
 
     // =========================================================================
-    // CA-6 (reset on confirm)
-    // Confirming a combat step clears mop-up timer; next combat step starts fresh.
-    // ASSERTION FAIL: no timer in current engine.
+    // CA-6 (confirm clears combat state; fresh run starts clean)
+    // After confirming a CombatStep, ResetAsync is called. A fresh BeginRun
+    // on the same step sees clean controller state (no stale targets).
     // =========================================================================
 
     [Fact]
-    public async Task CA_6_ConfirmClearsMopUpTimer_NextCombatStepStartsFresh()
+    public async Task CA_6_ConfirmClearsCombatState_NextRunStartsFresh()
     {
         /*
-         * Given engine at T0, first combat step: Expect satisfied, in-combat, attacker present.
-         * Tick 1 arms mop-up (at T0). Advance clock 5s (inside timeout window).
-         * SetInCombat(false). Tick 2 → step confirms, mop-up timer cleared.
+         * Given Expect satisfied, out of combat.
+         * Tick 1 → defense returns null (not in combat), cursor confirms step.
+         *          ResetAsync is called → ClearTarget recorded.
          *
-         * Start a second pass of the same step (simulated by rewinding via BeginRun + seq reset).
-         * Advance clock by 1 more second (total 6s elapsed since T0, but mop-up timer should have
-         * reset to T0+6 when the step was re-entered, NOT carried the 5s debt from the first pass).
-         * Tick 3 (new mop-up, in combat, attacker present): should return Engage (not AwaitUser).
+         * Start a second run. In combat, attacker present.
+         * Tick 2 → defense fires → Engage (fresh state, no stale latches).
          *
-         * ASSERTION FAIL: timer not implemented.
+         * This replaces the old mop-up-timer-reset test: the timer concept is gone (v1
+         * has no defense timeout). This test pins that ResetAsync on confirm clears
+         * controller state so subsequent combat encounters start fresh.
          */
         var clock = new ManualTimeProvider(T0);
         var (engine, gameState, questState, combat, _) = BuildEngineWithClock(clock);
@@ -645,43 +629,33 @@ public sealed class CombatClearAggroTests
         const uint questId = 70006u;
         questState.SetQuestSequence(new QuestId(questId), 0);
         questState.SetQuestVariables(new QuestId(questId), 1, 0, 0, 0, 0, 0); // expect true
-        gameState.SetInCombat(true);
-        gameState.AddHostileActor(MakeHostile(9, 777, distance: 5, isTargetingPlayer: true));
-        gameState.SetJob(new JobId(2), 80);
+        gameState.SetInCombat(false); // out of combat on first run
 
         var step = MakeCombatStep(questId, killDataIds: [100u]);
         engine.StartQuest(BuildCombatQuest(questId, step));
         engine.BeginRun("run-ca6");
 
-        // Tick 1 — arms mop-up at T0
+        // Tick 1 — Expect satisfied, not in combat → confirms
         var tick1 = await engine.Tick(CancellationToken.None);
-        Assert.IsType<EngineAction.Engage>(tick1); // RED
+        Assert.IsNotType<EngineAction.Engage>(tick1);
 
-        // Advance 5s (still within 15s window)
-        clock.Advance(TimeSpan.FromSeconds(5));
+        // ClearTarget from ResetAsync on confirm
+        var targets1 = combat.RecordedTargets.Snapshot();
+        Assert.True(targets1.Any(t => t.IsClear),
+            $"Expected ClearTarget on confirm. Targets: {FormatTargets(combat)}");
 
-        // Confirm — out of combat
-        gameState.SetInCombat(false);
-        var tick2 = await engine.Tick(CancellationToken.None);
-        Assert.IsNotType<EngineAction.Engage>(tick2); // confirms
-
-        // Simulate re-entering the same combat step by starting a fresh run
+        // Second run — in combat, attacker present
         engine.BeginRun("run-ca6-second");
         questState.SetQuestSequence(new QuestId(questId), 0);
-        questState.SetQuestVariables(new QuestId(questId), 1, 0, 0, 0, 0, 0); // still expect true
-        gameState.SetInCombat(true); // in combat again
+        questState.SetQuestVariables(new QuestId(questId), 1, 0, 0, 0, 0, 0);
+        gameState.SetInCombat(true);
         gameState.ClearHostileActors();
         gameState.AddHostileActor(MakeHostile(9, 777, distance: 5, isTargetingPlayer: true));
 
-        // Advance 1 more second — total 6s from T0, but new mop-up started at T0+5 on second pass.
-        // Elapsed since new arm = 1s → well under 15s → must NOT timeout.
-        clock.Advance(TimeSpan.FromSeconds(1));
+        var tick2 = await engine.Tick(CancellationToken.None);
 
-        var tick3 = await engine.Tick(CancellationToken.None);
-
-        // Should be Engage (mop-up active, timer freshly armed, not expired)
-        // NOT AwaitUser (which would mean the stale timer was carried over)
-        Assert.IsType<EngineAction.Engage>(tick3);
+        // Defense fires → Engage (clean state, no stale latches from first run)
+        Assert.IsType<EngineAction.Engage>(tick2);
     }
 
     // =========================================================================
@@ -731,9 +705,9 @@ public sealed class CombatClearAggroTests
         gameState.AddHostileActor(MakeHostile(9, 777, distance: 5, isTargetingPlayer: true));
         gameState.SetJob(new JobId(2), 80);
 
-        // Tick 1 — arms mop-up timer
+        // Tick 1 — defense fires (in combat, attacker present)
         var tick1 = await engine.Tick(CancellationToken.None);
-        Assert.IsType<EngineAction.Engage>(tick1); // RED: engine currently confirms
+        Assert.IsType<EngineAction.Engage>(tick1);
 
         // Game advances to seq 1 (talk step)
         questState.SetQuestSequence(new QuestId(questId), 1);
@@ -753,43 +727,43 @@ public sealed class CombatClearAggroTests
         Assert.True(targets.Any(t => t.IsClear),
             $"Expected ClearTarget on sequence change. Targets: {FormatTargets(combat)}");
 
-        // Verify timer cleared: re-enter combat step without timeout
+        // Verify no stale state from seq 0: re-enter combat step, attacker present → Engage
+        // v1 has no timeout, so this always fires Engage when in combat with an attacker.
         questState.SetQuestSequence(new QuestId(questId), 0);
         questState.SetQuestVariables(new QuestId(questId), 1, 0, 0, 0, 0, 0);
         gameState.SetInCombat(true);
-
-        // Advance clock by 14s total — if timer carried forward from seq 0, we'd timeout.
-        // It should NOT time out; a fresh arm at re-entry means 14s < 15s is still Engage.
         clock.Advance(TimeSpan.FromSeconds(14));
 
         var tick3 = await engine.Tick(CancellationToken.None);
-        // NOT AwaitUser (which would indicate a stale timer from seq 0)
+        // NOT AwaitUser (no timeout in v1)
         Assert.IsNotType<EngineAction.AwaitUser>(tick3);
     }
 
     // =========================================================================
-    // CA-8 (D6 regression — read is combat-completion-gated)
-    // Non-combat step and mid-fight combat step must NOT read IsPlayerInCombat.
-    // ASSERTION FAIL (case b): current engine does not read IsPlayerInCombat at all —
-    //   so case (b) already "passes" today. After the feature, the read only happens on the
-    //   Expect-satisfied CombatStep tick, so case (b) must still be zero reads.
-    // Case (a) (talk step) should already pass today too.
+    // CA-8 (universal defense reads IsPlayerInCombat on every tick)
+    // Global defense fires before the cursor walk on EVERY tick. IsPlayerInCombat
+    // is read once per tick (regardless of step type) as the defense gate.
     // =========================================================================
 
     [Fact]
-    public async Task CA_8a_TalkStep_NoIsPlayerInCombatRead()
+    public async Task CA_8a_TalkStep_DefenseReadsIsPlayerInCombatOnce()
     {
         /*
          * Given a quest with only a TalkStep (no CombatStep).
+         * And SetInCombat(false). No hostiles.
          * When Tick.
-         * Then RecordedReads contains NO IsPlayerInCombat call.
+         * Then RecordedReads contains EXACTLY ONE IsPlayerInCombat call (from defense).
+         * Defense returns null (not in combat), cursor walk runs → Navigate/Interact.
          *
-         * REGRESSION GUARD: should pass both before and after feature (no change to talk path).
+         * Updated for universal defense (2026-05-28): defense reads IsPlayerInCombat
+         * on every tick, including non-combat quests. Prior assertion (zero reads) is
+         * replaced with exactly-one-read.
          */
         var harness = new EngineTestHarness();
         const uint questId = 70008u;
         harness.QuestState.SetQuestSequence(new QuestId(questId), 0);
         harness.GameState.SetPosition(new WorldPosition(0f, 0f, 0f));
+        harness.GameState.SetInCombat(false);
 
         var quest = new QuestDefinition
         {
@@ -818,27 +792,31 @@ public sealed class CombatClearAggroTests
         await harness.Engine.Tick(CancellationToken.None);
 
         var reads = harness.GameState.RecordedReads.Snapshot();
-        Assert.False(reads.Any(r => r.Method == nameof(IGameStateProvider.IsPlayerInCombat)),
-            $"TalkStep tick must NOT read IsPlayerInCombat. Reads: {FormatReads(harness.GameState)}");
+        var inCombatReads = reads.Count(r => r.Method == nameof(IGameStateProvider.IsPlayerInCombat));
+        Assert.Equal(1, inCombatReads);
     }
 
     [Fact]
-    public async Task CA_8b_CombatStep_ExpectNotYetTrue_NoIsPlayerInCombatRead()
+    public async Task CA_8b_CombatStep_ExpectNotYetTrue_DefenseReadsIsPlayerInCombat()
     {
         /*
          * Given a combat step whose Expect is NOT yet satisfied (var[0]=0).
-         * When Tick (engine goes to Decide/Engage path).
-         * Then RecordedReads contains NO IsPlayerInCombat call.
-         *      (The read only happens when Expect IS satisfied on a CombatStep tick.)
+         * And SetInCombat(true), attacker NOT present (non-attacking kill-set mob only).
+         * When Tick (defense runs, finds no attacker → cursor branch runs → Decide → Engage).
+         * Then RecordedReads contains EXACTLY ONE IsPlayerInCombat call (from defense).
          *
-         * REGRESSION GUARD: should pass today AND after the feature (the read is gated on Expect).
+         * Updated for universal defense (2026-05-28): defense reads IsPlayerInCombat
+         * on every tick. The Expect-satisfied branch no longer reads it separately —
+         * defense handles that check universally before the cursor walk.
          */
         var harness = new EngineTestHarness();
         const uint questId = 70009u;
         harness.QuestState.SetQuestSequence(new QuestId(questId), 0);
         harness.QuestState.SetQuestVariables(new QuestId(questId), 0, 0, 0, 0, 0, 0); // expect FALSE
         harness.GameState.SetInCombat(true);
-        harness.GameState.AddHostileActor(MakeHostile(1, 100, distance: 5));
+        // Non-attacking mob: defense finds no attacker → cursor runs Decide
+        harness.GameState.AddHostileActor(MakeHostile(1, 100, distance: 5,
+            isTargetingPlayer: false, onEnmityList: false));
         harness.GameState.SetJob(new JobId(2), 80);
 
         var step = MakeCombatStep(questId, killDataIds: [100u]);
@@ -848,12 +826,12 @@ public sealed class CombatClearAggroTests
 
         var action = await harness.Engine.Tick(CancellationToken.None);
 
-        // Should be Engage (fighting, expect false)
+        // Should be Engage (fighting, expect false — cursor branch ran Decide)
         Assert.IsType<EngineAction.Engage>(action);
 
         var reads = harness.GameState.RecordedReads.Snapshot();
-        Assert.False(reads.Any(r => r.Method == nameof(IGameStateProvider.IsPlayerInCombat)),
-            $"Mid-fight CombatStep tick must NOT read IsPlayerInCombat. Reads: {FormatReads(harness.GameState)}");
+        var inCombatReads = reads.Count(r => r.Method == nameof(IGameStateProvider.IsPlayerInCombat));
+        Assert.Equal(1, inCombatReads); // exactly one: from defense gate
     }
 
     // =========================================================================

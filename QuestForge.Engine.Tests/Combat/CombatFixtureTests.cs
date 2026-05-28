@@ -140,8 +140,17 @@ public sealed class CombatFixtureTests
             Serialize(new ObservationEvent(runId, "GetQuestStatus",
                 Elem(new { value = questId }), Elem(0), At)),
 
-            // GetHostileActors in segment-0 (the combat read for the Engage tick).
-            // Arg matches CombatController.ScanRadius (50m) so the replay provider serves it.
+            // IsPlayerInCombat — read by global defense rule before the cursor walk.
+            // false here: defense skips (not in combat) and the CombatStep cursor walk
+            // dispatches normally. These FX tests verify CombatStep dispatch (Engage with
+            // Step=combatStep), not defense behavior. Defense-specific scenarios are
+            // covered in GlobalDefenseTests.cs (D1-D13).
+            Serialize(new ObservationEvent(runId, "IsPlayerInCombat",
+                null, Elem(false), At)),
+
+            // GetHostileActors in segment-0: read by defense (DecideClearAggro) and then
+            // again by the cursor CombatStep branch (Decide). ObservationScanner falls back
+            // to _lastSeen on repeat reads, so one entry covers both calls.
             Serialize(new ObservationEvent(runId, "GetHostileActors",
                 Elem(50f), actorsJson, At)),
 
