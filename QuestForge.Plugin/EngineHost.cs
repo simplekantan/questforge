@@ -118,6 +118,7 @@ public sealed class EngineHost : IDisposable
     public IGameStateProvider DebugGameState => _gameStateInner;
     public ICombat            DebugCombat    => _combat;
     public INavigator         DebugNavigator => _navigator;
+    public IVendor            DebugVendor    => _vendor;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.

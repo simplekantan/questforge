@@ -4,6 +4,7 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using QuestForge.Adapters.Dalamud.Scheduling;
+using QuestForge.Adapters.Interaction;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Combat;
 using QuestForge.Engine.Scheduling;
@@ -86,7 +87,7 @@ internal sealed class QfCommand : IDisposable
         _interop = interop;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
-            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off | /qf config trace on|off"
+            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off | /qf debug buy <itemId> [qty] | /qf config trace on|off"
         });
     }
 
@@ -172,6 +173,9 @@ internal sealed class QfCommand : IDisposable
                 break;
             case "debug" when parts.Length >= 3 && parts[1] == "hookshop":
                 HandleDebugHookShop(parts[2]);
+                break;
+            case "debug" when parts.Length >= 3 && parts[1] == "buy":
+                HandleDebugBuy(parts[2..]);
                 break;
             case "test" when parts.Length >= 2:
                 HandleTest(parts[1..]);
@@ -963,8 +967,50 @@ internal sealed class QfCommand : IDisposable
         _fireCallbackHook!.Original(thisPtr, valueCount, atkValues, updateState);
     }
 
+    private void HandleDebugBuy(string[] args)
+    {
+        if (args.Length == 0 || !uint.TryParse(args[0], out var itemId))
+        {
+            _chat.Print("usage: /qf debug buy <itemId> [qty]");
+            return;
+        }
+
+        var qty = 1;
+        if (args.Length >= 2 && int.TryParse(args[1], out var parsedQty))
+            qty = Math.Max(1, parsedQty);
+
+        Result<PurchaseOutcome> result;
+        try
+        {
+            result = _host.DebugVendor.Purchase(
+                new NpcId(0), new ItemId(itemId), qty, PurchaseCurrency.Gil, CancellationToken.None)
+                .GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "[debug buy] unexpected exception");
+            _chat.PrintError($"QuestForge: debug buy error — {ex.Message}");
+            return;
+        }
+
+        if (result is Result<PurchaseOutcome>.Success { Value: var outcome })
+        {
+            var msg = $"[debug buy] itemId={itemId} qty={qty} -> {outcome}";
+            _log.Info(msg);
+            _chat.Print($"[QF] {msg}");
+        }
+        else if (result is Result<PurchaseOutcome>.Failure { Reason: var reason, Detail: var detail })
+        {
+            var msg = $"[debug buy] itemId={itemId} qty={qty} -> FAIL({reason}) {detail}";
+            _log.Info(msg);
+            _chat.Print($"[QF] {msg}");
+        }
+
+        _chat.Print("[QF] If no QuestForge run is active, the SelectYesno confirm won't be auto-answered — click Yes manually. The key check: the confirm names the item you requested.");
+    }
+
     private void PrintUsage()
-        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off | /qf config trace on|off");
+        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off | /qf debug buy <itemId> [qty] | /qf config trace on|off");
 
     public void Dispose()
     {
