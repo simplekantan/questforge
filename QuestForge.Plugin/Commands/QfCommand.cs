@@ -89,7 +89,7 @@ internal sealed class QfCommand : IDisposable
         _interop = interop;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
-            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] | /qf config trace on|off"
+            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf config trace on|off"
         });
     }
 
@@ -985,7 +985,7 @@ internal sealed class QfCommand : IDisposable
     {
         if (args.Length == 0 || !uint.TryParse(args[0], out var itemId))
         {
-            _chat.Print("usage: /qf debug buy <itemId> [qty]");
+            _chat.Print("usage: /qf debug buy <itemId> [qty] [gil|gcSeals]");
             return;
         }
 
@@ -993,11 +993,25 @@ internal sealed class QfCommand : IDisposable
         if (args.Length >= 2 && int.TryParse(args[1], out var parsedQty))
             qty = Math.Max(1, parsedQty);
 
+        var currency = PurchaseCurrency.Gil;
+        if (args.Length >= 3)
+        {
+            if (args[2].Equals("gil", StringComparison.OrdinalIgnoreCase))
+                currency = PurchaseCurrency.Gil;
+            else if (args[2].Equals("gcseals", StringComparison.OrdinalIgnoreCase))
+                currency = PurchaseCurrency.GcSeals;
+            else
+            {
+                _chat.Print("currency must be 'gil' or 'gcSeals'");
+                return;
+            }
+        }
+
         Result<PurchaseOutcome> result;
         try
         {
             result = _host.DebugVendor.Purchase(
-                new NpcId(0), new ItemId(itemId), qty, PurchaseCurrency.Gil, CancellationToken.None)
+                new NpcId(0), new ItemId(itemId), qty, currency, CancellationToken.None)
                 .GetAwaiter().GetResult();
         }
         catch (Exception ex)
@@ -1009,13 +1023,13 @@ internal sealed class QfCommand : IDisposable
 
         if (result is Result<PurchaseOutcome>.Success { Value: var outcome })
         {
-            var msg = $"[debug buy] itemId={itemId} qty={qty} -> {outcome}";
+            var msg = $"[debug buy] itemId={itemId} qty={qty} currency={currency} -> {outcome}";
             _log.Info(msg);
             _chat.Print($"[QF] {msg}");
         }
         else if (result is Result<PurchaseOutcome>.Failure { Reason: var reason, Detail: var detail })
         {
-            var msg = $"[debug buy] itemId={itemId} qty={qty} -> FAIL({reason}) {detail}";
+            var msg = $"[debug buy] itemId={itemId} qty={qty} currency={currency} -> FAIL({reason}) {detail}";
             _log.Info(msg);
             _chat.Print($"[QF] {msg}");
         }
@@ -1024,7 +1038,7 @@ internal sealed class QfCommand : IDisposable
     }
 
     private void PrintUsage()
-        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] | /qf config trace on|off");
+        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf config trace on|off");
 
     public void Dispose()
     {
