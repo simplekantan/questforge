@@ -157,6 +157,7 @@ public static class StepFactory
                 RequiredZone = zoneStr,
                 Target = new InteractableTarget(InteractableId: npcId, Zone: zone, Position: npcPos)
             },
+            "purchase-item" => BuildPurchaseItemStep(stepId, expectValue, zoneStr, zone, npcPos, after),
             _ => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, RequiredZone = zoneStr, Target = npcLoc, DialogueChoices = dialogueChoices }
         };
     }
@@ -281,6 +282,52 @@ public static class StepFactory
             RequiredZone = ZoneStr(before.Zone.Value),
             Destination = new TravelDestination(Zone: zone, Position: destPos),
             RouteHint = routeHint
+        };
+    }
+
+    private static PurchaseItemStep BuildPurchaseItemStep(
+        string stepId,
+        ExpectValue? expectValue,
+        string? zoneStr,
+        int zone,
+        Position3 npcPos,
+        GameStateSnapshot? after)
+    {
+        uint primaryId = 0;
+        int primaryQty = 1;
+        PurchaseCurrency currency = PurchaseCurrency.Gil;
+
+        if (after?.PurchaseDetected is { } pd && pd.ItemDeltas.Count > 0)
+        {
+            var primary = pd.ItemDeltas
+                .OrderByDescending(kv => kv.Value)
+                .ThenBy(kv => kv.Key)
+                .First();
+            primaryId = primary.Key;
+            primaryQty = primary.Value;
+
+            if (pd.GilDropped > 0 && pd.SealsDropped == 0)
+                currency = PurchaseCurrency.Gil;
+            else if (pd.SealsDropped > 0 && pd.GilDropped == 0)
+                currency = PurchaseCurrency.GcSeals;
+            else if (pd.GilDropped > 0 && pd.SealsDropped > 0)
+                currency = pd.GilDropped >= pd.SealsDropped ? PurchaseCurrency.Gil : PurchaseCurrency.GcSeals;
+            else
+                currency = PurchaseCurrency.Gil;
+        }
+
+        var npcId = after?.LastNpcInteracted?.Value ?? 0u;
+
+        return new PurchaseItemStep
+        {
+            Id = stepId,
+            Expect = expectValue,
+            Zone = zoneStr,
+            RequiredZone = zoneStr,
+            Target = new NpcLocation(NpcId: npcId, Zone: zone, Position: npcPos),
+            ItemId = primaryId,
+            Quantity = primaryQty,
+            Currency = currency
         };
     }
 

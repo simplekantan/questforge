@@ -92,6 +92,37 @@ public sealed class StepInferenceEngine
                 Notes: notes);
         }
 
+        // Rule 2.2b: Purchase detected (shop was open, item delta > 0, currency dropped)
+        // Fires AFTER combat (Rule 2.2) and BEFORE key-item pickup (Rule 2.3) so that a
+        // shop interaction is not mis-inferred as a talk or sequence step.
+        if (after.PurchaseDetected is { } pd
+            && pd.ShopWasOpen
+            && pd.ItemDeltas.Count > 0
+            && (pd.GilDropped > 0 || pd.SealsDropped > 0))
+        {
+            var primary = pd.ItemDeltas
+                .OrderByDescending(kv => kv.Value)
+                .ThenBy(kv => kv.Key)
+                .First();
+
+            string? notes = null;
+            if (pd.ItemDeltas.Count > 1)
+                notes = $"Multiple items increased while the shop was open [{string.Join(",", pd.ItemDeltas.Keys.OrderBy(x => x))}]. " +
+                        $"Drafted purchase of item {primary.Key} (qty {primary.Value}); split if the others were separate purchases.";
+            if (pd.GilDropped > 0 && pd.SealsDropped > 0)
+                notes = (notes is null ? "" : notes + " ") +
+                        $"Both gil ({pd.GilDropped}) and seals ({pd.SealsDropped}) dropped; confirm currency.";
+
+            return new InferenceResult(
+                StepType: "purchase-item",
+                SuggestedStepId: $"buy-item-{primary.Key}",
+                SuggestedExpect: $"playerHasItem({primary.Key},{primary.Value})",
+                Confidence: (pd.ItemDeltas.Count > 1 || (pd.GilDropped > 0 && pd.SealsDropped > 0))
+                    ? Confidence.Low : Confidence.Medium,
+                InferredFrom: InferredFrom.Purchase,
+                Notes: notes);
+        }
+
         // Rule 2.3: Key item acquired
         if (after.KeyItemsAdded is { Count: > 0 } newItems)
         {

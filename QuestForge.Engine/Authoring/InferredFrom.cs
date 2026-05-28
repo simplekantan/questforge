@@ -13,5 +13,6 @@ public enum InferredFrom
     Manual,
     None,
     InventoryChange,
-    Combat
+    Combat,
+    Purchase
 }
