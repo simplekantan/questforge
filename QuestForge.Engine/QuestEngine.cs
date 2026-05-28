@@ -430,6 +430,13 @@ public sealed class QuestEngine
         }
         _lastKnownSequence = currentSeq;
 
+        // Global defense rule: fires on every tick, before the cursor walk.
+        // If the player is in combat and an attacker is in scan range, engage them
+        // immediately — regardless of which step type the cursor is on.
+        // Fail-open: a failed IsPlayerInCombat read returns null (cursor walk proceeds).
+        var defense = await ResolveDefenseOrNull(ct);
+        if (defense is not null) return defense.Value;
+
         // Process any active resume sub-loop FIRST, before the main step loop.
         if (_activeResumeFragment is { } resume)
         {
@@ -460,22 +467,11 @@ public sealed class QuestEngine
             {
                 if (step is CombatStep cs)
                 {
-                    // Objective met. Only "done" once aggro is cleared.
-                    var inCombatResult = await _gameState.IsPlayerInCombat(ct);
-                    // Fail-open: a read failure is treated as NOT in combat so a satisfied
-                    // objective is never trapped in a mop-up loop by an adapter error.
-                    var inCombat = inCombatResult is Result<bool>.Success { Value: true };
-
-                    if (!inCombat)
-                    {
-                        _confirmedStepIds.Add(cs.Id);
-                        await _combatController.ResetAsync(ct);
-                        _combatController.ClearMopUpTimer();
-                        continue;
-                    }
-
-                    // Objective met but still in combat → mop up this tick.
-                    return await ResolveMopUp(cs, ct);
+                    // Objective met. Global defense (above) handles any remaining aggro.
+                    // Confirm and continue — no in-combat check needed here.
+                    _confirmedStepIds.Add(cs.Id);
+                    await _combatController.ResetAsync(ct);
+                    continue;
                 }
 
                 // Non-combat steps: unchanged.
@@ -580,8 +576,6 @@ public sealed class QuestEngine
 
     private const float DefaultStopDistance        = 3.0f;
     private const float DefaultAetheryteStopDistance = 7.0f; // crystals are large; need more clearance
-
-    private static readonly TimeSpan MopUpTimeout = TimeSpan.FromSeconds(15);
 
     private EngineAction ResolveActionForStep(Step step, UiState ui, WorldPosition? playerPos) => step switch
     {
@@ -786,17 +780,36 @@ public sealed class QuestEngine
         return purchaseAction;
     }
 
-    private async Task<(EngineAction action, string? stepId)> ResolveMopUp(
-        CombatStep cs, CancellationToken ct)
+    /// <summary>
+    /// Global defense rule. Fires on every tick before the cursor walk.
+    /// Returns a defense Engage when the player is in combat and an attacker is in scan range.
+    /// Returns null when defense is not needed (fail-open on read failure, no attacker found).
+    /// </summary>
+    private async Task<(EngineAction action, string? stepId)?> ResolveDefenseOrNull(
+        CancellationToken ct)
     {
-        var elapsed = _combatController.StartOrElapsedMopUp(_clock.GetUtcNow());
-        if (elapsed >= MopUpTimeout)
+        var inCombatResult = await _gameState.IsPlayerInCombat(ct);
+        // Fail-open: read failure → no defense action this tick. Cursor walk runs normally.
+        if (inCombatResult is not Result<bool>.Success { Value: true })
+            return null;
+
+        // If mounted AND still navigating, skip defense — outrun the attacker. The whole point
+        // of mounting is to skip overworld trash mobs en route to objectives. Only engage when
+        // we're at the destination (vnavmesh stopped) or on foot. On read failure, fail-open
+        // by NOT skipping (treat as "no opinion, proceed with normal defense logic").
+        var stateResult = await _gameState.GetPlayerState(ct);
+        if (stateResult is Result<PlayerStateSnapshot>.Success { Value: var ps }
+            && ps.MountState != MountState.Dismounted)
         {
-            await _combatController.ResetAsync(ct);
-            return (new EngineAction.AwaitUser("could not leave combat after objective complete"), cs.Id);
+            var navResult = await _navigator.IsNavigating(ct);
+            if (navResult is Result<bool>.Success { Value: true })
+                return null;
         }
 
         var decision = await _combatController.DecideClearAggro(ct);
-        return (new EngineAction.Engage(cs, decision.Target), cs.Id);
+        if (decision.Target is null)
+            return null; // in combat but no attacker in scan range → cursor walk normally
+
+        return (new EngineAction.Engage(Step: null, Target: decision.Target), stepId: null);
     }
 }

@@ -19,8 +19,10 @@ public abstract record EngineAction
     public sealed record Done : EngineAction;
 
     /// <summary>
-    /// Emitted while a CombatStep is the active step and expect is unmet.
+    /// Emitted while a CombatStep is the active step and expect is unmet, OR when global
+    /// defense fires on any step type (Step=null when defense-driven, non-null when
+    /// CombatStep cursor-driven).
     /// Target is the actor the CombatController selected this tick (null = nothing to attack).
     /// </summary>
-    public sealed record Engage(CombatStep Step, KillTarget? Target) : EngineAction;
+    public sealed record Engage(CombatStep? Step, KillTarget? Target) : EngineAction;
 }
