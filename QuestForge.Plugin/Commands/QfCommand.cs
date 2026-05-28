@@ -190,6 +190,9 @@ internal sealed class QfCommand : IDisposable
             case "debug" when parts.Length >= 3 && parts[1] == "buy":
                 HandleDebugBuy(parts[2..]);
                 break;
+            case "debug" when parts.Length >= 2 && parts[1] == "close-shop":
+                HandleDebugCloseShop();
+                break;
             case "test" when parts.Length >= 2:
                 HandleTest(parts[1..]);
                 break;
@@ -1043,7 +1046,32 @@ internal sealed class QfCommand : IDisposable
             _chat.Print($"[QF] {msg}");
         }
 
+        // /qf debug buy intentionally does NOT auto-close the addon: it's a one-shot
+        // probe and the SelectYesno confirm requires manual Yes (SelectYesnoResponder
+        // only runs during an active engine run). The engine's own dispatch flow closes
+        // lazily on the next non-Purchase action — see EngineHost.DispatchAction.
+
         _chat.Print("[QF] If no QuestForge run is active, the SelectYesno confirm won't be auto-answered — click Yes manually. The key check: the confirm names the item you requested.");
+    }
+
+    private void HandleDebugCloseShop()
+    {
+        // Explicit close test: fires DalamudVendor.Close which dismisses Shop and
+        // GrandCompanyExchange addons via FireCallback(1, [Int -1], close: true).
+        // The engine's lazy-close hook (EngineHost.DispatchAction) does this
+        // automatically on transition out of a Purchase action; this command is
+        // a manual probe for verifying the close FireCallback shape works in-game.
+        try
+        {
+            _host.DebugVendor.Close(CancellationToken.None).GetAwaiter().GetResult();
+            _chat.Print("[QF] [debug close-shop] Close fired on Shop + GrandCompanyExchange (silently no-op if neither was open).");
+            _log.Info("[debug close-shop] Close fired");
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "[debug close-shop] unexpected exception");
+            _chat.PrintError($"QuestForge: debug close-shop error — {ex.Message}");
+        }
     }
 
     private void PrintUsage()

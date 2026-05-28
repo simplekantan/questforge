@@ -13,7 +13,9 @@ using QuestForge.Adapters.Fakes.State;
 using QuestForge.Adapters.Fakes.Timing;
 using QuestForge.Adapters.Movement;
 using QuestForge.Adapters.State;
+using QuestForge.Adapters.Timing;
 using QuestForge.Adapters.Tracing;
+using QuestForge.Adapters.Types;
 
 namespace QuestForge.Engine.Tests.Helpers;
 
@@ -117,10 +119,20 @@ public sealed class EngineTestHarness
     {
         var actions = new List<EngineAction>();
         var ct = CancellationToken.None;
+        // Mirrors EngineHost: track whether the previous tick's action was Purchase so
+        // we can lazily close the shop addon on the NEXT non-Purchase action (after the
+        // engine confirms postcondition and moves on).
+        var lastDispatchedWasPurchase = false;
 
         for (var i = 0; i < maxTicks; i++)
         {
             var action = await Engine.Tick(ct);
+
+            if (lastDispatchedWasPurchase && action is not EngineAction.Purchase)
+            {
+                await Vendor.Close(ct);
+                lastDispatchedWasPurchase = false;
+            }
 
             switch (action)
             {
@@ -164,6 +176,7 @@ public sealed class EngineTestHarness
                     EmitActionSubmitted("Purchase", JsonSerializer.SerializeToElement(purchase.Vendor, _jsonOpts));
                     var purchaseResult = await Vendor.Purchase(purchase.Vendor, purchase.Item, purchase.Quantity, purchase.Currency, ct, purchase.GcCategory, purchase.GcRankTier);
                     EmitActionCompleted("Purchase", purchaseResult.IsSuccess ? purchaseResult.ValueOrThrow.ToString() : "Failed");
+                    lastDispatchedWasPurchase = true;
                     break;
 
                 case EngineAction.Wait:
