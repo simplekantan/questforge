@@ -16,6 +16,8 @@ using QuestForge.Adapters.State;
 using QuestForge.Adapters.Timing;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
+using QuestForge.Engine.Dialogue;
+using QuestForge.Schema;
 
 namespace QuestForge.Engine.Tests.Helpers;
 
@@ -44,6 +46,12 @@ public sealed class EngineTestHarness
     public FakeVendor Vendor { get; }
 
     /// <summary>
+    /// FakeMount exposed so tests can assert MountCallCount / DismountCallCount.
+    /// The Builder will wire this into RunToCompletion's Navigate pre-switch hook.
+    /// </summary>
+    public FakeMount Mount { get; } = new FakeMount();
+
+    /// <summary>
     /// The FakeTraceWriter used for assertions in tests. In the default constructor,
     /// this is also the writer passed to the engine and recording proxies.
     /// In the external-trace constructor, this captures a copy of all events for
@@ -51,7 +59,12 @@ public sealed class EngineTestHarness
     /// </summary>
     public FakeTraceWriter TraceWriter { get; }
 
-    public QuestEngine Engine { get; }
+    /// <summary>
+    /// Engine wrapper that mirrors EngineHost's pre-switch mount/dismount hooks inside Tick().
+    /// Tests that call harness.Engine.Tick() directly will see mount/dismount side effects
+    /// just as EngineHost.DispatchAction does — without requiring RunToCompletion.
+    /// </summary>
+    public HarnessEngine Engine { get; }
 
     // The effective writer used by the engine, proxies, and harness action emissions.
     private readonly ITraceWriter _effectiveTrace;
@@ -93,7 +106,7 @@ public sealed class EngineTestHarness
         IQuestState questStateForEngine = new RecordingQuestState(
             QuestState, _effectiveTrace, () => engineRef?.CurrentRunId, skipIfNoRunId: true);
 
-        Engine = engineRef = new QuestEngine(
+        var inner = engineRef = new QuestEngine(
             gameStateForEngine,
             questStateForEngine,
             Navigator,
@@ -107,6 +120,7 @@ public sealed class EngineTestHarness
             _effectiveTrace,
             NullLogger<QuestEngine>.Instance,
             vendor: Vendor);
+        Engine = new HarnessEngine(inner, GameState, Mount, Navigator);
     }
 
     /// <summary>
@@ -126,6 +140,8 @@ public sealed class EngineTestHarness
 
         for (var i = 0; i < maxTicks; i++)
         {
+            // Engine.Tick() is HarnessEngine.Tick(), which applies the mount/dismount
+            // pre-switch hooks before returning the action (mirrors EngineHost.DispatchAction).
             var action = await Engine.Tick(ct);
 
             if (lastDispatchedWasPurchase && action is not EngineAction.Purchase)
@@ -217,6 +233,110 @@ public sealed class EngineTestHarness
                 Engine.CurrentRunId, actionType, outcome, DateTimeOffset.UtcNow));
         }
         catch { /* best effort */ }
+    }
+}
+
+/// <summary>
+/// Wraps QuestEngine and applies the EngineHost mount/dismount pre-switch hooks inside Tick().
+/// Mount predicate fires before Navigate returns; dismount fires before the first non-Navigate
+/// after a Navigate. This mirrors EngineHost.DispatchAction so that direct Tick() calls in
+/// tests see the same mount/dismount side effects as a full RunToCompletion dispatch loop.
+///
+/// NOTE (Q4): mount/dismount logic lives here (host boundary), not inside QuestEngine itself,
+/// so replay tests against QuestEngine.Tick() directly do not see the extra GetPlayerState reads
+/// and existing replay fixtures are unaffected.
+/// </summary>
+public sealed class HarnessEngine
+{
+    private readonly QuestEngine _inner;
+    private readonly FakeGameStateProvider _gameState;
+    private readonly FakeMount _mount;
+    private readonly FakeNavigator _navigator;
+    private bool _lastDispatchedWasNavigate;
+    private const float MountDistanceThresholdMeters = 20f;
+
+    internal HarnessEngine(QuestEngine inner, FakeGameStateProvider gameState, FakeMount mount, FakeNavigator navigator)
+    {
+        _inner = inner;
+        _gameState = gameState;
+        _mount = mount;
+        _navigator = navigator;
+    }
+
+    public string? CurrentRunId => _inner.CurrentRunId;
+    public YesNoAnswer? CurrentYesNoAnswer => _inner.CurrentYesNoAnswer;
+
+    public void StartQuest(QuestDefinition quest) => _inner.StartQuest(quest);
+
+    public void StartQuest(
+        QuestDefinition quest,
+        IReadOnlyDictionary<string, FragmentDefinition>? fragments)
+        => _inner.StartQuest(quest, fragments);
+
+    public void BeginRun(string runId) => _inner.BeginRun(runId);
+
+    /// <summary>
+    /// Ticks the underlying engine, applies the mount/dismount hooks (mirroring
+    /// EngineHost.DispatchAction), and returns the resulting action.
+    /// </summary>
+    public async Task<EngineAction> Tick(CancellationToken ct)
+    {
+        var action = await _inner.Tick(ct);
+
+        // Lazy dismount: if the previous dispatch was Navigate and the engine has now
+        // moved past it (postcondition met → emitted a non-Navigate action), dismount
+        // BEFORE the action is returned to the caller. Flying-dismount may cause fall damage
+        // (v1 limitation); vnavmesh usually grounds at stop-distance.
+        if (_lastDispatchedWasNavigate && action is not EngineAction.Navigate)
+        {
+            // Mirror EngineHost: only consider dismount when vnavmesh has actually stopped.
+            // The engine emits Engage early (target in scan range) while the CombatController
+            // is internally navigating toward the target; dismounting on that transition drops
+            // a flying player out of the sky mid-approach.
+            var navResult = await _navigator.IsNavigating(ct);
+            var stillNavigating = navResult is Result<bool>.Success { Value: true };
+
+            if (!stillNavigating)
+            {
+                var stateResult = await _gameState.GetPlayerState(ct);
+                if (stateResult is Result<PlayerStateSnapshot>.Success { Value: var ps })
+                {
+                    if (ps.MountState != MountState.Dismounted)
+                    {
+                        // Flying dismount is two-step: first call lands, second dismounts.
+                        // Re-fire each tick until MountState confirms Dismounted.
+                        await _mount.Dismount(ct);
+                    }
+                    else
+                    {
+                        _lastDispatchedWasNavigate = false;
+                    }
+                }
+                else
+                {
+                    _lastDispatchedWasNavigate = false;
+                }
+            }
+            // If still navigating: keep the flag set; re-check next tick.
+        }
+
+        // Mount predicate: fire Mount Roulette when a Navigate is dispatched and all
+        // preconditions hold (per MOUNT_SUPPORT_PLAN.md §2 decision + §3 Q2 cast safeguard).
+        if (action is EngineAction.Navigate nav && nav.Options.UseMount)
+        {
+            var stateResult = await _gameState.GetPlayerState(ct);
+            if (stateResult is Result<PlayerStateSnapshot>.Success { Value: var ps }
+                && ps.MountState == MountState.Dismounted
+                && !ps.InCombat
+                && !ps.Casting
+                && ps.Position.DistanceTo(nav.Destination) >= MountDistanceThresholdMeters)
+            {
+                await _mount.Mount(ct);
+            }
+            _lastDispatchedWasNavigate = true;
+        }
+
+        return action;
     }
 }
 

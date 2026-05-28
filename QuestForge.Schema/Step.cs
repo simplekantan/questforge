@@ -56,6 +56,13 @@ public class TravelStep : Step
 {
     public TravelDestination Destination { get; init; } = default!;
     public RouteHint? RouteHint { get; init; }
+
+    /// <summary>
+    /// When false, the engine must not attempt Mount Roulette before navigating this step.
+    /// Use for steps that traverse known mount-prohibited sub-areas.
+    /// Null / true (default) → engine applies its standard mount predicate.
+    /// </summary>
+    public bool? UseMount { get; init; }
 }
 
 public class TalkStep : Step

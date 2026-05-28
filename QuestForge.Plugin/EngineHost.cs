@@ -39,6 +39,7 @@ public sealed class EngineHost : IDisposable
     private readonly LifestreamTeleporter _teleporter;
     private readonly DalamudInteractor _interactor;
     private readonly DalamudVendor _vendor;
+    private readonly DalamudMount _mount;
     private readonly WrathComboAdapter _combat;
     private readonly DalamudGearManager _gear;
     private readonly NullMinigameSkipper _minigames;
@@ -81,6 +82,10 @@ public sealed class EngineHost : IDisposable
     // (SelectYesno confirm → inventory update → engine's postcondition gate) can complete
     // before we dismiss the addon.
     private bool _lastDispatchedActionWasPurchase;
+    // Tracks whether the previous dispatched action was a Navigate so the lazy-dismount
+    // hook fires on the next non-Navigate action (mirrors the close-shop pattern).
+    private bool _lastDispatchedActionWasNavigate;
+    private const float MountDistanceThresholdMeters = 20f;
     private static readonly TimeSpan AethernetCooldown = TimeSpan.FromSeconds(15);
 
     // Debounced logging: log immediately on change, then at most once per interval for repeats
@@ -98,6 +103,7 @@ public sealed class EngineHost : IDisposable
         _teleporter      = new LifestreamTeleporter(services);
         _interactor      = new DalamudInteractor(services);
         _vendor          = new DalamudVendor(services);
+        _mount           = new DalamudMount(services);
         _combat          = new WrathComboAdapter(services);
         _gear            = new DalamudGearManager(services);
         _minigames       = new NullMinigameSkipper();
@@ -124,6 +130,7 @@ public sealed class EngineHost : IDisposable
     public ICombat            DebugCombat    => _combat;
     public INavigator         DebugNavigator => _navigator;
     public IVendor            DebugVendor    => _vendor;
+    public IMount             DebugMount     => _mount;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
@@ -258,6 +265,52 @@ public sealed class EngineHost : IDisposable
             _lastDispatchedActionWasPurchase = false;
         }
 
+        // Lazy dismount: if the previous dispatch was a Navigate and the engine has now
+        // moved past it (postcondition met → emitted a non-Navigate action), dismount BEFORE
+        // handling the new action. Flying-dismount causes fall damage if the navigate ended
+        // in the air — accept this v1 limitation; vnavmesh usually grounds at stop-distance.
+        // NOTE (Q4): mount-decision reads are on the host, not QuestEngine, so replay fixtures
+        // against QuestEngine.Tick() are unaffected (see MOUNT_SUPPORT_PLAN.md §3 Q4).
+        if (_lastDispatchedActionWasNavigate && action is not EngineAction.Navigate)
+        {
+            // Don't dismount while vnavmesh is still moving the player. Some non-Navigate
+            // actions fire early — notably Engage, which the engine emits as soon as a combat
+            // target enters scan range (often 30m+ from the player), while the CombatController
+            // is internally navigating the player toward the target. Dismounting on that early
+            // Engage transition drops a flying player out of the sky mid-approach. The fix:
+            // only consider dismount when navigation has actually stopped.
+            var navResult = await _navigator.IsNavigating(ct);
+            var stillNavigating = navResult is Result<bool>.Success { Value: true };
+
+            if (!stillNavigating)
+            {
+                var stateResult = await _gameStateInner.GetPlayerState(ct);
+                if (stateResult is Result<PlayerStateSnapshot>.Success { Value: var dsPs })
+                {
+                    if (dsPs.MountState != MountState.Dismounted)
+                    {
+                        // Flying dismount is a two-step game action: first call lands the player,
+                        // second call (after the landing animation) actually dismounts. We can't
+                        // fire both UseAction calls in the same tick — the second is rejected
+                        // mid-animation. Keep the navigate-flag set and re-fire each tick until
+                        // MountState observes Dismounted; the engine's ~250ms tick gap gives the
+                        // landing animation time to complete between calls.
+                        await _mount.Dismount(ct);
+                    }
+                    else
+                    {
+                        _lastDispatchedActionWasNavigate = false;
+                    }
+                }
+                else
+                {
+                    // State read failed — don't loop forever; give up.
+                    _lastDispatchedActionWasNavigate = false;
+                }
+            }
+            // If still navigating: keep the flag set; re-check next tick.
+        }
+
         switch (action)
         {
             case EngineAction.Engage:
@@ -303,6 +356,22 @@ public sealed class EngineHost : IDisposable
                 DebounceLog(
                     $"nav:{n.Destination.X:F0},{n.Destination.Z:F0}",
                     $"[Navigate] → ({n.Destination.X:F1},{n.Destination.Y:F1},{n.Destination.Z:F1}) stop={n.Options.StoppingDistance}");
+                // Mount predicate: fire Mount Roulette when preconditions hold.
+                // Casting: true covers mid-mount-animation (~2s gap) — suppresses re-fire spam.
+                // Silent best-effort: UseAction rejection (indoor, no mount) degrades to on-foot.
+                if (n.Options.UseMount)
+                {
+                    var mountResult = await _gameStateInner.GetPlayerState(ct);
+                    if (mountResult is Result<PlayerStateSnapshot>.Success { Value: var mPs }
+                        && mPs.MountState == MountState.Dismounted
+                        && !mPs.InCombat
+                        && !mPs.Casting
+                        && mPs.Position.DistanceTo(n.Destination) >= MountDistanceThresholdMeters)
+                    {
+                        await _mount.Mount(ct);
+                    }
+                }
+                _lastDispatchedActionWasNavigate = true;
                 await _navigator.NavigateTo(n.Destination, n.Options, ct);
                 // Skip cutscene and advance dialogue that may be open while navigating.
                 // Attuning to the main aetheryte triggers a cutscene; isAttuned(N) becomes

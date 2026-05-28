@@ -89,7 +89,7 @@ internal sealed class QfCommand : IDisposable
         _interop = interop;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
-            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf config trace on|off"
+            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf debug close-shop | /qf debug mount | /qf debug dismount | /qf config trace on|off"
         });
     }
 
@@ -192,6 +192,12 @@ internal sealed class QfCommand : IDisposable
                 break;
             case "debug" when parts.Length >= 2 && parts[1] == "close-shop":
                 HandleDebugCloseShop();
+                break;
+            case "debug" when parts.Length >= 2 && parts[1] == "mount":
+                HandleDebugMount();
+                break;
+            case "debug" when parts.Length >= 2 && parts[1] == "dismount":
+                HandleDebugDismount();
                 break;
             case "test" when parts.Length >= 2:
                 HandleTest(parts[1..]);
@@ -1074,8 +1080,41 @@ internal sealed class QfCommand : IDisposable
         }
     }
 
+    private void HandleDebugMount()
+    {
+        // Fires Mount Roulette (ActionManager.UseAction(GeneralAction, 9)) directly.
+        // Use in-game to verify the ActionManager shape before the engine wiring is exercised end-to-end.
+        try
+        {
+            _host.DebugMount.Mount(CancellationToken.None).GetAwaiter().GetResult();
+            _chat.Print("[QF] [debug mount] Mount Roulette fired (silent if rejected — indoor/no mount unlocked).");
+            _log.Info("[debug mount] Mount fired");
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "[debug mount] unexpected exception");
+            _chat.PrintError($"QuestForge: debug mount error — {ex.Message}");
+        }
+    }
+
+    private void HandleDebugDismount()
+    {
+        // Fires Dismount (ActionManager.UseAction(GeneralAction, 23)) directly.
+        try
+        {
+            _host.DebugMount.Dismount(CancellationToken.None).GetAwaiter().GetResult();
+            _chat.Print("[QF] [debug dismount] Dismount fired (silent if already dismounted).");
+            _log.Info("[debug dismount] Dismount fired");
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "[debug dismount] unexpected exception");
+            _chat.PrintError($"QuestForge: debug dismount error — {ex.Message}");
+        }
+    }
+
     private void PrintUsage()
-        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf config trace on|off");
+        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf debug close-shop | /qf debug mount | /qf debug dismount | /qf config trace on|off");
 
     public void Dispose()
     {
