@@ -24,6 +24,27 @@ public sealed class DalamudVendor : IVendor
 
     public DalamudVendor(PluginServices svc) => _svc = svc;
 
+    /// <inheritdoc/>
+    public Task Close(CancellationToken ct = default)
+    {
+        unsafe
+        {
+            TryCloseAddon("Shop");
+            TryCloseAddon("GrandCompanyExchange");
+        }
+        return Task.CompletedTask;
+    }
+
+    private unsafe void TryCloseAddon(string name)
+    {
+        var ptr = _svc.GameGui.GetAddonByName(name);
+        if (ptr.IsNull || !ptr.IsReady) return;
+        var addon = (AtkUnitBase*)ptr.Address;
+        var values = stackalloc AtkValue[1];
+        values[0] = new AtkValue { Type = AtkValueType.Int, Int = -1 };
+        addon->FireCallback(1, values, true);
+    }
+
     public Task<Result<PurchaseOutcome>> Purchase(
         NpcId vendor, ItemId item, int quantity, PurchaseCurrency currency,
         CancellationToken ct = default, int? gcCategory = null, int? gcRankTier = null)

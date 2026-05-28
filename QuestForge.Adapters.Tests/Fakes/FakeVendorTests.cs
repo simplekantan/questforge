@@ -153,4 +153,30 @@ public sealed class FakeVendorTests
         Assert.Null(vendor.RecordedCalls[0].GcCategory);    // RED: PurchaseCall.GcCategory does not exist
         Assert.Null(vendor.RecordedCalls[0].GcRankTier);    // RED: PurchaseCall.GcRankTier does not exist
     }
+
+    // =========================================================================
+    // E — FakeVendor.Close records calls (fix/close-shop-after-purchase)
+    // =========================================================================
+
+    // =========================================================================
+    // E1 — Close increments CloseCallCount; two calls → count == 2
+    // =========================================================================
+
+    [Fact]
+    public async Task E1_FakeVendor_Close_RecordsCall()
+    {
+        // CONTRACT: Close() is fire-and-forget/best-effort; FakeVendor records each
+        // invocation via CloseCallCount so callers can assert exactly how many times
+        // the engine issued a close (0 on ShopOpening, 1 on terminal outcomes).
+
+        var vendor = CreateVendor();
+
+        // First call — count must be 1
+        await vendor.Close(CancellationToken.None);
+        Assert.Equal(1, vendor.CloseCallCount);
+
+        // Second call — count must be 2 (not reset, not capped)
+        await vendor.Close(CancellationToken.None);
+        Assert.Equal(2, vendor.CloseCallCount);
+    }
 }

@@ -13,6 +13,12 @@ public interface IVendor
         CancellationToken ct = default,
         int? gcCategory = null,
         int? gcRankTier = null);
+
+    /// <summary>
+    /// Closes any open shop addon (Shop, GrandCompanyExchange). Fire-and-forget;
+    /// best-effort; no-op if no shop addon is currently open.
+    /// </summary>
+    Task Close(CancellationToken ct = default);
 }
 
 public enum PurchaseOutcome

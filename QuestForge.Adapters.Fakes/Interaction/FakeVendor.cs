@@ -16,6 +16,9 @@ public sealed class FakeVendor : IVendor
 
     public CallLog<PurchaseCall> RecordedCalls { get; } = new();
 
+    /// <summary>Number of times <see cref="Close"/> has been called.</summary>
+    public int CloseCallCount { get; private set; }
+
     public FakeVendor() { }
 
     public FakeVendor(FakeGameStateProvider gameState)
@@ -61,5 +64,12 @@ public sealed class FakeVendor : IVendor
         }
 
         return Task.FromResult<Result<PurchaseOutcome>>(Result.Ok(outcome));
+    }
+
+    public Task Close(CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        CloseCallCount++;
+        return Task.CompletedTask;
     }
 }

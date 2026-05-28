@@ -76,6 +76,11 @@ public sealed class EngineHost : IDisposable
 
     // Aethernet throttle: prevent re-firing while zone transition / loading is in progress
     private DateTimeOffset _lastAethernetAt = DateTimeOffset.MinValue;
+    // Tracks whether the previous dispatched action was a Purchase. The shop addon close
+    // fires lazily on the next non-Purchase action so the in-flight buy transaction
+    // (SelectYesno confirm → inventory update → engine's postcondition gate) can complete
+    // before we dismiss the addon.
+    private bool _lastDispatchedActionWasPurchase;
     private static readonly TimeSpan AethernetCooldown = TimeSpan.FromSeconds(15);
 
     // Debounced logging: log immediately on change, then at most once per interval for repeats
@@ -242,6 +247,17 @@ public sealed class EngineHost : IDisposable
     {
         await _leaseLatch.OnAction(action, _recordingCombat ?? _combat, ct);
 
+        // Lazy shop close: if the previous dispatch was a Purchase and the engine has now
+        // moved past it (postcondition met → emitted a non-Purchase action), dismiss any
+        // open Shop / GrandCompanyExchange addon BEFORE handling the new action. This lets
+        // SelectYesnoResponder finish the buy confirm and the inventory update land before
+        // we close, while still freeing the player to move before the next step runs.
+        if (_lastDispatchedActionWasPurchase && action is not EngineAction.Purchase)
+        {
+            await _vendor.Close(ct);
+            _lastDispatchedActionWasPurchase = false;
+        }
+
         switch (action)
         {
             case EngineAction.Engage:
@@ -347,6 +363,9 @@ public sealed class EngineHost : IDisposable
                 // SelectYesno confirm ("buy N for Y?") is dismissed by the existing SelectYesnoResponder.
                 await _interactor.InteractWith(p.Vendor, ct);
                 await _vendor.Purchase(p.Vendor, p.Item, p.Quantity, p.Currency, ct, p.GcCategory, p.GcRankTier);
+                // Mark this dispatch as a Purchase so the next non-Purchase action will
+                // close the shop addon first (see the pre-switch close hook above).
+                _lastDispatchedActionWasPurchase = true;
                 break;
 
             case EngineAction.Wait:
