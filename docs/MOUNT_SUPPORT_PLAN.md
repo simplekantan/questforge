@@ -303,4 +303,65 @@ Each test uses `EngineTestHarness` (mirrors `CloseShopAfterPurchaseTests` setup)
 
 ---
 
+### §8 CanMount gate (added 2026-05-28)
+
+#### Motivation
+> "Is there a bool we can look at like canMount (I made this up) so we don't attempt to mount in places mounts are disabled like cities and potentially spam the 'cannot mount' message?"
+
+The §7 R1 risk has materialized. `DalamudGameStateProvider.GetTravelCapability.CanMount` is `!InCombat` only (`DalamudGameStateProvider.cs:495-515`) — it does NOT cover indoor zones, mount-prohibited subareas, status effects, or cutscene state. The Q2 silent re-fire model spams `UseAction(GeneralAction, 9)` every Navigate tick in cities. Add a real gate.
+
+#### Architectural decisions
+
+**Q1 — Fixture cascade from new `PlayerStateSnapshot` field.**
+`ObservationMaterializer.Materialize<T>` uses `JsonSerializer.Deserialize<T>` with `ReplayJsonOptions.Default` (no `JsonRequired`, no custom converter). For a positional record like `PlayerStateSnapshot(... bool Casting, bool Dead)`, STJ deserializes missing JSON properties by defaulting the constructor parameter — for `bool` that is `false`. So old traces would silently materialize with `CanMount = false`, which would skip mount on every replayed Navigate. That breaks the §5 matrix M1 happy-path assertion in any fixture-derived test. **Pinned: option (a) — declare `CanMount` as the LAST positional parameter on `PlayerStateSnapshot` with a constructor default of `true`** (`bool CanMount = true`). Backwards-compatible: old traces missing the property deserialize as `CanMount = true`, preserving pre-change behavior (mount fires when other preconditions hold). The live provider always emits the real value. No fixture re-record required.
+
+**Q2 — Should we also fix `TravelCapability.CanMount`?**
+Grep across the repo for `\.CanMount` reads returned zero consumer-side usages of `TravelCapability.CanMount` — no engine code, no host code, no test. The field is dead. **Pinned: option (a) — leave `TravelCapability.CanMount` untouched.** `GetTravelCapability` is per-destination (signature `GetTravelCapability(ZoneId destination, ct)`) and is intended for future teleport-vs-ground decisions. Per-tick mount gating belongs on `PlayerStateSnapshot`. Add a `// TODO: this field is currently unused; PlayerStateSnapshot.CanMount is the per-tick gate. Reconsider when GetTravelCapability gets real consumers.` comment to `DalamudGameStateProvider.cs:498` so the next reader knows the asymmetry is intentional.
+
+**Q3 — Test surface.**
+M1–M7 and M1b cover the existing mount predicate. Adding `CanMount` adds one dimension. **Pinned:** one new matrix case **M8** (suppression when `CanMount=false`). M1 already proves the `CanMount=true` happy path because the fake's default will be `true` (Q4). No M8b needed — adding it would duplicate M1.
+
+- **M8 — `CanMount=false` gate suppresses mount fire.**
+  - Given: distance ≥ 20m, `Dismounted`, `!InCombat`, `!Casting`, `UseMount=true`, **`harness.GameState.SetCanMount(false)`**.
+  - When: harness ticks and dispatches `Navigate`.
+  - Then: `harness.Mount.MountCallCount == 0` and `Navigator.NavigateTo` was called.
+
+**Q4 — `FakeGameStateProvider` default for `_canMount`.**
+The existing fake defaults (`_inCombat=false`, `_mountState=Dismounted`, `_casting=false`) all encode "permissive happy-path state where mount predicate fires." Choosing `_canMount=false` would silently break M1 / M1b / every existing test that exercises mount-fire without an explicit setter call — a fail-safe-by-default that masks regressions. **Pinned: `_canMount = true` default.** New `SetCanMount(bool v)` setter mirrors `SetInCombat`. Tests that want to assert suppression call it explicitly (M8). This matches Q1's record default and keeps the production-true vs test-fake invariant: defaults represent the unconstrained-outdoor-Eorzea baseline.
+
+**Q5 — `ActionManager.GetActionStatus` failure modes.**
+- `ActionManager.Instance()` returning null only happens before the game finishes booting — `DalamudGameStateProvider.GetPlayerState` is only called after `ClientState.LocalPlayer != null`, so this is effectively unreachable. Mirror the existing null-guard pattern in `DalamudMount.cs:39-40` and `DalamudMount.cs:48-49`.
+- Throw is unexpected from a getter on a stable FFXIVClientStructs surface; defensive `try/catch` adds noise for a path that does not occur in practice.
+
+**Fail-open vs fail-closed argument:**
+- **Fail-open (`CanMount = true` on null AM):** matches `DalamudGameStateProvider`'s posture for `CanFly` (`ps != null && ps->CanFly` — fail-closed-for-fly, but no throw). Downside: a null-AM tick attempts a mount that the game discards. Aligned with "silent best-effort" of §2.
+- **Fail-closed (`CanMount = false` on null AM):** suppresses mount when AM is unavailable. Downside: if a startup edge ever leaves AM null while LocalPlayer is non-null, the player sits dismounted for one tick — recovered on the next tick.
+
+**Pinned: fail-closed.** Rationale: the user's stated goal is to *stop spamming mount attempts*. Erring toward suppression matches user intent and is the conservative choice for an unreachable edge. Code shape: `var am = ActionManager.Instance(); var canMount = am != null && am->GetActionStatus(ActionType.GeneralAction, 9) == 0;`. No try/catch — if `GetActionStatus` throws it is a genuine bug and the unhandled exception is the right signal.
+
+#### File inventory (~5 files)
+
+1. `QuestForge.Adapters/State/IGameStateProvider.cs` — add `bool CanMount = true` as the last positional parameter on `PlayerStateSnapshot` (lines 59–69). Comment on the record: `// CanMount must remain the LAST positional parameter with a default — old traces deserialize missing properties as the default, so reordering breaks replay backcompat.`
+2. `QuestForge.Adapters.Dalamud/State/DalamudGameStateProvider.cs` — compute `canMount` via `ActionManager.Instance()->GetActionStatus(ActionType.GeneralAction, 9) == 0` (fail-closed on null AM), pass into the `PlayerStateSnapshot` constructor wherever it's built. Add a `// TODO` comment at line 498 about `TravelCapability.CanMount` being unused.
+3. `QuestForge.Adapters.Fakes/State/FakeGameStateProvider.cs` — add `private bool _canMount = true;` field (after `_casting` at line 23); add `public void SetCanMount(bool v) { lock (_lock) _canMount = v; }` (after `SetCasting` at line 67); thread through the `GetPlayerState` snapshot construction at line 139–141.
+4. `QuestForge.Plugin/EngineHost.cs` — update the Navigate-arm mount predicate to AND in `playerState.CanMount`. Mirror change in `QuestForge.Engine.Tests/Helpers/EngineTestHarness.cs` Navigate-hook block (paired-divergence pattern per Q4 of §3).
+5. `QuestForge.Engine.Tests/Engine/MountSupportTests.cs` — add M8 test (`Mount_PredicateRespectsCanMountFalse`).
+
+#### Test plan
+
+| ID | Scenario | New? |
+|----|----------|------|
+| M8 | `CanMount=false` suppresses mount fire (otherwise-permissive state) | Yes |
+| M1, M1b, M2–M7, H1, S1–S3 | Existing matrix unchanged (fake default `_canMount=true` preserves behavior) | No |
+
+Run: `& "C:\Users\publi\.dotnet\dotnet.exe" test QuestForge.Engine.Tests --filter "FullyQualifiedName~MountSupport"`
+
+#### Risks
+
+- **R4 (fixture cascade, mitigated)** — Q1 default-true on the positional record parameter eliminates the cascade. Verify the implementer's change to `PlayerStateSnapshot` keeps `CanMount` as the LAST parameter with `= true`; reordering parameters or omitting the default reintroduces the cascade. Lock with the comment in file 1.
+- **R5 (asymmetric CanMount surfaces)** — `TravelCapability.CanMount` and `PlayerStateSnapshot.CanMount` will have different fidelities (the former still `!InCombat`-only, the latter authoritative). Q2 TODO mitigates by documenting the intent; a future contributor wiring `TravelCapability.CanMount` into a consumer must read this section first.
+- **R6 (GetActionStatus semantics)** — `GetActionStatus == 0` is the "action is usable" return code in FFXIVClientStructs; non-zero codes encode various rejection reasons (locked, on cooldown, out of resource, zone-prohibited). Implementer should NOT switch on specific non-zero codes — only `== 0` is portable across patches.
+
+---
+
 ## End of plan
