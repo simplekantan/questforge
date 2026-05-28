@@ -38,6 +38,7 @@ public sealed class EngineHost : IDisposable
     private readonly VnavmeshNavigator _navigator;
     private readonly LifestreamTeleporter _teleporter;
     private readonly DalamudInteractor _interactor;
+    private readonly DalamudVendor _vendor;
     private readonly WrathComboAdapter _combat;
     private readonly DalamudGearManager _gear;
     private readonly NullMinigameSkipper _minigames;
@@ -91,6 +92,7 @@ public sealed class EngineHost : IDisposable
         _navigator       = new VnavmeshNavigator(services);
         _teleporter      = new LifestreamTeleporter(services);
         _interactor      = new DalamudInteractor(services);
+        _vendor          = new DalamudVendor(services);
         _combat          = new WrathComboAdapter(services);
         _gear            = new DalamudGearManager(services);
         _minigames       = new NullMinigameSkipper();
@@ -116,6 +118,7 @@ public sealed class EngineHost : IDisposable
     public IGameStateProvider DebugGameState => _gameStateInner;
     public ICombat            DebugCombat    => _combat;
     public INavigator         DebugNavigator => _navigator;
+    public IVendor            DebugVendor    => _vendor;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
@@ -190,7 +193,8 @@ public sealed class EngineHost : IDisposable
         _engine = new QuestEngine(
             gs, qs, _navigator, _teleporter, _interactor,
             _recordingCombat, _gear, _minigames, _dialogue, _timing,
-            _traceSession, new DalamudLogger<QuestEngine>(_services.Log));
+            _traceSession, new DalamudLogger<QuestEngine>(_services.Log),
+            vendor: _vendor);
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
         _onRunStart?.Invoke();
@@ -330,6 +334,19 @@ public sealed class EngineHost : IDisposable
                 // Places items in Request addon slots then clicks Hand Over button.
                 // Returns NoDialog if the addon is not yet open — engine will retry next tick.
                 await _interactor.HandOverItem(h.Items, h.Target, ct);
+                break;
+
+            case EngineAction.Purchase p:
+                DebounceLog(
+                    $"purchase:{p.Vendor.Value}:{p.Item.Value}",
+                    $"[Purchase] vendor={p.Vendor.Value} item={p.Item.Value} qty={p.Quantity} cur={p.Currency}");
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
+                TryCutsceneSkipConfirm();
+                // InteractWith opens the shop; DalamudVendor then drives the buy addon.
+                // SelectYesno confirm ("buy N for Y?") is dismissed by the existing SelectYesnoResponder.
+                await _interactor.InteractWith(p.Vendor, ct);
+                await _vendor.Purchase(p.Vendor, p.Item, p.Quantity, p.Currency, ct);
                 break;
 
             case EngineAction.Wait:
