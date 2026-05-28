@@ -453,12 +453,27 @@ public sealed class SnapshotAggregator
         _spanNibbleBumps.Clear();
         // Clear purchase span so Current.PurchaseDetected is null for the next window.
         _spanItemDeltas.Clear();
-        _shopOpen               = false;
         _purchaseSpanStarted    = false;
         _purchaseBaselineGil    = null;
         _purchaseBaselineSeals  = null;
         _spanActiveGcCategory   = null;    // G5 (§14.9.2)
         _spanActiveGcRankTier   = null;    // G5 (§14.9.2)
+
+        // Surfaced by G6 in-game smoke (2026-05-28): if the shop addon is currently open at the
+        // moment ResetDeltas runs (e.g. the author clicked "Open" on the Record Step modal while a
+        // vendor window was already up), restart the span at the current balances. Otherwise the
+        // next UIObserver poll sees no transition (open is unchanged), no OnShopOpened fires, and
+        // every subsequent OnVendorItemCountChanged hits the `!_purchaseSpanStarted` early-return —
+        // silently disabling purchase detection for that recording window. _shopOpen reflects the
+        // addon's true state, not the span lifecycle, so it is NOT forced to false here.
+        if (_shopOpen)
+        {
+            _purchaseSpanStarted   = true;
+            _purchaseBaselineGil   = _currentGil;
+            _purchaseBaselineSeals = _currentSeals;
+            // GC axes are left null; the next PollVendor heartbeat re-fills them via
+            // OnActiveGcAxesObserved per the "last-seen non-null wins" rule.
+        }
     }
 
     // ── Private span-correlation helper ──────────────────────────────────────

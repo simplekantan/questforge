@@ -1,6 +1,7 @@
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace QuestForge.Plugin.Tracing;
 
@@ -66,15 +67,38 @@ public sealed class DalamudVendorProbe : IVendorProbe
         return mgr->GetInventoryItemCount(sealItemId, isHq: false, checkEquipped: false, checkArmory: false);
     }
 
-    // G6: implement radio-Selected reads. Per D14.4 the implementation walks the
-    // AtkComponentRadioButton group on the GrandCompanyExchange addon (node ids 44+i for
-    // category, 37+i for tier — see DalamudVendor.cs §G3) and returns the index of the
-    // button whose Selected flag is true, or null on any traversal failure.
-    // VERIFY IN-GAME: the exact AtkComponentRadioButton node path.
-    // Returning null (fail-quiet) is safe — the aggregator treats null as "no opinion",
-    // the modal falls back to blank inputs (D14.4), the rest of the pipeline works unchanged.
-    public int? GetActiveGcCategory() => null;
-    public int? GetActiveGcRankTier() => null;
+    // GrandCompanyExchange radio-button reads — node-id offsets are the same ones
+    // DalamudVendor.DispatchRadioButtonClick uses for switching (§14.9, G3).
+    //   Category: node ids 44..47 → 0=Weapons, 1=Armor, 2=Materiel, 3=Materials
+    //   RankTier: node ids 37..39 → 0=lowest visible, 1=middle, 2=highest
+    // Returning null (fail-quiet) is safe per D14.4 — the aggregator treats null as
+    // "no opinion", the modal falls back to blank inputs, the rest of the pipeline works.
+    // Missing/hidden nodes (e.g. tabs the player hasn't unlocked) are skipped rather than
+    // bailed on, so the visible-and-selected button still resolves.
+    public unsafe int? GetActiveGcCategory()
+        => FindSelectedRadioIndex(baseNodeId: 44, count: 4);
+
+    public unsafe int? GetActiveGcRankTier()
+        => FindSelectedRadioIndex(baseNodeId: 37, count: 3);
+
+    private unsafe int? FindSelectedRadioIndex(uint baseNodeId, int count)
+    {
+        var addonPtr = _gameGui.GetAddonByName("GrandCompanyExchange");
+        if (addonPtr.IsNull || !addonPtr.IsReady) return null;
+
+        var addon = (AtkUnitBase*)addonPtr.Address;
+        for (var i = 0; i < count; i++)
+        {
+            var node = addon->GetNodeById(baseNodeId + (uint)i);
+            if (node == null) continue;
+
+            var radio = node->GetAsAtkComponentRadioButton();
+            if (radio == null) continue;
+
+            if (radio->IsSelected) return i;
+        }
+        return null;
+    }
 
     public unsafe IReadOnlyList<(uint ItemId, int Count)> GetChangedItemCounts()
     {

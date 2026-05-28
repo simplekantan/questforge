@@ -228,6 +228,12 @@ public sealed class PurchaseSnapshotAggregatorTests
         // Sanity: span is populated before reset
         Assert.NotNull(agg.Current.PurchaseDetected);
 
+        // Shop closes before the next recording window begins. Mirrors the realistic
+        // author flow: buy → close shop → click Open on the Record Step modal. The
+        // separate ResetDeltas-while-shop-open scenario is covered by
+        // ResetDeltasWhileShopOpen_RestartsSpan_NextBuyIsDetected below.
+        agg.OnShopOpened(false);
+
         // Reset — clears the purchase span
         agg.ResetDeltas();
 
@@ -368,5 +374,70 @@ public sealed class PurchaseSnapshotAggregatorTests
         // RED: Builder must implement "last seen non-null wins" for both to work
         Assert.Equal(3, pd!.ActiveGcCategory);
         Assert.Equal(1, pd.ActiveGcRankTier);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ResetDeltasWhileShopOpen — surfaced by G6 in-game smoke (2026-05-28).
+    //
+    // The authoring flow calls OpenRecordModal() → ResetDeltas() each time the
+    // user clicks Open. If the vendor addon is already open at that moment,
+    // ResetDeltas WAS force-clearing _shopOpen, which silenced the next poll's
+    // (non-transitioning) ShopOpened heartbeat — and every subsequent
+    // OnVendorItemCountChanged hit the !_purchaseSpanStarted early-return,
+    // leaving Current.PurchaseDetected == null no matter what the user bought.
+    // The fix: ResetDeltas must leave _shopOpen reflecting the addon's true
+    // state, AND if shop is still open it must restart the span at the current
+    // balances so the next item observation is captured.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ResetDeltasWhileShopOpen_RestartsSpan_NextBuyIsDetected()
+    {
+        var clock = new FakeClock(Epoch);
+        var agg   = new SnapshotAggregator(BuyQuest, clock);
+
+        // 1. Shop is already open at the moment the recording starts.
+        agg.OnCurrencyChanged(10_000L, 0);
+        agg.OnShopOpened(true);
+        Assert.NotNull(agg.Current.PurchaseDetected);  // baseline span exists
+
+        // 2. Author clicks "Open" on the Record Step modal → ResetDeltas runs
+        //    while the shop is still in-game open (no ShopOpened {false} fired).
+        agg.OnCurrencyChanged(10_000L, 0);  // mid-window heartbeat keeps current synced
+        agg.ResetDeltas();
+
+        // 3. Author buys — the same way UIObserver would forward it.
+        //    The shop addon has NOT transitioned, so no fresh OnShopOpened fires.
+        agg.OnVendorItemCountChanged(Item, 1);
+        agg.OnCurrencyChanged(9_000L, 0);
+
+        // 4. Author clicks Record — PurchaseDetected MUST reflect this buy.
+        var pd = agg.Current.PurchaseDetected;
+        Assert.NotNull(pd);
+        Assert.True(pd!.ItemDeltas.ContainsKey(Item),
+            $"PurchaseDetected.ItemDeltas must contain {Item} after ResetDeltas-while-open. Got: {FormatPd(pd)}");
+        Assert.Equal(1, pd.ItemDeltas[Item]);
+        Assert.Equal(1_000L, pd.GilDropped);
+    }
+
+    [Fact]
+    public void ResetDeltasWhileShopClosed_DoesNotResurrectSpan()
+    {
+        // Symmetric guard: if the shop was NOT open when ResetDeltas fired,
+        // the span must stay cleared. A subsequent OnVendorItemCountChanged
+        // with no intervening OnShopOpened(true) must NOT register (no shop
+        // = no purchase span).
+        var clock = new FakeClock(Epoch);
+        var agg   = new SnapshotAggregator(BuyQuest, clock);
+
+        agg.OnCurrencyChanged(10_000L, 0);
+        // Shop is NOT open. ResetDeltas clears everything.
+        agg.ResetDeltas();
+
+        // No OnShopOpened fires; a stray item delta arrives.
+        agg.OnVendorItemCountChanged(Item, 1);
+        agg.OnCurrencyChanged(9_000L, 0);
+
+        Assert.Null(agg.Current.PurchaseDetected);
     }
 }
