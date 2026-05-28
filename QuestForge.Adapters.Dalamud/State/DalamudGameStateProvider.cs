@@ -35,11 +35,17 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         var casting = _svc.Condition[ConditionFlag.Casting];
         var dead = _svc.Condition[ConditionFlag.Unconscious];
         var mountState = flying ? MountState.Flying : mounted ? MountState.Mounted : MountState.Dismounted;
+        bool canMount;
+        unsafe
+        {
+            var am = ActionManager.Instance();
+            canMount = am != null && am->GetActionStatus(ActionType.GeneralAction, 9) == 0;
+        }
 
         return Task.FromResult<Result<PlayerStateSnapshot>>(
             Result.Ok(new PlayerStateSnapshot(
                 new WorldPosition(p.X, p.Y, p.Z),
-                zone, job, level, inCombat, mountState, diving, casting, dead)));
+                zone, job, level, inCombat, mountState, diving, casting, dead, canMount)));
     }
 
     public Task<Result<WorldPosition>> GetPlayerPosition(CancellationToken ct)
@@ -501,6 +507,8 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         {
             var ps = PlayerState.Instance();
             var canFly   = ps != null && ps->CanFly;
+            // TODO: this field is currently unused; PlayerStateSnapshot.CanMount is the per-tick gate.
+            // Reconsider when GetTravelCapability gets real consumers (§8 R5 in MOUNT_SUPPORT_PLAN.md).
             var canMount = !_svc.Condition[ConditionFlag.InCombat];
             return Task.FromResult<Result<TravelCapability>>(
                 Result.Ok(new TravelCapability(

@@ -493,4 +493,48 @@ public sealed class MountSupportTests
         // Casting==true → mount attempt suppressed → MountCallCount stays 0.
         Assert.Equal(0, harness.Mount.MountCallCount);
     }
+
+    // =========================================================================
+    // M8 — CanMount=false gate suppresses mount fire (§8 Q3)
+    //
+    // Given: distance >= 20m, Dismounted, !InCombat, !Casting, UseMount=true (default),
+    //        AND harness.GameState.SetCanMount(false)
+    //        — simulates a city or mount-prohibited subarea where
+    //          ActionManager.GetActionStatus(GeneralAction, 9) returns non-zero.
+    // When: harness ticks and dispatches Navigate.
+    // Then: harness.Mount.MountCallCount == 0 (CanMount gate suppressed the attempt).
+    //       Navigator.NavigateTo was still called (navigation proceeds on foot).
+    //
+    // RED: the Navigate-arm mount predicate in EngineTestHarness.RunToCompletion
+    // (and EngineHost.DispatchAction) does NOT yet check playerState.CanMount.
+    // With _canMount=false the predicate still fires Mount → MountCallCount==1 →
+    // Assert.Equal(0, count) FAILS.
+    // GREEN after Builder adds: && playerState.CanMount to the mount predicate.
+    //
+    // Note: M1 already proves the CanMount=true happy path because FakeGameStateProvider
+    // defaults _canMount=true. No M8b needed — it would duplicate M1.
+    // =========================================================================
+
+    [Fact]
+    public async Task M8_CanMountFalse_SuppressesMountFire()
+    {
+        var harness = BuildHarness();
+        harness.GameState.SetMountState(MountState.Dismounted);
+        harness.GameState.SetInCombat(false);
+        harness.GameState.SetCasting(false);
+        // All other preconditions are permissive (distance 40m, UseMount=true, Dismounted,
+        // !InCombat, !Casting). Only CanMount is false — this is the single mutation.
+        harness.GameState.SetCanMount(false);
+
+        harness.Engine.StartQuest(BuildSingleNavigateQuest(FarTarget, useMount: true));
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+        Assert.IsType<EngineAction.Navigate>(action);
+
+        // CanMount=false → mount predicate must be suppressed → counter stays 0.
+        // (Navigation dispatch itself runs in RunToCompletion's Navigate arm, not in
+        // HarnessEngine.Tick — verifying Navigate was the emitted action above is
+        // sufficient to prove the cursor walk proceeded.)
+        Assert.Equal(0, harness.Mount.MountCallCount);
+    }
 }

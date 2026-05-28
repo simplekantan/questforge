@@ -56,6 +56,8 @@ public enum MountState
     Flying
 }
 
+// CanMount must remain the LAST positional parameter with a default — old traces deserialize
+// missing properties as the default, so reordering breaks replay backcompat.
 public record PlayerStateSnapshot(
     WorldPosition Position,
     ZoneId Zone,
@@ -65,7 +67,8 @@ public record PlayerStateSnapshot(
     MountState MountState,
     bool Diving,
     bool Casting,
-    bool Dead
+    bool Dead,
+    bool CanMount = true
 );
 
 public enum InstanceKind

@@ -365,6 +365,7 @@ public sealed class EngineHost : IDisposable
                     if (mountResult is Result<PlayerStateSnapshot>.Success { Value: var mPs }
                         && mPs.MountState == MountState.Dismounted
                         && !mPs.InCombat
+                        && mPs.CanMount
                         && !mPs.Casting
                         && mPs.Position.DistanceTo(n.Destination) >= MountDistanceThresholdMeters)
                     {

@@ -328,12 +328,16 @@ public sealed class HarnessEngine
             if (stateResult is Result<PlayerStateSnapshot>.Success { Value: var ps }
                 && ps.MountState == MountState.Dismounted
                 && !ps.InCombat
+                && ps.CanMount
                 && !ps.Casting
                 && ps.Position.DistanceTo(nav.Destination) >= MountDistanceThresholdMeters)
             {
                 await _mount.Mount(ct);
             }
             _lastDispatchedWasNavigate = true;
+            // Note: do NOT call _navigator.NavigateTo here. HarnessEngine.Tick mirrors only
+            // EngineHost's pre-switch hooks (mount predicate + lazy dismount), NOT the
+            // dispatch arm itself. RunToCompletion's Navigate case is the dispatch path.
         }
 
         return action;

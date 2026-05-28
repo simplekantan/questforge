@@ -21,6 +21,7 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     private bool _dead;
     private bool _diving;
     private bool _casting;
+    private bool _canMount = true;
     private InstanceKind _instanceKind = InstanceKind.None;
     private NewGamePlusState _ngpState = new(false, null, false);
     private (string Reason, string? Detail)? _ngpFailure;
@@ -65,6 +66,7 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     public void SetDead(bool v)                      { lock (_lock) _dead = v; }
     public void SetDiving(bool v)                    { lock (_lock) _diving = v; }
     public void SetCasting(bool v)                   { lock (_lock) _casting = v; }
+    public void SetCanMount(bool v)                  { lock (_lock) _canMount = v; }
     public void SetInstanceKind(InstanceKind v)      { lock (_lock) _instanceKind = v; }
     public void SetNewGamePlusState(NewGamePlusState v) { lock (_lock) { _ngpState = v; _ngpFailure = null; } }
     public void SetNewGamePlusStateFailure(string reason, string? detail = null) { lock (_lock) _ngpFailure = (reason, detail); }
@@ -138,7 +140,7 @@ public sealed class FakeGameStateProvider : IGameStateProvider
         {
             var snap = new PlayerStateSnapshot(
                 _position, _zone, _job, _jobLevel,
-                _inCombat, _mountState, _diving, _casting, _dead);
+                _inCombat, _mountState, _diving, _casting, _dead, _canMount);
             return Task.FromResult<Result<PlayerStateSnapshot>>(Result.Ok(snap));
         }
     }
