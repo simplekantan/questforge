@@ -819,6 +819,341 @@ Mirror `COMBAT_AUTHORING_DETECTION_PLAN §Task 4` test placement: live aggregato
 
 ---
 
+## 14. GC navigation (tab × tier matrix) — Slice G
+
+> **Status:** ready for test creation (awaiting user go-ahead before any implementation). **Position:** follow-up slice to Slices A–F, depends only on Slice A (schema). **Why this section exists:** Slice C shipped a direct-buy path that works when the target item happens to be on the (category, rank-tier) the player last left the addon on. The `GrandCompanyExchange` addon is in reality a **category × rank-tier matrix** — its BuyList contents change with two independent radio-button axes — so a correctly-deployed quest must declare which axes to be on before `ResolveExchangeRow` can find the row. This section specifies that work end to end, in the style of §§5/8/9/13.
+
+### 14.1 Motivation and captured facts (live-verified)
+
+The `GrandCompanyExchange` addon hosts **two simultaneous radio-button axes** inside the same window:
+
+1. **Rank tier** — six tiers (0..5) gated by the player's current GC rank. Locked tiers are hidden by node-visibility flags but the underlying FireCallback accepts all six.
+2. **Category** — five categories (0..4) gated by some condition (rank? GC affiliation? unidentified). Observed labels on the running player: **1=Materiel, 2=Weapons, 3=Armor, 4=Materials**; index 0 belongs to a 5th radio button (node #48) that was hidden in the current player's view. The 5th category is treated as a **valid input** in v1 (the field accepts 0..4) but its semantics are unidentified without a different-state character to verify against. Authors who need it must smoke-test once with the live adapter.
+
+**FireCallback signatures (all live-captured):**
+
+| Action | FireCallback signature | Notes |
+|---|---|---|
+| Rank-tier switch | `FireCallback(2, [Int 1, Int tier])` | `tier` ∈ 0..5; player-accessible subset only |
+| Category switch | `FireCallback(2, [Int 2, Int categoryIndex])` | `categoryIndex` ∈ 0..4; **internal taxonomy, NOT positional** — 1=Materiel, 2=Weapons, 3=Armor, 4=Materials, 0=unknown 5th |
+| Buy (already shipped, §8 / #90) | `FireCallback(6, [Int 0, Int row, Int qty, Int 0, Bool 1, Bool 0])` | unchanged |
+| Close | `FireCallback(1, [Int -1])` / `FireCallback(1, [Int -2])` | not used by Slice G; documented for completeness |
+
+**AtkValues layout (already shipped, §8 / #90):** `count@[1]`, `name@[17+i]` (string), `price@[67+i]` (UInt), `icon@[167+i]` (UInt), `itemId@[317+i]` (UInt). **AtkValues contents change per (category, rank-tier).** `ResolveExchangeRow` therefore only finds the target item id when **both** axes are correctly set. AtkValues at `[11..16]` did **not** vary across category dumps and so cannot be used to read the *currently-active* axis; the active state must be inferred from each radio button's `AtkComponentRadioButton.Selected` flag (Slice G3 / Slice G6) OR by tracking the most-recent switch firing (rejected — stateful).
+
+This is a strictly additive feature: when `GcCategory`/`GcRankTier` are absent the behavior is exactly Slice C's (try resolve, `ItemNotSold` if not found, no switches). No existing quest breaks; the cost is paid only by quests that opt in.
+
+### 14.2 Architectural decisions (read before coding)
+
+#### D14.1 — Schema: dedicated optional fields `GcCategory: int?` and `GcRankTier: int?` (NOT extend `OpenPath`)
+
+```csharp
+// QuestForge.Schema/Step.cs — additive to the existing PurchaseItemStep
+public class PurchaseItemStep : Step
+{
+    public NpcLocation Target { get; init; } = default!;
+    public uint ItemId { get; init; }
+    public int Quantity { get; init; } = 1;
+    public PurchaseCurrency Currency { get; init; } = PurchaseCurrency.Gil;
+
+    /// <summary>
+    /// GC quartermaster category radio (0..4). Only meaningful when Currency=GcSeals;
+    /// validator warns if set with Currency=Gil. Null = leave whatever category the addon
+    /// happens to be on (Slice C behavior).
+    /// </summary>
+    public int? GcCategory { get; init; }
+
+    /// <summary>
+    /// GC quartermaster rank-tier radio (0..5). Only meaningful when Currency=GcSeals.
+    /// Null = leave whatever rank-tier the addon happens to be on.
+    /// </summary>
+    public int? GcRankTier { get; init; }
+}
+```
+
+**Rejected: extending `OpenPath: int[]` (reserved in §8.1) to cover GC navigation.** Different semantics:
+- `OpenPath` (§8.1) is a **sequential menu drill-down** through `SelectIconString` / `SelectString` *before* the `Shop` addon opens — the addons literally come and go in sequence and each menu instance is consumed by a single index selection.
+- GC navigation is **two simultaneous filters** inside the *same* already-open addon. Encoding it as a list `[category, tier]` would (a) conflate two unrelated mechanisms behind one ambiguous field, (b) force `DalamudVendor` to disambiguate the field's meaning by `Currency` (a smell), and (c) prevent future per-axis tooling (e.g. validator messages naming the offending axis, or partial overrides where only the rank-tier matters).
+
+Two dedicated optional fields keep the schema self-documenting: a reader sees `gcCategory: 2, gcRankTier: 1` and immediately understands "the Weapons tab, rank tier 1." `OpenPath` remains reserved for its original gated-vendor purpose.
+
+**What breaks if violated:** overloading `OpenPath` couples §8.1's gated-vendor work to GC navigation (two unrelated features land in one field), the validator cannot give axis-specific error messages, and the authoring detection slice (G5) cannot pre-fill per-axis without a special-case decoder for "which slot means category for GC vs. menu index for gated vendors."
+
+#### D14.2 — Carrier: extend `EngineAction.Purchase` with two optional fields (NOT downcast `Origin`)
+
+```csharp
+// QuestForge.Engine/EngineAction.cs
+public sealed record Purchase(
+    NpcId Vendor,
+    ItemId Item,
+    int Quantity,
+    PurchaseCurrency Currency,
+    int? GcCategory = null,
+    int? GcRankTier = null,
+    Step? Origin = null) : EngineAction;
+```
+
+**Why explicit fields, not `Origin`-downcast in `DalamudVendor`.** `Quantity` and `Currency` already live on the action record despite being also derivable from `Origin.Step`; the same rationale applies here:
+- **Avoids downcasting.** `DalamudVendor.Purchase(... Step? Origin)` would have to `Origin as PurchaseItemStep` and pattern-match — a smell, and one that silently treats a future caller that *omits* `Origin` (e.g. `/qf debug buy`) as "no GC navigation requested." Explicit nullable fields make the contract testable in isolation.
+- **Mirrors existing precedent.** Every adapter-relevant scalar already on `EngineAction.Purchase` (`Vendor`, `Item`, `Quantity`, `Currency`) is duplicated from the step rather than read through `Origin`. The two new fields follow the established pattern.
+- **Engine purity unchanged.** The engine simply copies `step.GcCategory`/`step.GcRankTier` into the action; no new branches in `ResolveAction`.
+
+**Testability implication:** `Group A` tests assert four-tuple equality on `EngineAction.Purchase`; the two new fields are asserted alongside `Quantity`/`Currency` with zero ceremony.
+
+**Constructor ordering note:** placed **before** `Origin` (the trailing `Step?`) to keep `Origin` last by convention. This is a minor source-compat change to existing callers that pass `Origin: step` by name (Slice B already uses named args — confirmed in `QuestEngine.cs` purchase branch); any positional callers must be updated in the same commit.
+
+#### D14.3 — Adapter state machine: per-tick switching with **always-fire** (NOT read `Selected` first)
+
+Per-tick `DalamudVendor.PurchaseGcSeals` flow (additive to the Slice C body; only the *additions* are described — the AtkValues read, row resolve, and buy callback are unchanged):
+
+```
+1. addon not ready                                  → return ShopOpening
+2. throttle check (existing BuyThrottle 1s)         → return ShopOpening
+3. read AtkValuesCount / count gate (existing)      → return ShopOpening if invalid
+4. ResolveExchangeRow(itemId)
+   ├── row >= 0 (item is on the CURRENT tab) → fire buy callback → return Purchased
+   └── row <  0 (item NOT on current tab):
+       ├── if BOTH GcCategory and GcRankTier are null → return ItemNotSold (Slice C behavior; back-compat)
+       ├── else:
+       │   a. if GcRankTier is set:
+       │       FireCallback(2, [Int 1, Int gcRankTier.Value])  // see 14.1; idempotent on already-selected
+       │   b. if GcCategory is set:
+       │       FireCallback(2, [Int 2, Int gcCategory.Value])  // idempotent on already-selected
+       │   c. set a per-call latch so step (a/b) does NOT re-fire next tick
+       │       (the latch is "we already requested a switch this purchase; let AtkValues refresh")
+       │   d. return ShopOpening   // addon takes ≥1 tick to refresh AtkValues
+       └── (latch already set, still cannot resolve next tick after refresh expected)
+           → return ItemNotSold    // the requested axes do not surface this item; engine routes to AwaitUser
+```
+
+**Decision: ALWAYS fire the switch callbacks when fields are set, do NOT pre-read the radio button's `Selected` flag.** Rationale:
+- **Simplicity wins over one wasted FireCallback.** A switch to the already-active tab is a no-op in the game (the radio handler dedupes on its own selected state). The cost is one extra callback per opt-in purchase, paid at most once per `DalamudVendor.Purchase` invocation (the latch prevents per-tick spam). The alternative — walking the addon's component tree to read `AtkComponentRadioButton.Selected` for two radio groups — adds ~30 lines of unsafe ClientStructs traversal that the rejection path of an unverified node id can crash on.
+- **The Selected-flag read is not free.** It requires knowing which `AtkComponentNode` indices host the category and rank-tier radios, plus the layout of the radio button's `Component`-typed `Data` to find `Selected`. That mapping is a `// VERIFY IN-GAME:` for *every* axis, with no upside vs. the always-fire path. (The authoring probe, G5, DOES need the Selected reads — there the cost buys the only available pre-fill signal. The runtime adapter has the postcondition as its real success oracle, so a wasted callback is benign.)
+- **Idempotence is observable.** The game itself dedupes a "select category 2 when already on category 2" — the AtkValues do not change, the count does not change, and the next-tick row resolve still works. This is the same idempotence guarantee `DalamudInteractor` relies on for its retry loop.
+
+**The per-call latch** is a `bool _switchedThisPurchase` field on `DalamudVendor`, set when the switch callbacks fire, **cleared** at the top of `PurchaseGcSeals` when the *first* successful row-resolve+buy happens for the requested item AND when the addon transitions closed→open (a fresh shop visit). Without this latch, the engine's per-tick retry would re-fire the switches every single tick until the buy lands, spamming the addon and racing the refresh.
+
+**Back-compat invariant (load-bearing):** when **both** `GcCategory` and `GcRankTier` are null, the entire "switch then retry" branch is skipped; the behavior is byte-identical to Slice C. The Tester MUST assert this with an existing-quest fixture (GWT-GD3) before any new switching code lands.
+
+**What breaks if violated:** firing switches every tick without the latch produces a visible audio click in the addon (each radio click is sound-event-emitting) and risks rate-limiting the FireCallback path; pre-reading `Selected` adds an in-game-only verification dependency to a CI-friendly slice.
+
+#### D14.4 — Authoring detection: extend `IVendorProbe` with `GetActiveGcCategory` / `GetActiveGcRankTier`
+
+```csharp
+// QuestForge.Plugin.Tracing/IVendorProbe.cs — additive
+public interface IVendorProbe
+{
+    bool IsShopOpen();
+    long GetGil();
+    int GetGrandCompanySeals();
+    IReadOnlyList<(uint ItemId, int Count)> GetChangedItemCounts();
+
+    /// <summary>
+    /// Currently-selected GC category radio (0..4), or null if the GrandCompanyExchange addon
+    /// is not open OR the Selected flag could not be read. Authoring-only; never called by the engine.
+    /// VERIFY IN-GAME: the exact AtkComponentRadioButton node path on the category radio group.
+    /// </summary>
+    int? GetActiveGcCategory();
+
+    /// <summary>
+    /// Currently-selected GC rank-tier radio (0..5), or null on the same fail-quiet conditions.
+    /// </summary>
+    int? GetActiveGcRankTier();
+}
+```
+
+**Recommendation (and pinned choice): option (a) — `IVendorProbe` reads the radio-button `Selected` flag.** Rationale (vs. b: hook FireCallback to track most-recent switches; vs. c: leave the modal to require manual entry):
+- **(b) — hooking FireCallback** is heavy (mirrors `/qf debug hookshop`), carries a hook lifecycle the probe must manage across shop sessions, and is fragile if a future patch reorders FireCallback indices. It also captures only switches the *player* fires; if the player navigates by clicking a different radio button (not a FireCallback path), the cache lies. Rejected.
+- **(c) — manual modal entry** leaves the v1 modal showing two blank numeric inputs and a "VERIFY IN-GAME: pick the right tab" hint. Acceptable as a *fallback* if (a) is blocked, but it negates the §13 promise that "performing the action during recording pre-fills the draft."
+- **(a) — read `Selected` from the radio component** is the cleanest "observe what is actually there" path. It costs one component-tree walk per `PollVendor` heartbeat **only while the `GrandCompanyExchange` addon is open** (a rare condition during a session), and degrades quietly to `null` on any traversal failure (no crashes, the modal falls back to blank fields with a hint — the same as (c)).
+
+**Implementation tag — `// VERIFY IN-GAME:` on the radio-component path.** The exact `AtkComponentRadioButton` node ids for the category and rank-tier radio groups must be confirmed by Slice G6 (the only in-game-required slice). If the read is non-trivial — e.g. the radio buttons are inside a `AtkComponentList` whose layout drifts across patches — fall back to (c) for v1 and ship the modal hint; the slice plan accommodates this with the explicit G6 gate.
+
+**No new authoring observations are emitted.** `GetActiveGcCategory`/`GetActiveGcRankTier` are read directly by `SnapshotAggregator` (live) and surfaced into `PurchaseDetection` as two new optional fields (D14.5). No new observation method joins the trace — this avoids re-cascading any fixture (mirrors §13.2's fixture-cascade discipline: the engine still emits zero new reads, and authoring trace events are unchanged; only the *forwarding* of the existing `ShopOpened` poll now also carries the active-axis snapshot).
+
+**Cost of (a) if blocked at G6:** the modal opens with the new numeric inputs blank, plus a one-line hint ("Active GC category/rank-tier not detected; set manually if this is a GC quartermaster step"). The serialized step is still well-formed (author types 2 and 1), the engine path works, the validator passes — the only loss is the pre-fill convenience.
+
+#### D14.5 — `PurchaseDetection` extension and snapshot projection
+
+```csharp
+// QuestForge.Engine/Authoring/GameStateSnapshot.cs — additive
+public sealed record PurchaseDetection(
+    bool ShopWasOpen,
+    IReadOnlyDictionary<uint, int> ItemDeltas,
+    long GilDropped,
+    int SealsDropped,
+    int? ActiveGcCategory = null,    // NEW — last observed Selected of the category radio
+    int? ActiveGcRankTier = null);   // NEW — last observed Selected of the rank-tier radio
+```
+
+`SnapshotAggregator` records the most recent non-null `(category, tier)` it sees while the shop-open span is active (i.e. observed during a `PollVendor` heartbeat between `OnShopOpened(true)` and the span retention period after `OnShopOpened(false)`). The fields are deliberately "last seen" rather than "at-purchase-instant" because the player may click around tabs before buying; the *final* tab they were on when the item count rose is the one we want, and "last value before window close" approximates this without an instant-correlation mechanism. (A wrong pre-fill is a one-click modal correction, never a silent mis-buy — D14.4 inherits this from D1.)
+
+#### D14.6 — Validator rules (cross-repo: `questforge-tools`)
+
+New rules added to `StructuralValidator.CheckStepTypeRules`'s `PurchaseItemStep` case:
+
+| Error code | Suppression / condition | Severity |
+|---|---|---|
+| `structural/purchase-gc-category-out-of-range` | suppressed when `GcCategory is null OR 0..4` | Error |
+| `structural/purchase-gc-rank-tier-out-of-range` | suppressed when `GcRankTier is null OR 0..5` | Error |
+| `structural/purchase-gc-fields-on-gil` | suppressed when `Currency == GcSeals` OR both `GcCategory` and `GcRankTier` are null | **Warning** (message: "`gcCategory`/`gcRankTier` are ignored when `currency` is not `gcSeals`") |
+
+The first two are hard errors (a `7` is illegal regardless of currency). The third is a **warning** because the engine simply ignores the fields when the currency is gil (no runtime damage), but the author almost certainly made a mistake — the warning surfaces that. The existing four error codes from §4 (`structural/purchase-item-id-zero`, `…-quantity-nonpositive`, `…-npc-id-zero`, `…-currency-invalid`) are unchanged.
+
+**The 5th-category note (§14.1 unknown index 0):** `GcCategory: 0` validates cleanly. The validator does NOT emit a warning for index 0 — the field accepts 0..4 and the locked 5th category is documented as "author-validated by smoke test." A future enhancement can demote/upgrade this once the 5th category's semantics are identified.
+
+#### D14.7 — `/qf debug buy` extension
+
+Extend the existing command (`QfCommand.HandleDebugBuy`, currently `usage: /qf debug buy <itemId> [qty] [gil|gcSeals]`) with two optional trailing args:
+
+```
+/qf debug buy <itemId> [qty] [gil|gcSeals] [gcCategory] [gcRankTier]
+```
+
+Behavior:
+- When `currency != gcSeals`, parsing `gcCategory`/`gcRankTier` succeeds but the values are passed as null into the `EngineAction.Purchase`-equivalent invocation; an info chat line warns "(gcCategory/gcRankTier ignored when currency=gil)" to match the validator's warning text.
+- When parsing fails for either trailing arg (e.g. non-integer), print the usage line and return — same defensive pattern as the existing `itemId`/`qty` parses.
+- The smoke-test workflow becomes: *"`/qf debug buy 6141 1 gcSeals 1 1`"* drives end-to-end navigation + buy in a single click, which is the entire point of this command.
+
+The dispatch into `_host.DebugVendor.Purchase` is **already shaped** for two new fields once D14.2 lands (`DalamudVendor` only changes inside `PurchaseGcSeals`'s body — its `IVendor.Purchase` signature gets the two new nullable parameters too; back-compat is preserved by defaulting to null).
+
+### 14.3 Schema contract — additive
+
+```csharp
+public class PurchaseItemStep : Step
+{
+    public NpcLocation Target { get; init; } = default!;
+    public uint ItemId { get; init; }
+    public int Quantity { get; init; } = 1;
+    public PurchaseCurrency Currency { get; init; } = PurchaseCurrency.Gil;
+    public int? GcCategory { get; init; }     // NEW — 0..4, null = leave addon as-is
+    public int? GcRankTier { get; init; }     // NEW — 0..5, null = leave addon as-is
+}
+```
+
+Expected authoring usage:
+
+```jsonc
+// GC quartermaster — buy 3 of a Weapons-tab rank-1 item; engine flips to that tab first
+{
+  "type": "purchase-item",
+  "id": "buy-gc-weapon",
+  "target": { "npcId": 1002000, "zone": 128, "position": { "x": 5.0, "y": 0, "z": 5.0 } },
+  "itemId": 6141,
+  "quantity": 3,
+  "currency": "gcSeals",
+  "gcCategory": 2,
+  "gcRankTier": 1
+}
+```
+
+Back-compat: existing GC quests without these fields keep Slice C's behavior — `ResolveExchangeRow` is tried against whatever tab the addon happens to be on; `ItemNotSold` if it's not there.
+
+### 14.4 Validation rule table — additive
+
+| Error code | Suppression / condition | Severity |
+|---|---|---|
+| `structural/purchase-gc-category-out-of-range` | suppressed when `GcCategory is null OR 0..4` | Error |
+| `structural/purchase-gc-rank-tier-out-of-range` | suppressed when `GcRankTier is null OR 0..5` | Error |
+| `structural/purchase-gc-fields-on-gil` | suppressed when `Currency == GcSeals` OR both `GcCategory` and `GcRankTier` are null | Warning |
+
+(Existing §4 rules are unchanged and continue to apply.)
+
+### 14.5 Sub-slice plan (TDD ordering, done-before-next strict)
+
+Slice G is one feature delivered as six independently-greenable sub-slices. Each is sized to ≤1 day except G3 (Dalamud shell, untested in CI, ~1.5 days) and G5 (authoring detection live+offline mirror, ~1.5 days).
+
+| Sub-slice | Repo | CI-testable? | Depends on | What lands |
+|---|---|---|---|---|
+| **G1 — Schema** | `questforge` (+ `questforge-tools` mirror) | yes (round-trip) | nothing | `GcCategory: int?`, `GcRankTier: int?` on `PurchaseItemStep`; STJ source-gen unaffected; round-trip tests for both fields incl. omitted-defaults-to-null. |
+| **G2 — Engine + factory + fakes** | `questforge` | yes (full engine arm) | G1 | `EngineAction.Purchase` gains the two nullable fields (D14.2); `StepFactory` `"purchase-item"` case copies them through; `QuestEngine` purchase branch copies `step.GcCategory`/`step.GcRankTier` into the emitted action; `FakeVendor.Purchase` accepts the two new params and records them on the captured call. |
+| **G3 — Dalamud adapter** | `questforge` | NO (Dalamud-only) | G2 | `IVendor.Purchase` signature gains the two nullable params (`DalamudVendor` impl, `FakeVendor` impl); `DalamudVendor.PurchaseGcSeals` always-fire switching logic + per-call latch (D14.3); back-compat fully preserved when both are null. In-game smoke: a GC purchase that requires a category switch and a rank-tier switch from a "wrong-tab" starting state. |
+| **G4 — Tools mirror + validator** | `questforge-tools` | yes | G1 | Mirror the two schema fields; add the three validator rules (D14.6); update `PurchaseItemValidationTests` with `Group G-F`. `CapabilityInferrer` requires no change (the existing `step:purchase-item` tag already covers it). |
+| **G5 — Authoring detection (live + offline mirror)** | `questforge` (live) + `questforge-tools` (offline) | yes (CI-testable for both halves) | G1, G2 | `IVendorProbe` gains the two `GetActiveGc…` methods (D14.4); `FakeVendorProbe` returns scripted values. `PurchaseDetection` gains `ActiveGcCategory` / `ActiveGcRankTier` (D14.5); `SnapshotAggregator` records "last seen" non-null while shop-open span is active; `RecordStepModal` seeds the two new numeric inputs from `after.PurchaseDetected.ActiveGc…` and falls back to blank when null; `StepFactory` `"purchase-item"` case reads those values and writes them onto the built `PurchaseItemStep`. Offline mirror: `SnapshotState` and `TraceToQuestExtractor` mirror the same projection (the trace already carries no new event types — only the projection sees the new probe values via the existing `ShopOpened` heartbeat path). |
+| **G6 — Dalamud probe + in-game** | `questforge` | NO (Dalamud-only) | G5 | `DalamudVendorProbe.GetActiveGcCategory`/`GetActiveGcRankTier` implementation that walks the category-radio and rank-tier-radio components and reads `Selected` (the `// VERIFY IN-GAME:` from D14.4). If the node mapping cannot be confirmed cleanly in one session, return `null` from both methods and ship the modal-fallback path (the rest of G5 still works — the pre-fill is just empty). In-game: author a GC purchase via `/qf author`, confirm the modal pre-fills (`gcCategory`, `gcRankTier`); replay through `qf-trace extract-quest`; confirm an identical step. Then `/qf debug buy 6141 1 gcSeals 1 1` from a wrong-tab starting state to verify the adapter's switching path. |
+
+Strict ordering: G1 → {G2, G4} (can run in parallel) → G3 → G5 → G6. G4 may land before G3 since it only depends on G1. G5 depends on both G1 and G2 (it needs the schema fields and the engine action carrier to ship a working end-to-end draft).
+
+CI gates:
+- **After G1:** `QuestForge.Schema.Tests` round-trip passes for both fields with all three states (null, in-range value, missing).
+- **After G2:** `QuestForge.Engine.Tests` `Group G-A` (engine arm) and `Group G-D` (fake adapter) pass; existing Slice B/C tests remain byte-identical (no test code edits except where the `IVendor.Purchase` signature change forces a default-null pass-through).
+- **After G3:** `dotnet build` of the Dalamud projects succeeds; no CI tests added (adapter is untested in CI, consistent with Slice C).
+- **After G4:** `QuestForge.Tools.Validator.Tests` `Group G-F` passes.
+- **After G5:** `QuestForge.Engine.Tests` `Group G-S` (aggregator + modal seeding) and `QuestForge.Tools.Trace.Tests` `Group G-O` (offline mirror) pass.
+- **After G6:** in-game smoke verifies the prose in the row above.
+
+### 14.6 Given-When-Then specifications
+
+Targets `QuestForge.Engine.Tests` (engine arm + aggregator + factory), `QuestForge.Schema.Tests` (round-trip), `QuestForge.Adapters.Tests` (FakeVendor), `QuestForge.Tools.Validator.Tests` (validator), and `QuestForge.Tools.Trace.Tests` (offline mirror). Mirror the harnesses already in `PurchaseItemStepTests` and §13.5's `PurchaseSnapshotAggregatorTests`. Test constants reuse §5's where applicable: `TestVendorNpc = 1001234`, `TestItem = 1601`, `SealItem = 6141`.
+
+#### Group G-E — schema round-trip (`QuestForge.Schema.Tests`)
+
+- **G-E1 — `GcCategory`/`GcRankTier` round-trip when set.** Given `PurchaseItemStep { Currency=GcSeals, GcCategory=2, GcRankTier=1, …}`, when serialized via `QuestForgeJsonContext.QuestFileOptions`, then JSON contains `"gcCategory": 2`, `"gcRankTier": 1`; deserialization yields the same values.
+- **G-E2 — omitted fields default to null.** Given JSON without `gcCategory`/`gcRankTier`, when deserialized, then `GcCategory == null && GcRankTier == null`.
+- **G-E3 — null on the C# side serializes as omitted (or `null`, whichever matches existing nullable-int handling in QuestForgeJsonContext).** Given `PurchaseItemStep { GcCategory=null, GcRankTier=null }`, when serialized, then either the keys are absent OR the values are `null` — match whichever the existing nullable-int convention does (assert by full round-trip rather than exact JSON shape if the convention varies across the codebase).
+
+#### Group G-A — engine resolve arm (`QuestForge.Engine.Tests`)
+
+- **G-A1 — in range, GC fields set → Purchase carries them.** Given a quest with `PurchaseItemStep { Target=TargetLoc, ItemId=SealItem, Quantity=1, Currency=GcSeals, GcCategory=2, GcRankTier=1 }`, player in range, `GetGrandCompanySeals=2000`, `GetItemCount(SealItem)=0`, when `Engine.Tick`, then `EngineAction.Purchase` with `Currency==GcSeals`, `GcCategory==2`, `GcRankTier==1`.
+- **G-A2 — in range, GC fields null → Purchase carries nulls (back-compat).** Given the same step with `GcCategory=null, GcRankTier=null`, when `Engine.Tick`, then `EngineAction.Purchase` with both fields null. (Asserts the engine never substitutes a default like 0.)
+- **G-A3 — gil step with GC fields set is still emitted (engine does not gate on them).** Given `Currency=Gil, GcCategory=2, GcRankTier=1`, when `Engine.Tick`, then `EngineAction.Purchase` with `Currency==Gil` carrying both fields. (The validator's warning is the right place to flag this — the engine remains a value-passer.)
+
+#### Group G-D — `FakeVendor` records the new fields (`QuestForge.Adapters.Tests`)
+
+- **G-D1 — `FakeVendor.Purchase` captures `gcCategory` and `gcRankTier`.** Given a `FakeVendor` scripted `Purchase → Purchased`, when `Purchase(NpcId(1001234), ItemId(SealItem), 1, GcSeals, gcCategory: 2, gcRankTier: 1, ct)`, then the recorded call has both new fields set to their argument values.
+- **G-D2 — defaults to null when unspecified by the engine.** Given `Purchase(... currency: Gil, ct)` with the two new args defaulted, then the recorded call has `GcCategory==null && GcRankTier==null`.
+- **G-D3 — back-compat: an existing FakeVendor test that does NOT pass the new args still compiles and asserts.** Validates the parameter default-null in `IVendor.Purchase`. (The Tester demonstrates this by leaving at least one existing `PurchaseItemStepTests` invocation unchanged after G2 lands and asserting it still passes.)
+
+#### Group G-F — validator (`QuestForge.Tools.Validator.Tests`)
+
+- **G-F1 — `GcCategory = 5` → `structural/purchase-gc-category-out-of-range` (Error).**
+- **G-F2 — `GcCategory = -1` → `structural/purchase-gc-category-out-of-range` (Error).**
+- **G-F3 — `GcRankTier = 6` → `structural/purchase-gc-rank-tier-out-of-range` (Error).**
+- **G-F4 — `GcRankTier = -1` → `structural/purchase-gc-rank-tier-out-of-range` (Error).**
+- **G-F5 — `GcCategory = 0` (the unknown 5th) → no error, no warning.** (Documented as valid per D14.6.)
+- **G-F6 — `Currency = Gil, GcCategory = 2` → `structural/purchase-gc-fields-on-gil` (Warning).**
+- **G-F7 — `Currency = Gil, GcRankTier = 1` → `structural/purchase-gc-fields-on-gil` (Warning).**
+- **G-F8 — `Currency = Gil, both null` → no warning.**
+- **G-F9 — `Currency = GcSeals, GcCategory = 2, GcRankTier = 1` → no purchase-gc-* error/warning.**
+
+#### Group G-S — authoring detection: aggregator + factory + modal (`QuestForge.Engine.Tests`)
+
+- **G-S1 — `PurchaseDetection.ActiveGcCategory`/`ActiveGcRankTier` populate from probe reads.** Given `SnapshotAggregator` for a quest; given `OnShopOpened(true)` and a heartbeat that observes `IVendorProbe.GetActiveGcCategory()==2, GetActiveGcRankTier()==1`; given the rest of the §13.1 purchase signal (item rise, seal drop); then `Current.PurchaseDetected.ActiveGcCategory==2`, `ActiveGcRankTier==1` alongside the existing fields.
+- **G-S2 — null probe reads keep the new fields null.** Given the same as G-S1 but the probe returns `null` for both, then `Current.PurchaseDetected.ActiveGcCategory==null && ActiveGcRankTier==null` (the rest of the detection is unchanged — no synthetic 0 default).
+- **G-S3 — "last seen" semantics: the most recent non-null win.** Given two heartbeats during a span: first reads `(category=2, tier=1)`, second reads `(category=3, tier=1)`, then `Current.PurchaseDetected.ActiveGcCategory==3` (the latest).
+- **G-S4 — `StepFactory.Build("purchase-item", …)` writes the new fields onto `PurchaseItemStep`.** Given `after.PurchaseDetected = (… ActiveGcCategory=2, ActiveGcRankTier=1)`, when the factory builds the step, then the result has `GcCategory==2, GcRankTier==1`.
+- **G-S5 — factory falls back to null when detection has nulls.** Given `after.PurchaseDetected` with both active fields null, when the factory builds, then `GcCategory==null, GcRankTier==null` on the step (and the modal would show blank inputs — covered by G-S6 in plugin tests if a modal test project exists).
+- **G-S6 — `RecordStepModal` seeds the two new inputs from snapshot.** (Same test project as the existing modal seeding tests.) Given `after.PurchaseDetected.ActiveGcCategory=2, ActiveGcRankTier=1`, when the modal opens for `StepType=="purchase-item"`, then the two numeric inputs are pre-filled with `"2"` and `"1"`; when both are null, the inputs are blank/`""`.
+
+#### Group G-O — authoring detection offline mirror (`QuestForge.Tools.Trace.Tests`)
+
+- **G-O1 — offline `SnapshotState` mirrors the active-axis projection.** Given the same synthetic trace shape as §13.5's PO1 (`ShopOpened` true, `VendorItemCount`, `CurrencyBalance`) **plus** the active-axis values carried alongside the `ShopOpened` event (the exact wire shape matches whatever the live probe forwards; see D14.5 — likely two extra fields on the `ShopOpened` payload or two new dedicated `ActiveGcCategory`/`ActiveGcRankTier` events, decided in G5 implementation), then `ToSnapshot(t).PurchaseDetected.ActiveGcCategory==2`, `ActiveGcRankTier==1`.
+- **G-O2 — `TraceToQuestExtractor` writes the new fields onto the emitted `PurchaseItemStep`.** Given a trace with the values present, when `Extract` runs, then the resulting `PurchaseItemStep` has `GcCategory==2, GcRankTier==1`.
+- **G-O3 — absent values produce null fields offline.** Given a trace without active-axis observations (or with null payloads), when `Extract` runs, then the emitted step has both fields null. (Covers traces produced by Slice C / E.4 that pre-date G5.)
+
+### 14.7 Done criteria
+
+1. `PurchaseItemStep` round-trips `gcCategory`/`gcRankTier` in both present and absent forms (G-E1..G-E3 pass).
+2. `QuestForge.Engine` carries both fields through `EngineAction.Purchase` without alteration (G-A1..G-A3 pass), and the existing Slice B/C tests remain green with at most a mechanical default-null parameter addition.
+3. `FakeVendor` records the two new fields on captured calls (G-D1..G-D3 pass); the `IVendor` interface remains the only adapter surface (no new interface added).
+4. `DalamudVendor.PurchaseGcSeals` switches axes via the captured FireCallback signatures when fields are set, retries via `ShopOpening` for the addon-refresh tick, and produces no behavior change when both fields are null. (In-game smoke under G3.)
+5. `qf-validate` flags out-of-range axes and warns on GC-fields-with-gil (G-F1..G-F9 pass).
+6. Authoring detection populates `ActiveGcCategory`/`ActiveGcRankTier` on `PurchaseDetection` from the probe and propagates to the modal pre-fill and the built `PurchaseItemStep` (G-S1..G-S6 pass).
+7. Offline `qf-trace extract-quest` produces the same `PurchaseItemStep` with the same two new fields populated (G-O1..G-O3 pass).
+8. `/qf debug buy <itemId> [qty] [gil|gcSeals] [gcCategory] [gcRankTier]` parses the new trailing args, warns when GC fields are set with currency=gil, and drives end-to-end navigation+buy in a single click (G6 smoke).
+9. NO engine replay fixture is re-recorded (mirrors §10.9): the only new engine surface is two passthrough fields on `EngineAction.Purchase`; the engine emits no new per-tick read; authoring observations are unchanged in shape (the probe values ride on the existing `ShopOpened` poll path or as additive events behind the existing `IVendorProbe` gate).
+
+### 14.8 Open risks (and safe degradation)
+
+1. **Unknown 5th category (index 0).** Author validation required; no validator enforcement, no runtime guard. Safe — `DalamudVendor` will fire the callback and either succeed (and the row resolve confirms) or the row resolve fails → `ItemNotSold` → `AwaitUser`. (D14.6, §14.1.)
+2. **Wrong category index (e.g. author typed `1` thinking "Weapons" but Weapons is `2`).** No automated check possible (the taxonomy is internal). After the switch the addon shows the wrong items; `ResolveExchangeRow` returns -1 next tick (post-latch) → adapter returns `ItemNotSold` → engine emits `AwaitUser` ("vendor does not sell item …"). Safe — pauses for the user.
+3. **`AtkComponentRadioButton.Selected` node path drifts across patches (G6 risk).** Mitigated by the D14.4 fail-quiet contract: probe returns null on any read failure, modal falls back to blank inputs with a hint, the rest of the pipeline (engine, validator, offline mirror) works unchanged. The `/qf debug buy` workaround lets the author still drive the path manually.
+4. **Refresh latency between switch FireCallback and AtkValues update.** Already handled by the existing `ShopOpening` retry — the engine ticks again and the next tick re-resolves against fresh values. The per-call latch (D14.3) prevents re-firing during the refresh window.
+5. **No GC field set on a quest authored for a GC quartermaster (degenerate Slice C case).** Behavior is unchanged from today: try resolve, `ItemNotSold` if not on the current tab, `AwaitUser`. Safe; the validator does not require these fields (they are optional).
+6. **Both currencies set with GC fields (e.g. `Currency=Gil, GcCategory=2`).** Warning surfaced by `structural/purchase-gc-fields-on-gil`; engine ignores the fields at runtime (gil path does not look at them). Safe + author-visible.
+
+---
+
 ## Report summary
 
 - **Schema:** `PurchaseItemStep : Step` (`"purchase-item"`) with `NpcLocation Target`, `uint ItemId`, `int Quantity = 1`, `PurchaseCurrency Currency = Gil` (camelCase enum `gil`/`gcSeals`).
@@ -828,14 +1163,17 @@ Mirror `COMBAT_AUTHORING_DETECTION_PLAN §Task 4` test placement: live aggregato
 - **Currency:** author-declared (closed enum), so the engine picks the affordability read synchronously and the validator can check it statically; runtime inference rejected. Authoring detection PRE-FILLS the field (recording-time) from the currency that dropped, but the serialized step is always explicit.
 - **Authoring detection (NOW IN SCOPE, Slice E):** signal = shop-open (`GilShop`/`GrandCompanyExchange`) correlated with a regular-inventory count increase AND a gil/seal decrease within a shop-open-bracketed span; the dropped currency disambiguates `Currency`, the item delta gives `ItemId`/`Quantity`, `LastNpcInteracted` gives `Target`. Mirrors combat's span model (no timing window needed — shop-open is the bracket). FIXTURE-CASCADE verdict: NEW recorded observations ARE required (regular-item counts, gil/seal balances, shop-open are NOT in the trace today — `PollKeyItems` is key-items-only, no gil/shop polling exists); mitigated by emitting them ONLY from authoring-mode pollers behind a new `IVendorProbe`/`PollVendor` (exactly like `ICombatProbe`/`PollCombat`, which did NOT cascade), with the new engine `GetGrandCompanySeals` read step-gated so NO engine replay fixture re-records.
 - **Slices:** A schema → B engine+fakes → C Dalamud → D tools/validator → **E authoring detection (E.1 observer+probe, E.2 live correlation/inference/factory/modal, E.3 offline mirror in `questforge-tools`, E.4 Dalamud probe + in-game)**. Slice E depends only on A.
+- **Slice G (NEW, §14): GC navigation (category x rank-tier matrix)** — additive optional `GcCategory: int?` (0..4) and `GcRankTier: int?` (0..5) on `PurchaseItemStep`; `EngineAction.Purchase` carries them through; `DalamudVendor.PurchaseGcSeals` fires the live-captured rank-tier (`FireCallback(2,[Int 1, Int tier])`) and category (`FireCallback(2,[Int 2, Int idx])`) switches with always-fire + per-call latch; `IVendorProbe` extension `GetActiveGcCategory`/`GetActiveGcRankTier` reads the radio button `Selected` flag for modal pre-fill (fail-quiet → null → blank inputs + hint); validator adds `...-gc-category-out-of-range` / `...-gc-rank-tier-out-of-range` (Error) and `...-gc-fields-on-gil` (Warning); `/qf debug buy` gains trailing `[gcCategory] [gcRankTier]` args. Sub-slices G1 schema → {G2 engine, G4 tools/validator} → G3 Dalamud → G5 authoring (live + offline mirror) → G6 Dalamud probe + in-game. Depends only on G1 within Slice G; whole Slice G depends only on the existing Slice A schema.
 - **Top risks:** GC rank gating / shop-not-unlocked (→ `AwaitUser`); quantity-spinner addon specifics (degrades to buy-one-per-tick, made correct by the absolute postcondition); Slice E fixture-cascade (mitigated by authoring-only pollers + step-gated engine read); partial purchase signals (guard requires all three of shop-open + item-rise + currency-drop → no phantom purchase).
+- **Slice G top risks:** unknown 5th category (index 0) is unverified — author smoke-test required, runtime degrades to `ItemNotSold` → `AwaitUser`; wrong category index — no automated check (taxonomy is internal), same `AwaitUser` degradation; `AtkComponentRadioButton.Selected` node path drift (G6 only) — fail-quiet to null → modal blank inputs + hint, `/qf debug buy` workaround preserved.
 
 ---
 
 ✅ READY FOR TEST CREATION
 
-Tester: Write failing tests from the GWT specs in §5 (core step) and §13.5 (Slice E authoring detection).
+Tester: Write failing tests from the GWT specs in §5 (core step), §13.5 (Slice E authoring detection), and §14.6 (Slice G GC navigation).
 - Happy paths: 9 scenarios (A1, A2, A3, A4, B3, B4, C4, D1, E1) + Slice E: 9 (PU1, PU2, PU3, PL1, PL2, PI1, PI2, PF1, PO1, PE1)
 - Edge cases: 9 scenarios (A5, B1, B2, B5, C3, D2, D3, E2, E3) + Slice E: PU5, PL3, PL4, PL5, PL6, PI5, PF2, PO4, PO5, PE2
 - Error/await/negative cases: 6 scenarios (C1, C2, F1, F2, F3, F4) + Slice E: PU4, PI3, PI4, PO3, PE3
-- Expected total: ~24 core tests (~15 QuestForge.Engine.Tests, ~3 Schema.Tests, ~3 Adapters.Tests, ~4 Validator.Tests) + ~31 Slice E tests (~22 QuestForge.Engine.Tests / plugin-tracing tests for observer+aggregator+inference+factory+modal, ~9 QuestForge.Tools.Trace.Tests for the offline mirror).
+- Slice G adds: Happy paths — G-A1, G-D1, G-S1, G-S4, G-O1, G-F9 (6). Edge cases — G-E1..G-E3, G-A2, G-A3, G-D2, G-D3, G-S2, G-S3, G-S5, G-S6, G-O2, G-O3, G-F5, G-F8 (15). Error/await/negative — G-F1..G-F4, G-F6..G-F7 (6).
+- Expected total: ~24 core tests (~15 QuestForge.Engine.Tests, ~3 Schema.Tests, ~3 Adapters.Tests, ~4 Validator.Tests) + ~31 Slice E tests (~22 QuestForge.Engine.Tests / plugin-tracing tests for observer+aggregator+inference+factory+modal, ~9 QuestForge.Tools.Trace.Tests for the offline mirror) + ~27 Slice G tests (~3 Schema.Tests, ~3 Engine.Tests engine arm, ~3 Adapters.Tests FakeVendor, ~9 Validator.Tests, ~6 Engine.Tests authoring aggregator+factory+modal, ~3 Tools.Trace.Tests offline mirror).

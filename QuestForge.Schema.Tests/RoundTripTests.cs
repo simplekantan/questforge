@@ -964,4 +964,106 @@ public class RoundTripTests
         Assert.Equal(PurchaseCurrency.Gil, purchase.Currency);  // RED: enum does not exist yet
     }
 
+    // =========================================================================
+    // Group G-E — GcCategory / GcRankTier schema round-trip tests (RED PHASE)
+    // All three tests will fail to COMPILE until Builder adds GcCategory and
+    // GcRankTier to PurchaseItemStep in Step.cs. That compile failure is the
+    // intended RED — do NOT stub the production fields.
+    // =========================================================================
+
+    // Test constants: Vendor=1001234, Zone=128, Position=(10.5,0,-20.0), ItemId=1601.
+
+    /// <summary>G-E1 — GcCategory/GcRankTier round-trip when set.</summary>
+    [Fact]
+    public void PurchaseItemStep_GcFields_RoundTrip_WhenSet()
+    {
+        // CONTRACT: Given PurchaseItemStep with GcCategory=2, GcRankTier=1, Currency=GcSeals,
+        //           When serialized via QuestForgeJsonContext.QuestFileOptions,
+        //           Then JSON contains "gcCategory":2 AND "gcRankTier":1;
+        //           deserialized step is PurchaseItemStep with GcCategory==2, GcRankTier==1,
+        //           ItemId and Target.NpcId also preserved.
+        // RED: Fails to compile — GcCategory/GcRankTier do not exist on PurchaseItemStep yet.
+
+        var step = new PurchaseItemStep
+        {
+            Id       = "buy-gc",
+            Target   = new NpcLocation(NpcId: 1001234, Zone: 128, Position: new Position3(10.5f, 0f, -20.0f)),
+            ItemId   = 1601,
+            Quantity = 1,
+            Currency = PurchaseCurrency.GcSeals,
+            GcCategory = 2,   // RED: property does not exist yet
+            GcRankTier = 1    // RED: property does not exist yet
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"gcCategory\":2", compactJson, StringComparison.Ordinal);
+        Assert.Contains("\"gcRankTier\":1", compactJson, StringComparison.Ordinal);
+
+        var result = RoundTrip(step);
+
+        Assert.Equal(2, result.GcCategory);   // RED: property does not exist yet
+        Assert.Equal(1, result.GcRankTier);   // RED: property does not exist yet
+        Assert.Equal(1601u, result.ItemId);
+        Assert.Equal(1001234u, result.Target.NpcId);
+    }
+
+    /// <summary>G-E2 — omitted gcCategory/gcRankTier fields default to null.</summary>
+    [Fact]
+    public void PurchaseItemStep_GcFields_MissingFields_DefaultToNull()
+    {
+        // CONTRACT: Given JSON with type "purchase-item" and no gcCategory/gcRankTier fields,
+        //           When deserialized, Then GcCategory == null && GcRankTier == null.
+        // RED: Fails to compile — GcCategory/GcRankTier do not exist on PurchaseItemStep yet.
+
+        var json = """
+            {
+              "type": "purchase-item",
+              "id": "x",
+              "target": {
+                "npcId": 1001234,
+                "zone": 128,
+                "position": { "x": 10.5, "y": 0, "z": -20.0 }
+              },
+              "itemId": 1601,
+              "quantity": 1,
+              "currency": "gcSeals"
+            }
+            """;
+
+        var step = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+
+        var purchase = Assert.IsType<PurchaseItemStep>(step);
+        Assert.Null(purchase.GcCategory);   // RED: property does not exist yet
+        Assert.Null(purchase.GcRankTier);   // RED: property does not exist yet
+    }
+
+    /// <summary>G-E3 — null C# side round-trips (omitted or explicit null — match existing nullable-int convention).</summary>
+    [Fact]
+    public void PurchaseItemStep_GcFields_NullCSharpSide_RoundTrips()
+    {
+        // CONTRACT: Given PurchaseItemStep with GcCategory=null, GcRankTier=null,
+        //           When serialized then deserialized via QuestForgeJsonContext.QuestFileOptions,
+        //           Then deserialized step has GcCategory==null AND GcRankTier==null.
+        //           The exact JSON shape (omitted keys vs explicit nulls) is NOT asserted —
+        //           match whichever convention the existing nullable-int handling uses.
+        // RED: Fails to compile — GcCategory/GcRankTier do not exist on PurchaseItemStep yet.
+
+        var step = new PurchaseItemStep
+        {
+            Id         = "buy-gc-no-nav",
+            Target     = new NpcLocation(NpcId: 1001234, Zone: 128, Position: new Position3(10.5f, 0f, -20.0f)),
+            ItemId     = 1601,
+            Quantity   = 1,
+            Currency   = PurchaseCurrency.GcSeals,
+            GcCategory = null,   // RED: property does not exist yet
+            GcRankTier = null    // RED: property does not exist yet
+        };
+
+        var result = RoundTrip(step);
+
+        Assert.Null(result.GcCategory);   // RED: property does not exist yet
+        Assert.Null(result.GcRankTier);   // RED: property does not exist yet
+    }
+
 }
