@@ -606,7 +606,9 @@ public sealed class QuestEngine
         TravelStep travel when travel.Destination.Position is { } pos =>
             new EngineAction.Navigate(
                 new WorldPosition(pos.X, pos.Y, pos.Z),
-                new NavigationOptions(StoppingDistance: step.StopDistance ?? DefaultStopDistance)),
+                new NavigationOptions(
+                    StoppingDistance: step.StopDistance ?? DefaultStopDistance,
+                    UseMount: travel.UseMount ?? true)),
 
         TravelStep travel when travel.Destination.Position is null =>
             throw new NotSupportedException("Phase 4 does not support aetheryte-only travel steps"),
