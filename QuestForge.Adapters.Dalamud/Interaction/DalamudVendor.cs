@@ -10,11 +10,17 @@ public sealed class DalamudVendor : IVendor
     private readonly PluginServices _svc;
     private DateTimeOffset _lastBuyAt    = DateTimeOffset.MinValue;
     private DateTimeOffset _lastSwitchAt = DateTimeOffset.MinValue;
-    private bool _switchedThisPurchase;
+    private int _switchAttempts;
+    private (uint ItemId, int Quantity, int? GcCategory, int? GcRankTier) _lastPurchaseSignature;
 
     // Mirror DalamudInteractor's InteractThrottle: one buy action fires per ~second.
     private static readonly TimeSpan BuyThrottle    = TimeSpan.FromMilliseconds(1000);
     private static readonly TimeSpan SwitchThrottle = TimeSpan.FromMilliseconds(500);
+
+    // Empirically the GrandCompanyExchange addon needs 2–3 ReceiveEvent dispatches before it
+    // visibly commits a tab change. Cap retries at ~2.5s of throttled attempts; beyond that
+    // assume the (cat, tier) pair genuinely doesn't surface the item.
+    private const int MaxSwitchAttempts = 5;
 
     public DalamudVendor(PluginServices svc) => _svc = svc;
 
@@ -102,10 +108,17 @@ public sealed class DalamudVendor : IVendor
         var addonPtr = _svc.GameGui.GetAddonByName("GrandCompanyExchange");
         if (addonPtr.IsNull || !addonPtr.IsReady)
         {
-            // Addon closed/not-yet-open: clear the per-call latch so a fresh open re-enters
+            // Addon closed/not-yet-open: reset the switch counter so a fresh open re-enters
             // the switching path rather than skipping it.
-            _switchedThisPurchase = false;
+            _switchAttempts = 0;
             return Task.FromResult<Result<PurchaseOutcome>>(Result.Ok(PurchaseOutcome.ShopOpening));
+        }
+
+        var sig = (item.Value, quantity, gcCategory, gcRankTier);
+        if (!sig.Equals(_lastPurchaseSignature))
+        {
+            _switchAttempts = 0;
+            _lastPurchaseSignature = sig;
         }
 
         if (DateTimeOffset.UtcNow - _lastBuyAt < BuyThrottle)
@@ -130,25 +143,19 @@ public sealed class DalamudVendor : IVendor
 
             // §14.2 D14.3 — resolve-first, switch-only-on-miss:
             //   Try ResolveExchangeRow against the current AtkValues first. If the item is already
-            //   visible on the active tab (row >= 0), buy immediately — no switching needed.
-            //   Only when the item is NOT found do we check whether GcCategory/GcRankTier are set
-            //   and, if so, fire the tab-switch callbacks and return ShopOpening so the next tick
-            //   re-resolves against the refreshed AtkValues.
-            //
-            // FireCallback signatures (live-captured):
-            //   rank tier switch: FireCallback(2, [Int 1, Int tier])      tier 0..5
-            //   category switch : FireCallback(2, [Int 2, Int category])  category 0..4 (internal taxonomy)
-            // Always-fire when set: addons accept re-clicks idempotently; cheaper than walking
-            // AtkComponentRadioButton.Selected. The per-call latch prevents per-tick spam during the
-            // AtkValues refresh that follows a switch.
+            //   visible on the active tab (row >= 0), buy immediately. If not AND the caller asked
+            //   for a specific (cat, tier), enter the switch path: dispatch a ReceiveEvent to the
+            //   relevant radio buttons and return ShopOpening so the next tick re-resolves against
+            //   refreshed AtkValues. The addon empirically takes 2–3 dispatches to commit, so the
+            //   switch is re-fired (throttled) up to MaxSwitchAttempts before giving up.
             var row = ResolveExchangeRow(addon, item.Value, count);
 
             if (row >= 0)
             {
                 // Item is on the current tab — buy immediately.
                 _lastBuyAt = DateTimeOffset.UtcNow;
-                // Clear latch on successful buy so the next purchase request re-enters the switch path.
-                _switchedThisPurchase = false;
+                // Reset switch counter on success so the next purchase request starts fresh.
+                _switchAttempts = 0;
 
                 // Confirmed via live FireCallback capture: GrandCompanyExchange buy =
                 // FireCallback([Int 0 = buy, Int row, Int qty, Int 0, Bool true, Bool false]);
@@ -171,40 +178,42 @@ public sealed class DalamudVendor : IVendor
             if (!needsSwitch)
             {
                 // Both fields null → back-compat: item simply is not on this tab, give up.
-                _switchedThisPurchase = false;
+                _switchAttempts = 0;
                 return Task.FromResult<Result<PurchaseOutcome>>(Result.Ok(PurchaseOutcome.ItemNotSold));
             }
 
-            if (_switchedThisPurchase)
+            if (_switchAttempts >= MaxSwitchAttempts)
             {
-                // We already switched on a previous tick and AtkValues refreshed, but the item
-                // is still not visible — the requested axes do not surface this item (author bug).
-                _switchedThisPurchase = false;
+                // Exhausted retries — the requested (cat, tier) doesn't surface this item.
+                _switchAttempts = 0;
+                _svc.Log.Warning(
+                    $"[DalamudVendor] giving up after {MaxSwitchAttempts} switch attempts: " +
+                    $"item={item.Value} gcCategory={gcCategory} gcRankTier={gcRankTier}");
                 return Task.FromResult<Result<PurchaseOutcome>>(Result.Ok(PurchaseOutcome.ItemNotSold));
             }
 
-            // Switch path: fire rank/category callbacks and return ShopOpening so the engine
-            // retries on the next tick after AtkValues have refreshed.
+            // Switch path: replay the radio button's natural AtkEvent via ReceiveEvent.
+            // Synthetic FireCallback on the addon does NOT trigger the radio buttons' state-change
+            // handlers; replaying the button's natural AtkEvent via ReceiveEvent does.
+            // Empirically the addon takes 2–3 dispatches to visibly commit a tab change, so we
+            // re-fire every SwitchThrottle interval until row >= 0 or we exhaust MaxSwitchAttempts.
             if (DateTimeOffset.UtcNow - _lastSwitchAt < SwitchThrottle)
                 return Task.FromResult<Result<PurchaseOutcome>>(Result.Ok(PurchaseOutcome.ShopOpening));
 
+            // Tab/tier switching technique adapted from AutoRetainer (BSD-3, Copyright 2023 Puni.sh):
+            // https://github.com/PunishXIV/AutoRetainer
+            //   ECommons/Automation/UIInput/ClickHelper.cs (ClickRadioButton)
+            //   AutoRetainer/Modules/GcHandin/GCContinuation.cs (SelectGCExchangeHorizontalTab / VerticalTab)
+            // Indexing is node-id-position-based:
+            //   gcCategory 0..3 → node id 44..47 (0=Weapons, 1=Armor, 2=Materiel, 3=Materials)
+            //   gcRankTier 0..2 → node id 37..39 (bottom-to-top: 0=lowest visible tier, 2=highest)
             if (gcRankTier is not null)
-            {
-                var switchRank = stackalloc AtkValue[2];
-                switchRank[0] = new AtkValue { Type = AtkValueType.Int, Int = 1 };
-                switchRank[1] = new AtkValue { Type = AtkValueType.Int, Int = gcRankTier.Value };
-                addon->FireCallback(2, switchRank);
-            }
+                DispatchRadioButtonClick(addon, (uint)(37 + gcRankTier.Value), "rank");
 
             if (gcCategory is not null)
-            {
-                var switchCat = stackalloc AtkValue[2];
-                switchCat[0] = new AtkValue { Type = AtkValueType.Int, Int = 2 };
-                switchCat[1] = new AtkValue { Type = AtkValueType.Int, Int = gcCategory.Value };
-                addon->FireCallback(2, switchCat);
-            }
+                DispatchRadioButtonClick(addon, (uint)(44 + gcCategory.Value), "cat");
 
-            _switchedThisPurchase = true;
+            _switchAttempts++;
             _lastSwitchAt = DateTimeOffset.UtcNow;
         }
 
@@ -220,5 +229,35 @@ public sealed class DalamudVendor : IVendor
             if (addon->AtkValues[idx].UInt == itemId) return i;
         }
         return -1;
+    }
+
+    // Replay a radio button's natural AtkEvent via the addon's ReceiveEvent path.
+    // Per AutoRetainer's ClickRadioButton (see attribution above), synthetic FireCallback on
+    // the addon does not trigger radio-button state-change handlers; replaying the button's
+    // pre-registered event does. Warns on the three failure modes (missing node, wrong
+    // component type, missing event) so a node-id regression after a game patch is visible.
+    private unsafe void DispatchRadioButtonClick(AtkUnitBase* addon, uint nodeId, string axis)
+    {
+        var node = addon->GetNodeById(nodeId);
+        if (node == null)
+        {
+            _svc.Log.Warning($"[DalamudVendor] {axis}: GetNodeById({nodeId}) returned null");
+            return;
+        }
+
+        if (node->GetAsAtkComponentRadioButton() == null)
+        {
+            _svc.Log.Warning($"[DalamudVendor] {axis}: node {nodeId} is not a radio button (type={node->Type})");
+            return;
+        }
+
+        var evt = node->AtkEventManager.Event;
+        if (evt == null)
+        {
+            _svc.Log.Warning($"[DalamudVendor] {axis}: node {nodeId} has no pre-registered AtkEvent");
+            return;
+        }
+
+        addon->ReceiveEvent(evt->State.EventType, (int)evt->Param, node->AtkEventManager.Event);
     }
 }

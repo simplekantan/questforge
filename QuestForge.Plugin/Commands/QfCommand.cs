@@ -985,7 +985,7 @@ internal sealed class QfCommand : IDisposable
     {
         if (args.Length == 0 || !uint.TryParse(args[0], out var itemId))
         {
-            _chat.Print("usage: /qf debug buy <itemId> [qty] [gil|gcSeals]");
+            _chat.Print("usage: /qf debug buy <itemId> [qty] [gil|gcSeals] [gcCategory] [gcRankTier]");
             return;
         }
 
@@ -1007,11 +1007,20 @@ internal sealed class QfCommand : IDisposable
             }
         }
 
+        int? gcCategory = null;
+        if (args.Length >= 4 && int.TryParse(args[3], out var parsedCat))
+            gcCategory = parsedCat;
+
+        int? gcRankTier = null;
+        if (args.Length >= 5 && int.TryParse(args[4], out var parsedTier))
+            gcRankTier = parsedTier;
+
         Result<PurchaseOutcome> result;
         try
         {
             result = _host.DebugVendor.Purchase(
-                new NpcId(0), new ItemId(itemId), qty, currency, CancellationToken.None)
+                new NpcId(0), new ItemId(itemId), qty, currency, CancellationToken.None,
+                gcCategory, gcRankTier)
                 .GetAwaiter().GetResult();
         }
         catch (Exception ex)

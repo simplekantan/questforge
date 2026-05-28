@@ -823,23 +823,28 @@ Mirror `COMBAT_AUTHORING_DETECTION_PLAN §Task 4` test placement: live aggregato
 
 > **Status:** ready for test creation (awaiting user go-ahead before any implementation). **Position:** follow-up slice to Slices A–F, depends only on Slice A (schema). **Why this section exists:** Slice C shipped a direct-buy path that works when the target item happens to be on the (category, rank-tier) the player last left the addon on. The `GrandCompanyExchange` addon is in reality a **category × rank-tier matrix** — its BuyList contents change with two independent radio-button axes — so a correctly-deployed quest must declare which axes to be on before `ResolveExchangeRow` can find the row. This section specifies that work end to end, in the style of §§5/8/9/13.
 
-### 14.1 Motivation and captured facts (live-verified)
+### 14.1 Motivation and captured facts (live-verified; corrected in-game 2026-05-28)
 
 The `GrandCompanyExchange` addon hosts **two simultaneous radio-button axes** inside the same window:
 
-1. **Rank tier** — six tiers (0..5) gated by the player's current GC rank. Locked tiers are hidden by node-visibility flags but the underlying FireCallback accepts all six.
-2. **Category** — five categories (0..4) gated by some condition (rank? GC affiliation? unidentified). Observed labels on the running player: **1=Materiel, 2=Weapons, 3=Armor, 4=Materials**; index 0 belongs to a 5th radio button (node #48) that was hidden in the current player's view. The 5th category is treated as a **valid input** in v1 (the field accepts 0..4) but its semantics are unidentified without a different-state character to verify against. Authors who need it must smoke-test once with the live adapter.
+1. **Rank tier** — radio group at node ids **37..39** (three positions, indexed bottom-to-top: `0=lowest, 1=middle, 2=highest`). Higher GC ranks may unlock further nodes (40..) but the player-visible set in our test was three.
+2. **Category** — radio group at node ids **44..47** (four positions, indexed positionally: `0=Weapons, 1=Armor, 2=Materiel, 3=Materials`). AutoRetainer's `InRange(0, 4, false)` suggests a fifth slot (node 48) may exist at high GC ranks; treated as out-of-range by our validator until verified.
 
-**FireCallback signatures (all live-captured):**
+> **Earlier draft was wrong.** Slice G's initial design (drafted before in-game verification) documented `FireCallback(2, [Int 2, Int category])` with a captured "internal taxonomy" of `1=Materiel, 2=Weapons, 3=Armor, 4=Materials`. **Synthetic FireCallback on the addon does NOT trigger the radio buttons' state-change handlers** — the addon receives the event but no tab change occurs. The actual working technique replays each radio button's pre-registered `AtkEvent` via `AtkUnitBase.ReceiveEvent`. The "internal taxonomy" I captured was the `[1]` payload from FireCallback events *on a different code path* that does not in fact switch tabs; the correct indexing is the positional `44+i` / `37+i` node-id offset above.
 
-| Action | FireCallback signature | Notes |
-|---|---|---|
-| Rank-tier switch | `FireCallback(2, [Int 1, Int tier])` | `tier` ∈ 0..5; player-accessible subset only |
-| Category switch | `FireCallback(2, [Int 2, Int categoryIndex])` | `categoryIndex` ∈ 0..4; **internal taxonomy, NOT positional** — 1=Materiel, 2=Weapons, 3=Armor, 4=Materials, 0=unknown 5th |
-| Buy (already shipped, §8 / #90) | `FireCallback(6, [Int 0, Int row, Int qty, Int 0, Bool 1, Bool 0])` | unchanged |
-| Close | `FireCallback(1, [Int -1])` / `FireCallback(1, [Int -2])` | not used by Slice G; documented for completeness |
+**Switching technique (live-verified, adapted from AutoRetainer BSD-3 — see attribution in `DalamudVendor.cs`):**
 
-**AtkValues layout (already shipped, §8 / #90):** `count@[1]`, `name@[17+i]` (string), `price@[67+i]` (UInt), `icon@[167+i]` (UInt), `itemId@[317+i]` (UInt). **AtkValues contents change per (category, rank-tier).** `ResolveExchangeRow` therefore only finds the target item id when **both** axes are correctly set. AtkValues at `[11..16]` did **not** vary across category dumps and so cannot be used to read the *currently-active* axis; the active state must be inferred from each radio button's `AtkComponentRadioButton.Selected` flag (Slice G3 / Slice G6) OR by tracking the most-recent switch firing (rejected — stateful).
+```csharp
+var node = addon->GetNodeById(nodeId);          // 44+gcCategory, or 37+gcRankTier
+var evt  = node->AtkEventManager.Event;         // the radio button's pre-registered AtkEvent
+addon->ReceiveEvent(evt->State.EventType, (int)evt->Param, node->AtkEventManager.Event);
+```
+
+**Buy callback (unchanged, already shipped §8 / #90):** `FireCallback(6, [Int 0, Int row, Int qty, Int 0, Bool 1, Bool 0])`. The buy uses real FireCallback; only tab switching needs ReceiveEvent.
+
+**AtkValues layout (unchanged, already shipped §8 / #90):** `count@[1]`, `name@[17+i]` (string), `price@[67+i]` (UInt), `icon@[167+i]` (UInt), `itemId@[317+i]` (UInt). **AtkValues contents change per (category, rank-tier).** `ResolveExchangeRow` therefore only finds the target item id when **both** axes are correctly set. The active axes cannot be read from AtkValues at `[11..16]` (they don't vary across category dumps); the runtime adapter does not need to read them (always-fire is cheap) but the authoring probe (G5/G6) does — via the radio components' `Selected` flag.
+
+**Switch convergence (in-game measured):** the addon takes **2–3 ReceiveEvent dispatches** before it visibly commits a tab change. The first dispatch moves the addon into an intermediate state (different AtkValues count, neither origin nor target tab); the second or third lands on the target. The adapter handles this with a per-call counter (`MaxSwitchAttempts=5`) and a 500ms throttle — see D14.3.
 
 This is a strictly additive feature: when `GcCategory`/`GcRankTier` are absent the behavior is exactly Slice C's (try resolve, `ItemNotSold` if not found, no switches). No existing quest breaks; the cost is paid only by quests that opt in.
 
@@ -857,15 +862,15 @@ public class PurchaseItemStep : Step
     public PurchaseCurrency Currency { get; init; } = PurchaseCurrency.Gil;
 
     /// <summary>
-    /// GC quartermaster category radio (0..4). Only meaningful when Currency=GcSeals;
-    /// validator warns if set with Currency=Gil. Null = leave whatever category the addon
-    /// happens to be on (Slice C behavior).
+    /// GC quartermaster category radio (0..3 positional: 0=Weapons, 1=Armor, 2=Materiel, 3=Materials).
+    /// Only meaningful when Currency=GcSeals; validator warns if set with Currency=Gil.
+    /// Null = leave whatever category the addon happens to be on (Slice C behavior).
     /// </summary>
     public int? GcCategory { get; init; }
 
     /// <summary>
-    /// GC quartermaster rank-tier radio (0..5). Only meaningful when Currency=GcSeals.
-    /// Null = leave whatever rank-tier the addon happens to be on.
+    /// GC quartermaster rank-tier radio (0..2 bottom-to-top: 0=lowest visible tier, 2=highest).
+    /// Only meaningful when Currency=GcSeals. Null = leave whatever rank-tier the addon happens to be on.
     /// </summary>
     public int? GcRankTier { get; init; }
 }
@@ -902,40 +907,40 @@ public sealed record Purchase(
 
 **Constructor ordering note:** placed **before** `Origin` (the trailing `Step?`) to keep `Origin` last by convention. This is a minor source-compat change to existing callers that pass `Origin: step` by name (Slice B already uses named args — confirmed in `QuestEngine.cs` purchase branch); any positional callers must be updated in the same commit.
 
-#### D14.3 — Adapter state machine: per-tick switching with **always-fire** (NOT read `Selected` first)
+#### D14.3 — Adapter state machine: counter-based ReceiveEvent retries (revised in-game 2026-05-28)
 
 Per-tick `DalamudVendor.PurchaseGcSeals` flow (additive to the Slice C body; only the *additions* are described — the AtkValues read, row resolve, and buy callback are unchanged):
 
 ```
-1. addon not ready                                  → return ShopOpening
-2. throttle check (existing BuyThrottle 1s)         → return ShopOpening
-3. read AtkValuesCount / count gate (existing)      → return ShopOpening if invalid
-4. ResolveExchangeRow(itemId)
-   ├── row >= 0 (item is on the CURRENT tab) → fire buy callback → return Purchased
+1. addon not ready                                  → reset switchAttempts, return ShopOpening
+2. signature changed since last call                → reset switchAttempts
+3. throttle check (BuyThrottle 1s)                  → return ShopOpening
+4. read AtkValuesCount / count gate (existing)      → return ShopOpening if invalid
+5. ResolveExchangeRow(itemId)
+   ├── row >= 0 (item is on the CURRENT tab) → reset switchAttempts, fire buy → return Purchased
    └── row <  0 (item NOT on current tab):
-       ├── if BOTH GcCategory and GcRankTier are null → return ItemNotSold (Slice C behavior; back-compat)
-       ├── else:
-       │   a. if GcRankTier is set:
-       │       FireCallback(2, [Int 1, Int gcRankTier.Value])  // see 14.1; idempotent on already-selected
-       │   b. if GcCategory is set:
-       │       FireCallback(2, [Int 2, Int gcCategory.Value])  // idempotent on already-selected
-       │   c. set a per-call latch so step (a/b) does NOT re-fire next tick
-       │       (the latch is "we already requested a switch this purchase; let AtkValues refresh")
-       │   d. return ShopOpening   // addon takes ≥1 tick to refresh AtkValues
-       └── (latch already set, still cannot resolve next tick after refresh expected)
-           → return ItemNotSold    // the requested axes do not surface this item; engine routes to AwaitUser
+       ├── if BOTH GcCategory and GcRankTier are null → reset switchAttempts, return ItemNotSold (Slice C; back-compat)
+       ├── if switchAttempts >= MaxSwitchAttempts    → reset switchAttempts, log warning, return ItemNotSold (give up)
+       ├── if SwitchThrottle (500ms) not yet elapsed → return ShopOpening (no dispatch this tick)
+       └── else:
+           a. if GcRankTier is set: DispatchRadioButtonClick(addon, 37 + gcRankTier.Value, "rank")
+           b. if GcCategory is set: DispatchRadioButtonClick(addon, 44 + gcCategory.Value, "cat")
+           c. switchAttempts++; lastSwitchAt = now; return ShopOpening
 ```
 
-**Decision: ALWAYS fire the switch callbacks when fields are set, do NOT pre-read the radio button's `Selected` flag.** Rationale:
-- **Simplicity wins over one wasted FireCallback.** A switch to the already-active tab is a no-op in the game (the radio handler dedupes on its own selected state). The cost is one extra callback per opt-in purchase, paid at most once per `DalamudVendor.Purchase` invocation (the latch prevents per-tick spam). The alternative — walking the addon's component tree to read `AtkComponentRadioButton.Selected` for two radio groups — adds ~30 lines of unsafe ClientStructs traversal that the rejection path of an unverified node id can crash on.
-- **The Selected-flag read is not free.** It requires knowing which `AtkComponentNode` indices host the category and rank-tier radios, plus the layout of the radio button's `Component`-typed `Data` to find `Selected`. That mapping is a `// VERIFY IN-GAME:` for *every* axis, with no upside vs. the always-fire path. (The authoring probe, G5, DOES need the Selected reads — there the cost buys the only available pre-fill signal. The runtime adapter has the postcondition as its real success oracle, so a wasted callback is benign.)
-- **Idempotence is observable.** The game itself dedupes a "select category 2 when already on category 2" — the AtkValues do not change, the count does not change, and the next-tick row resolve still works. This is the same idempotence guarantee `DalamudInteractor` relies on for its retry loop.
+`DispatchRadioButtonClick(addon, nodeId, axis)` resolves the radio button by `GetNodeById(nodeId)`, casts via `GetAsAtkComponentRadioButton()` to verify type, reads `AtkEventManager.Event`, and replays it via `addon->ReceiveEvent(evt->State.EventType, evt->Param, evt)`. Each of the three failure modes (missing node, wrong type, missing event) logs a `Warning` and returns without dispatching — making node-id regressions after a game patch visible without crashing.
 
-**The per-call latch** is a `bool _switchedThisPurchase` field on `DalamudVendor`, set when the switch callbacks fire, **cleared** at the top of `PurchaseGcSeals` when the *first* successful row-resolve+buy happens for the requested item AND when the addon transitions closed→open (a fresh shop visit). Without this latch, the engine's per-tick retry would re-fire the switches every single tick until the buy lands, spamming the addon and racing the refresh.
+**Decision: counter-based retries with a hard cap, NOT a binary latch.** The first draft of this slice assumed *one* switch dispatch would commit the tab change; the in-game test (PR #91 smoke 2026-05-28) found the addon needs **2–3 dispatches** before the visible tab actually changes (first dispatch yields an intermediate state where neither the original nor target tab is showing). A binary latch returns `ItemNotSold` after one wasted dispatch — terminating the engine step before the addon has settled. The counter approach re-fires the dispatch every `SwitchThrottle` interval (500ms) until either the row resolves or we hit `MaxSwitchAttempts = 5` (~2.5s total). Beyond that, we genuinely cannot find the item on the requested (cat, tier) and the `ItemNotSold` return is correct.
 
-**Back-compat invariant (load-bearing):** when **both** `GcCategory` and `GcRankTier` are null, the entire "switch then retry" branch is skipped; the behavior is byte-identical to Slice C. The Tester MUST assert this with an existing-quest fixture (GWT-GD3) before any new switching code lands.
+**Decision: ALWAYS fire the switch when fields are set, do NOT pre-read the radio button's `Selected` flag.** Rationale (carried over from the earlier draft, still valid):
+- **Simplicity wins over one wasted dispatch.** A dispatch to the already-active tab is a no-op in the game. The throttle plus the post-buy reset of the counter prevent spam.
+- **The Selected-flag read is not free.** Walking the radio button's component data to find `Selected` adds unverified ClientStructs traversal. The authoring probe (G5) does need it for pre-fill, but the runtime adapter has the row-resolve as its real success oracle, so a wasted dispatch is benign.
 
-**What breaks if violated:** firing switches every tick without the latch produces a visible audio click in the addon (each radio click is sound-event-emitting) and risks rate-limiting the FireCallback path; pre-reading `Selected` adds an in-game-only verification dependency to a CI-friendly slice.
+**The per-call counter** (`int _switchAttempts` on `DalamudVendor`) is **reset** on three conditions: (1) the addon is not ready (a fresh shop visit re-enters the switch path), (2) the `(itemId, qty, gcCategory, gcRankTier)` signature differs from the last call (a new purchase request), and (3) a successful resolve+buy happens. The counter is also reset when the give-up path fires, so subsequent purchases start fresh. Without this counter the adapter would either spam dispatches every tick (no throttle/cap → audio click spam) or give up after one attempt (current shipped bug pre-2026-05-28).
+
+**Back-compat invariant (load-bearing):** when **both** `GcCategory` and `GcRankTier` are null, the entire switch branch (cap check, throttle, dispatch, counter increment) is skipped; the behavior is byte-identical to Slice C. The Tester MUST assert this with an existing-quest fixture (GWT-GD3) before any new switching code lands.
+
+**What breaks if violated:** firing switches without the throttle produces audio-click spam (each radio dispatch is sound-event-emitting); using a binary latch terminates the step before the addon commits the tab change (verified 2026-05-28).
 
 #### D14.4 — Authoring detection: extend `IVendorProbe` with `GetActiveGcCategory` / `GetActiveGcRankTier`
 
@@ -949,14 +954,16 @@ public interface IVendorProbe
     IReadOnlyList<(uint ItemId, int Count)> GetChangedItemCounts();
 
     /// <summary>
-    /// Currently-selected GC category radio (0..4), or null if the GrandCompanyExchange addon
-    /// is not open OR the Selected flag could not be read. Authoring-only; never called by the engine.
-    /// VERIFY IN-GAME: the exact AtkComponentRadioButton node path on the category radio group.
+    /// Currently-selected GC category radio (0..3 positional: 0=Weapons, 1=Armor, 2=Materiel, 3=Materials),
+    /// or null if the GrandCompanyExchange addon is not open OR the Selected flag could not be read.
+    /// Authoring-only; never called by the engine.
+    /// Node-id offsets are 44+i — read the radio component's Selected flag to identify the active one.
     /// </summary>
     int? GetActiveGcCategory();
 
     /// <summary>
-    /// Currently-selected GC rank-tier radio (0..5), or null on the same fail-quiet conditions.
+    /// Currently-selected GC rank-tier radio (0..2 bottom-to-top: 0=lowest visible, 2=highest visible),
+    /// or null on the same fail-quiet conditions. Node-id offsets are 37+i.
     /// </summary>
     int? GetActiveGcRankTier();
 }
@@ -994,13 +1001,13 @@ New rules added to `StructuralValidator.CheckStepTypeRules`'s `PurchaseItemStep`
 
 | Error code | Suppression / condition | Severity |
 |---|---|---|
-| `structural/purchase-gc-category-out-of-range` | suppressed when `GcCategory is null OR 0..4` | Error |
-| `structural/purchase-gc-rank-tier-out-of-range` | suppressed when `GcRankTier is null OR 0..5` | Error |
+| `structural/purchase-gc-category-out-of-range` | suppressed when `GcCategory is null OR 0..3` | Error |
+| `structural/purchase-gc-rank-tier-out-of-range` | suppressed when `GcRankTier is null OR 0..2` | Error |
 | `structural/purchase-gc-fields-on-gil` | suppressed when `Currency == GcSeals` OR both `GcCategory` and `GcRankTier` are null | **Warning** (message: "`gcCategory`/`gcRankTier` are ignored when `currency` is not `gcSeals`") |
 
 The first two are hard errors (a `7` is illegal regardless of currency). The third is a **warning** because the engine simply ignores the fields when the currency is gil (no runtime damage), but the author almost certainly made a mistake — the warning surfaces that. The existing four error codes from §4 (`structural/purchase-item-id-zero`, `…-quantity-nonpositive`, `…-npc-id-zero`, `…-currency-invalid`) are unchanged.
 
-**The 5th-category note (§14.1 unknown index 0):** `GcCategory: 0` validates cleanly. The validator does NOT emit a warning for index 0 — the field accepts 0..4 and the locked 5th category is documented as "author-validated by smoke test." A future enhancement can demote/upgrade this once the 5th category's semantics are identified.
+**Conservative ranges:** the adapter dispatches whatever node-id offset the caller requests (`44+i`, `37+i`); out-of-range values fail safely (warning + no dispatch). The validator picks the narrower visible-on-tested-player ranges to surface obvious typos. A high-GC-rank character may expose more tabs (AutoRetainer's `InRange(0, 4, false)` permits a 5th category at node 48); when verified in-game the validator can widen the range without an adapter change.
 
 #### D14.7 — `/qf debug buy` extension
 
@@ -1026,24 +1033,24 @@ public class PurchaseItemStep : Step
     public uint ItemId { get; init; }
     public int Quantity { get; init; } = 1;
     public PurchaseCurrency Currency { get; init; } = PurchaseCurrency.Gil;
-    public int? GcCategory { get; init; }     // NEW — 0..4, null = leave addon as-is
-    public int? GcRankTier { get; init; }     // NEW — 0..5, null = leave addon as-is
+    public int? GcCategory { get; init; }     // NEW — 0..3 (0=Weapons, 1=Armor, 2=Materiel, 3=Materials); null = leave addon as-is
+    public int? GcRankTier { get; init; }     // NEW — 0..2 (0=lowest, 1=middle, 2=highest visible tier); null = leave addon as-is
 }
 ```
 
 Expected authoring usage:
 
 ```jsonc
-// GC quartermaster — buy 3 of a Weapons-tab rank-1 item; engine flips to that tab first
+// GC quartermaster — buy 3 of a Materiel-tab lowest-rank item; engine flips to that tab first
 {
   "type": "purchase-item",
-  "id": "buy-gc-weapon",
+  "id": "buy-gc-materiel",
   "target": { "npcId": 1002000, "zone": 128, "position": { "x": 5.0, "y": 0, "z": 5.0 } },
-  "itemId": 6141,
+  "itemId": 4564,
   "quantity": 3,
   "currency": "gcSeals",
   "gcCategory": 2,
-  "gcRankTier": 1
+  "gcRankTier": 0
 }
 ```
 
@@ -1053,11 +1060,13 @@ Back-compat: existing GC quests without these fields keep Slice C's behavior —
 
 | Error code | Suppression / condition | Severity |
 |---|---|---|
-| `structural/purchase-gc-category-out-of-range` | suppressed when `GcCategory is null OR 0..4` | Error |
-| `structural/purchase-gc-rank-tier-out-of-range` | suppressed when `GcRankTier is null OR 0..5` | Error |
+| `structural/purchase-gc-category-out-of-range` | suppressed when `GcCategory is null OR 0..3` | Error |
+| `structural/purchase-gc-rank-tier-out-of-range` | suppressed when `GcRankTier is null OR 0..2` | Error |
 | `structural/purchase-gc-fields-on-gil` | suppressed when `Currency == GcSeals` OR both `GcCategory` and `GcRankTier` are null | Warning |
 
 (Existing §4 rules are unchanged and continue to apply.)
+
+The narrower ranges (3 → 0..3, 5 → 0..2) reflect the visible-on-current-player addon state observed during the in-game test (2026-05-28). AutoRetainer's source allows `0..4` for category (suggesting a hidden 5th slot at high GC ranks) — out of conservatism the validator currently rejects 4 until a high-rank character can confirm it works in-game. A future PR can widen the range if needed.
 
 ### 14.5 Sub-slice plan (TDD ordering, done-before-next strict)
 
@@ -1067,7 +1076,7 @@ Slice G is one feature delivered as six independently-greenable sub-slices. Each
 |---|---|---|---|---|
 | **G1 — Schema** | `questforge` (+ `questforge-tools` mirror) | yes (round-trip) | nothing | `GcCategory: int?`, `GcRankTier: int?` on `PurchaseItemStep`; STJ source-gen unaffected; round-trip tests for both fields incl. omitted-defaults-to-null. |
 | **G2 — Engine + factory + fakes** | `questforge` | yes (full engine arm) | G1 | `EngineAction.Purchase` gains the two nullable fields (D14.2); `StepFactory` `"purchase-item"` case copies them through; `QuestEngine` purchase branch copies `step.GcCategory`/`step.GcRankTier` into the emitted action; `FakeVendor.Purchase` accepts the two new params and records them on the captured call. |
-| **G3 — Dalamud adapter** | `questforge` | NO (Dalamud-only) | G2 | `IVendor.Purchase` signature gains the two nullable params (`DalamudVendor` impl, `FakeVendor` impl); `DalamudVendor.PurchaseGcSeals` always-fire switching logic + per-call latch (D14.3); back-compat fully preserved when both are null. In-game smoke: a GC purchase that requires a category switch and a rank-tier switch from a "wrong-tab" starting state. |
+| **G3 — Dalamud adapter** | `questforge` | NO (Dalamud-only) | G2 | `IVendor.Purchase` signature gains the two nullable params (`DalamudVendor` impl, `FakeVendor` impl); `DalamudVendor.PurchaseGcSeals` counter-based `ReceiveEvent` retry loop with `MaxSwitchAttempts=5` (D14.3); back-compat fully preserved when both are null. In-game smoke: a GC purchase that requires a category switch and a rank-tier switch from a "wrong-tab" starting state. |
 | **G4 — Tools mirror + validator** | `questforge-tools` | yes | G1 | Mirror the two schema fields; add the three validator rules (D14.6); update `PurchaseItemValidationTests` with `Group G-F`. `CapabilityInferrer` requires no change (the existing `step:purchase-item` tag already covers it). |
 | **G5 — Authoring detection (live + offline mirror)** | `questforge` (live) + `questforge-tools` (offline) | yes (CI-testable for both halves) | G1, G2 | `IVendorProbe` gains the two `GetActiveGc…` methods (D14.4); `FakeVendorProbe` returns scripted values. `PurchaseDetection` gains `ActiveGcCategory` / `ActiveGcRankTier` (D14.5); `SnapshotAggregator` records "last seen" non-null while shop-open span is active; `RecordStepModal` seeds the two new numeric inputs from `after.PurchaseDetected.ActiveGc…` and falls back to blank when null; `StepFactory` `"purchase-item"` case reads those values and writes them onto the built `PurchaseItemStep`. Offline mirror: `SnapshotState` and `TraceToQuestExtractor` mirror the same projection (the trace already carries no new event types — only the projection sees the new probe values via the existing `ShopOpened` heartbeat path). |
 | **G6 — Dalamud probe + in-game** | `questforge` | NO (Dalamud-only) | G5 | `DalamudVendorProbe.GetActiveGcCategory`/`GetActiveGcRankTier` implementation that walks the category-radio and rank-tier-radio components and reads `Selected` (the `// VERIFY IN-GAME:` from D14.4). If the node mapping cannot be confirmed cleanly in one session, return `null` from both methods and ship the modal-fallback path (the rest of G5 still works — the pre-fill is just empty). In-game: author a GC purchase via `/qf author`, confirm the modal pre-fills (`gcCategory`, `gcRankTier`); replay through `qf-trace extract-quest`; confirm an identical step. Then `/qf debug buy 6141 1 gcSeals 1 1` from a wrong-tab starting state to verify the adapter's switching path. |
@@ -1106,15 +1115,15 @@ Targets `QuestForge.Engine.Tests` (engine arm + aggregator + factory), `QuestFor
 
 #### Group G-F — validator (`QuestForge.Tools.Validator.Tests`)
 
-- **G-F1 — `GcCategory = 5` → `structural/purchase-gc-category-out-of-range` (Error).**
+- **G-F1 — `GcCategory = 4` → `structural/purchase-gc-category-out-of-range` (Error).** (Valid range 0..3; 4 is the unverified 5th slot per §14.4.)
 - **G-F2 — `GcCategory = -1` → `structural/purchase-gc-category-out-of-range` (Error).**
-- **G-F3 — `GcRankTier = 6` → `structural/purchase-gc-rank-tier-out-of-range` (Error).**
+- **G-F3 — `GcRankTier = 3` → `structural/purchase-gc-rank-tier-out-of-range` (Error).** (Valid range 0..2.)
 - **G-F4 — `GcRankTier = -1` → `structural/purchase-gc-rank-tier-out-of-range` (Error).**
-- **G-F5 — `GcCategory = 0` (the unknown 5th) → no error, no warning.** (Documented as valid per D14.6.)
+- **G-F5 — `GcCategory = 0` (Weapons, valid) → no error, no warning.**
 - **G-F6 — `Currency = Gil, GcCategory = 2` → `structural/purchase-gc-fields-on-gil` (Warning).**
 - **G-F7 — `Currency = Gil, GcRankTier = 1` → `structural/purchase-gc-fields-on-gil` (Warning).**
 - **G-F8 — `Currency = Gil, both null` → no warning.**
-- **G-F9 — `Currency = GcSeals, GcCategory = 2, GcRankTier = 1` → no purchase-gc-* error/warning.**
+- **G-F9 — `Currency = GcSeals, GcCategory = 2, GcRankTier = 0` → no purchase-gc-* error/warning.**
 
 #### Group G-S — authoring detection: aggregator + factory + modal (`QuestForge.Engine.Tests`)
 
@@ -1136,7 +1145,7 @@ Targets `QuestForge.Engine.Tests` (engine arm + aggregator + factory), `QuestFor
 1. `PurchaseItemStep` round-trips `gcCategory`/`gcRankTier` in both present and absent forms (G-E1..G-E3 pass).
 2. `QuestForge.Engine` carries both fields through `EngineAction.Purchase` without alteration (G-A1..G-A3 pass), and the existing Slice B/C tests remain green with at most a mechanical default-null parameter addition.
 3. `FakeVendor` records the two new fields on captured calls (G-D1..G-D3 pass); the `IVendor` interface remains the only adapter surface (no new interface added).
-4. `DalamudVendor.PurchaseGcSeals` switches axes via the captured FireCallback signatures when fields are set, retries via `ShopOpening` for the addon-refresh tick, and produces no behavior change when both fields are null. (In-game smoke under G3.)
+4. `DalamudVendor.PurchaseGcSeals` switches axes via `ReceiveEvent`-on-radio-button (AutoRetainer technique, attributed) when fields are set, retries up to `MaxSwitchAttempts=5` via `ShopOpening` for the addon's 2–3-dispatch convergence, and produces no behavior change when both fields are null. (In-game smoke under G3 — verified 2026-05-28 with `/qf debug buy 4564 1 gcSeals 2 0`.)
 5. `qf-validate` flags out-of-range axes and warns on GC-fields-with-gil (G-F1..G-F9 pass).
 6. Authoring detection populates `ActiveGcCategory`/`ActiveGcRankTier` on `PurchaseDetection` from the probe and propagates to the modal pre-fill and the built `PurchaseItemStep` (G-S1..G-S6 pass).
 7. Offline `qf-trace extract-quest` produces the same `PurchaseItemStep` with the same two new fields populated (G-O1..G-O3 pass).
@@ -1145,10 +1154,10 @@ Targets `QuestForge.Engine.Tests` (engine arm + aggregator + factory), `QuestFor
 
 ### 14.8 Open risks (and safe degradation)
 
-1. **Unknown 5th category (index 0).** Author validation required; no validator enforcement, no runtime guard. Safe — `DalamudVendor` will fire the callback and either succeed (and the row resolve confirms) or the row resolve fails → `ItemNotSold` → `AwaitUser`. (D14.6, §14.1.)
+1. **Potential 5th category (node 48) at high GC ranks.** AutoRetainer's source permits `0..4` but the validator currently rejects 4. Authors whose character can see a 5th tab must verify in-game, then we can widen the validator range. Safe — the runtime adapter dispatches whatever node-id offset is requested; an out-of-range value warns and returns without crashing. (D14.6, §14.1.)
 2. **Wrong category index (e.g. author typed `1` thinking "Weapons" but Weapons is `2`).** No automated check possible (the taxonomy is internal). After the switch the addon shows the wrong items; `ResolveExchangeRow` returns -1 next tick (post-latch) → adapter returns `ItemNotSold` → engine emits `AwaitUser` ("vendor does not sell item …"). Safe — pauses for the user.
 3. **`AtkComponentRadioButton.Selected` node path drifts across patches (G6 risk).** Mitigated by the D14.4 fail-quiet contract: probe returns null on any read failure, modal falls back to blank inputs with a hint, the rest of the pipeline (engine, validator, offline mirror) works unchanged. The `/qf debug buy` workaround lets the author still drive the path manually.
-4. **Refresh latency between switch FireCallback and AtkValues update.** Already handled by the existing `ShopOpening` retry — the engine ticks again and the next tick re-resolves against fresh values. The per-call latch (D14.3) prevents re-firing during the refresh window.
+4. **Refresh latency between switch dispatch and AtkValues update.** The addon takes 2–3 `ReceiveEvent` dispatches to commit a tab change (verified 2026-05-28). Handled by `MaxSwitchAttempts=5` + 500ms `SwitchThrottle` in D14.3 — the counter-based loop converges within ~1s in practice while bounding the worst case at ~2.5s.
 5. **No GC field set on a quest authored for a GC quartermaster (degenerate Slice C case).** Behavior is unchanged from today: try resolve, `ItemNotSold` if not on the current tab, `AwaitUser`. Safe; the validator does not require these fields (they are optional).
 6. **Both currencies set with GC fields (e.g. `Currency=Gil, GcCategory=2`).** Warning surfaced by `structural/purchase-gc-fields-on-gil`; engine ignores the fields at runtime (gil path does not look at them). Safe + author-visible.
 
@@ -1163,9 +1172,9 @@ Targets `QuestForge.Engine.Tests` (engine arm + aggregator + factory), `QuestFor
 - **Currency:** author-declared (closed enum), so the engine picks the affordability read synchronously and the validator can check it statically; runtime inference rejected. Authoring detection PRE-FILLS the field (recording-time) from the currency that dropped, but the serialized step is always explicit.
 - **Authoring detection (NOW IN SCOPE, Slice E):** signal = shop-open (`GilShop`/`GrandCompanyExchange`) correlated with a regular-inventory count increase AND a gil/seal decrease within a shop-open-bracketed span; the dropped currency disambiguates `Currency`, the item delta gives `ItemId`/`Quantity`, `LastNpcInteracted` gives `Target`. Mirrors combat's span model (no timing window needed — shop-open is the bracket). FIXTURE-CASCADE verdict: NEW recorded observations ARE required (regular-item counts, gil/seal balances, shop-open are NOT in the trace today — `PollKeyItems` is key-items-only, no gil/shop polling exists); mitigated by emitting them ONLY from authoring-mode pollers behind a new `IVendorProbe`/`PollVendor` (exactly like `ICombatProbe`/`PollCombat`, which did NOT cascade), with the new engine `GetGrandCompanySeals` read step-gated so NO engine replay fixture re-records.
 - **Slices:** A schema → B engine+fakes → C Dalamud → D tools/validator → **E authoring detection (E.1 observer+probe, E.2 live correlation/inference/factory/modal, E.3 offline mirror in `questforge-tools`, E.4 Dalamud probe + in-game)**. Slice E depends only on A.
-- **Slice G (NEW, §14): GC navigation (category x rank-tier matrix)** — additive optional `GcCategory: int?` (0..4) and `GcRankTier: int?` (0..5) on `PurchaseItemStep`; `EngineAction.Purchase` carries them through; `DalamudVendor.PurchaseGcSeals` fires the live-captured rank-tier (`FireCallback(2,[Int 1, Int tier])`) and category (`FireCallback(2,[Int 2, Int idx])`) switches with always-fire + per-call latch; `IVendorProbe` extension `GetActiveGcCategory`/`GetActiveGcRankTier` reads the radio button `Selected` flag for modal pre-fill (fail-quiet → null → blank inputs + hint); validator adds `...-gc-category-out-of-range` / `...-gc-rank-tier-out-of-range` (Error) and `...-gc-fields-on-gil` (Warning); `/qf debug buy` gains trailing `[gcCategory] [gcRankTier]` args. Sub-slices G1 schema → {G2 engine, G4 tools/validator} → G3 Dalamud → G5 authoring (live + offline mirror) → G6 Dalamud probe + in-game. Depends only on G1 within Slice G; whole Slice G depends only on the existing Slice A schema.
+- **Slice G (§14): GC navigation (category x rank-tier matrix)** — additive optional `GcCategory: int?` (0..3 positional: 0=Weapons, 1=Armor, 2=Materiel, 3=Materials) and `GcRankTier: int?` (0..2 bottom-to-top) on `PurchaseItemStep`; `EngineAction.Purchase` carries them through; `DalamudVendor.PurchaseGcSeals` switches tabs via `AtkUnitBase.ReceiveEvent` on the radio buttons' pre-registered `AtkEvent` (technique adapted from AutoRetainer BSD-3 — synthetic `FireCallback` does NOT trigger the radio handlers) with a counter-based retry loop (`MaxSwitchAttempts=5`, 500ms throttle) because the addon takes 2–3 dispatches to commit; `IVendorProbe` extension `GetActiveGcCategory`/`GetActiveGcRankTier` reads the radio button `Selected` flag for modal pre-fill (fail-quiet → null → blank inputs + hint); validator adds `...-gc-category-out-of-range` / `...-gc-rank-tier-out-of-range` (Error) and `...-gc-fields-on-gil` (Warning); `/qf debug buy` gains trailing `[gcCategory] [gcRankTier]` args. Sub-slices G1 schema → {G2 engine, G4 tools/validator} → G3 Dalamud → G5 authoring (live + offline mirror) → G6 Dalamud probe + in-game. Depends only on G1 within Slice G; whole Slice G depends only on the existing Slice A schema.
 - **Top risks:** GC rank gating / shop-not-unlocked (→ `AwaitUser`); quantity-spinner addon specifics (degrades to buy-one-per-tick, made correct by the absolute postcondition); Slice E fixture-cascade (mitigated by authoring-only pollers + step-gated engine read); partial purchase signals (guard requires all three of shop-open + item-rise + currency-drop → no phantom purchase).
-- **Slice G top risks:** unknown 5th category (index 0) is unverified — author smoke-test required, runtime degrades to `ItemNotSold` → `AwaitUser`; wrong category index — no automated check (taxonomy is internal), same `AwaitUser` degradation; `AtkComponentRadioButton.Selected` node path drift (G6 only) — fail-quiet to null → modal blank inputs + hint, `/qf debug buy` workaround preserved.
+- **Slice G top risks:** potential 5th category (node 48) at high GC ranks is currently validator-rejected — extend the range when verified in-game; wrong category index — no automated check, runtime degrades to `ItemNotSold` after `MaxSwitchAttempts=5` failed dispatches → `AwaitUser`; `AtkComponentRadioButton.Selected` node path drift (G6 only) — fail-quiet to null → modal blank inputs + hint, `/qf debug buy` workaround preserved.
 
 ---
 
