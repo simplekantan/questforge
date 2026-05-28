@@ -97,7 +97,8 @@ public sealed class AuthoringHost : IDisposable
             new DalamudAddonProbe(services.GameGui, services.DataManager),
             new DalamudGameProbe(services.DataManager, services.ObjectTable, services.ClientState),
             targetProbe: new DalamudTargetProbe(services.TargetManager, services.ClientState),
-            combatProbe: new DalamudCombatProbe(services.Condition, services.ObjectTable));
+            combatProbe: new DalamudCombatProbe(services.Condition, services.ObjectTable),
+            vendorProbe: new DalamudVendorProbe(services.GameGui));
 
         _services.ClientState.TerritoryChanged += OnTerritoryChanged;
         _services.Framework.Update += OnFrameworkUpdate;
