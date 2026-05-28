@@ -1,6 +1,8 @@
 using Dalamud.Game.Command;
+using Dalamud.Hooking;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using FFXIVClientStructs.FFXIV.Component.GUI;
 using QuestForge.Adapters.Dalamud.Scheduling;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Combat;
@@ -33,10 +35,14 @@ internal sealed class QfCommand : IDisposable
     private readonly PluginConfig _config;
     private readonly IObjectTable _objectTable;
     private readonly IFramework _framework;
+    private readonly IGameInteropProvider _interop;
 
     private CombatController? _debugCombatController;
     private DateTime _debugCombatLastTick = DateTime.MinValue;
     private bool _debugCombatLoopActive;
+
+    private unsafe delegate void FireCallbackDelegate(AtkUnitBase* thisPtr, int valueCount, AtkValue* atkValues, byte updateState);
+    private Hook<FireCallbackDelegate>? _fireCallbackHook;
 
     public QfCommand(
         EngineHost host,
@@ -56,7 +62,8 @@ internal sealed class QfCommand : IDisposable
         IDalamudPluginInterface pi,
         PluginConfig config,
         IObjectTable objectTable,
-        IFramework framework)
+        IFramework framework,
+        IGameInteropProvider interop)
     {
         _host = host;
         _authoringHost = authoringHost;
@@ -76,9 +83,10 @@ internal sealed class QfCommand : IDisposable
         _config = config;
         _objectTable = objectTable;
         _framework = framework;
+        _interop = interop;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
-            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf config trace on|off"
+            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off | /qf config trace on|off"
         });
     }
 
@@ -155,6 +163,15 @@ internal sealed class QfCommand : IDisposable
                 // DalamudInteractor.ConfirmYesNoPrompt). Lets us test whether FireCallback
                 // takes effect during a non-skippable cutscene. /qf debug yesno [yes|no]
                 HandleDebugYesno(parts.Length >= 3 && parts[2] == "no");
+                break;
+            case "debug" when parts.Length >= 2 && parts[1] == "currency":
+                HandleDebugCurrency();
+                break;
+            case "debug" when parts.Length >= 2 && parts[1] == "shop":
+                HandleDebugShop();
+                break;
+            case "debug" when parts.Length >= 3 && parts[1] == "hookshop":
+                HandleDebugHookShop(parts[2]);
                 break;
             case "test" when parts.Length >= 2:
                 HandleTest(parts[1..]);
@@ -809,13 +826,152 @@ internal sealed class QfCommand : IDisposable
         _chat.Print("[QF] continuous rotation stopped — lease released.");
     }
 
+    private void HandleDebugCurrency()
+    {
+        try
+        {
+            var ct = CancellationToken.None;
+
+            var gilResult = _host.DebugGameState.GetGil(ct).GetAwaiter().GetResult();
+            var gilLine = gilResult switch
+            {
+                Result<long>.Success { Value: var v } => $"gil = {v}",
+                Result<long>.Failure { Reason: var r } => $"gil = FAIL({r})",
+                _ => "gil = (unknown)"
+            };
+            _chat.Print($"[QF] {gilLine}");
+            _log.Info($"[debug currency] {gilLine}");
+
+            var sealsResult = _host.DebugGameState.GetGrandCompanySeals(ct).GetAwaiter().GetResult();
+            var sealsLine = sealsResult switch
+            {
+                Result<int>.Success { Value: var v } => $"gcSeals = {v}",
+                Result<int>.Failure { Reason: var r } => $"gcSeals = FAIL({r})",
+                _ => "gcSeals = (unknown)"
+            };
+            _chat.Print($"[QF] {sealsLine}");
+            _log.Info($"[debug currency] {sealsLine}");
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "[debug currency] unexpected exception");
+            _chat.PrintError($"QuestForge: debug currency error — {ex.Message}");
+        }
+    }
+
+    private unsafe void HandleDebugShop()
+    {
+        var addonPtr = _gameGui.GetAddonByName("Shop");
+        if (addonPtr.IsNull) { _chat.Print("[QF] Shop not open"); return; }
+
+        var addon = (FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase*)addonPtr.Address;
+        if (!addon->IsVisible) { _chat.Print("[QF] Shop not open"); return; }
+
+        if (addon->AtkValuesCount < 3) { _chat.Print("[QF] Shop addon AtkValues too short"); return; }
+
+        var count = (int)addon->AtkValues[2].UInt;
+        var header = $"Shop: {count} items for sale";
+        _chat.Print($"[QF] {header}");
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine(header);
+
+        var limit = Math.Min(count, 60);
+        for (var i = 0; i < limit; i++)
+        {
+            var idIdx   = 441 + i;
+            var nameIdx = 14 + i;
+            if (idIdx >= addon->AtkValuesCount) break;
+
+            var itemId   = addon->AtkValues[idIdx].UInt;
+            var nameStr  = nameIdx < addon->AtkValuesCount
+                ? (addon->AtkValues[nameIdx].String.Value == null
+                    ? "(null)"
+                    : addon->AtkValues[nameIdx].String.ToString())
+                : "(n/a)";
+            var line = $"  row {i}: itemId={itemId}  name={nameStr}";
+            _chat.Print(line);
+            sb.AppendLine(line);
+        }
+
+        _log.Info($"[debug shop]\n{sb}");
+    }
+
+    private unsafe void HandleDebugHookShop(string onOff)
+    {
+        switch (onOff)
+        {
+            case "on":
+            {
+                if (_fireCallbackHook == null)
+                {
+                    var addr = (nint)FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase.MemberFunctionPointers.FireCallback;
+                    _fireCallbackHook = _interop.HookFromAddress<FireCallbackDelegate>(addr, FireCallbackDetour);
+                }
+                _fireCallbackHook.Enable();
+                _chat.Print("[QF] hookshop ON — open the Shop, click Buy on one item, then /qf debug hookshop off and check /xllog");
+                _log.Info("[debug hookshop] hook enabled");
+                break;
+            }
+            case "off":
+            {
+                if (_fireCallbackHook != null)
+                {
+                    _fireCallbackHook.Disable();
+                    _chat.Print("[QF] hookshop OFF — check /xllog for [hookshop] entries");
+                    _log.Info("[debug hookshop] hook disabled");
+                }
+                else
+                {
+                    _chat.Print("[QF] hookshop was not enabled");
+                }
+                break;
+            }
+            default:
+                _chat.PrintError("QuestForge: /qf debug hookshop on|off");
+                break;
+        }
+    }
+
+    private unsafe void FireCallbackDetour(AtkUnitBase* thisPtr, int valueCount, AtkValue* atkValues, byte updateState)
+    {
+        try
+        {
+            if (thisPtr != null && thisPtr->NameString == "Shop")
+            {
+                _log.Info($"[hookshop] FireCallback called: valueCount={valueCount} updateState={updateState}");
+                for (var i = 0; i < valueCount; i++)
+                {
+                    var v = atkValues[i];
+                    var valStr = v.Type switch
+                    {
+                        FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int    => v.Int.ToString(),
+                        FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.UInt   => v.UInt.ToString(),
+                        FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Bool   => v.Byte.ToString(),
+                        FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.String =>
+                            v.String.Value == null ? "(null)" : v.String.ToString(),
+                        _ => $"({v.Type})"
+                    };
+                    _log.Info($"[hookshop]   atkValues[{i}] Type={v.Type} Value={valStr}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "[hookshop] detour exception — swallowed");
+        }
+        _fireCallbackHook!.Original(thisPtr, valueCount, atkValues, updateState);
+    }
+
     private void PrintUsage()
-        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf config trace on|off");
+        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off | /qf config trace on|off");
 
     public void Dispose()
     {
         if (_debugCombatLoopActive)
             StopDebugCombatLoop();
+        _fireCallbackHook?.Disable();
+        _fireCallbackHook?.Dispose();
         _commands.RemoveHandler(Cmd);
     }
 }

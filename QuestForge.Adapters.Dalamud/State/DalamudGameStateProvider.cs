@@ -380,13 +380,58 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         return Task.FromResult<Result<int>>(Result.Ok(count));
     }
 
-    public Task<Result<long>> GetGil(CancellationToken ct)
-        // Phase 6 placeholder
-        => Task.FromResult<Result<long>>(Result.Ok(0L));
+    public unsafe Task<Result<long>> GetGil(CancellationToken ct)
+    {
+        var mgr = InventoryManager.Instance();
+        if (mgr == null)
+            return Task.FromResult<Result<long>>(
+                Result.Fail<long>("noInventoryManager", "InventoryManager.Instance() returned null"));
+        // VERIFY IN-GAME: InventoryManager.GetGil() is the correct API for the player's gil balance.
+        // It is a well-known ClientStructs member and should be stable, but confirm the value matches
+        // the in-game wallet display (top-right HUD element).
+        var gil = mgr->GetGil();
+        return Task.FromResult<Result<long>>(Result.Ok((long)gil));
+    }
 
-    public Task<Result<int>> GetGrandCompanySeals(CancellationToken ct)
-        // TODO(Slice C): read from ClientStructs GrandCompany seal wallet
-        => Task.FromResult<Result<int>>(Result.Fail<int>("GetGrandCompanySeals not implemented until Slice C"));
+    public unsafe Task<Result<int>> GetGrandCompanySeals(CancellationToken ct)
+    {
+        var ps = PlayerState.Instance();
+        if (ps == null)
+            return Task.FromResult<Result<int>>(
+                Result.Fail<int>("noPlayerState", "PlayerState.Instance() returned null"));
+
+        // GrandCompany byte: 0=none, 1=Maelstrom, 2=Twin Adder, 3=Immortal Flames.
+        var gc = ps->GrandCompany;
+        if (gc == 0)
+            return Task.FromResult<Result<int>>(
+                Result.Fail<int>("noGrandCompany", "player has no Grand Company affiliation"));
+
+        // VERIFY IN-GAME: confirm the GC seal item ids: Maelstrom=20, Twin Adder=21,
+        // Immortal Flames=22. These are the standard Seals currency item ids from game data.
+        // Cross-reference with the Lumina Item sheet (RowId 20/21/22 should be the seal items).
+        uint sealItemId = gc switch
+        {
+            1 => 20u, // Maelstrom Seal
+            2 => 21u, // Twin Adder Seal
+            3 => 22u, // Immortal Flames Seal
+            _ => 0u
+        };
+
+        if (sealItemId == 0)
+            return Task.FromResult<Result<int>>(
+                Result.Fail<int>("unknownGrandCompany", $"unrecognised GC id {gc}"));
+
+        var mgr = InventoryManager.Instance();
+        if (mgr == null)
+            return Task.FromResult<Result<int>>(
+                Result.Fail<int>("noInventoryManager", "InventoryManager.Instance() returned null"));
+
+        // VERIFY IN-GAME: confirm GetInventoryItemCount(sealItemId) returns the seal wallet balance
+        // and not an inventory slot count. Seals are a currency, not a stack item, so the underlying
+        // implementation should route to the currency wallet rather than a bag search.
+        var count = mgr->GetInventoryItemCount(sealItemId, isHq: false, checkEquipped: false, checkArmory: false);
+        return Task.FromResult<Result<int>>(Result.Ok(count));
+    }
 
     public Task<Result<AethernetId?>> GetLastAethernetDestination(CancellationToken ct)
         // Phase 7 placeholder: real TelepotTown hook implementation deferred

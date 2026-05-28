@@ -506,6 +506,27 @@ Behavioral/public-API only. **No source copied from Questionable or any AGPL plu
 
 These are the only Dalamud-touching pieces; they are untested in CI (consistent with `DalamudInteractor`). **(Slice E adds `DalamudVendorProbe`** — see §13.3 — also untested in CI, consistent with `DalamudCombatProbe`.)
 
+### 8.1 — Gated vendors (menu tree before the Shop opens) — DEFERRED to a follow-up slice
+
+Slice C as shipped handles the **direct** case: interacting with the merchant opens the `Shop` addon, and `DalamudVendor` resolves the BuyList row (item id at `AtkValues[441 + i]`, count at `AtkValues[2]`) and fires the confirmed buy callback `FireCallback([Int 0 = buy, Int row, Int qty])`; the follow-up `SelectYesno` ("Purchase N X for Y gil?") is dismissed by the existing `SelectYesnoResponder`.
+
+Many vendors are **gated**: interacting first opens a `SelectIconString` category picker (e.g. "Purchase Disciple of War Arms" / "Purchase Disciple of Magic Arms" / "Nothing"), and selecting a category MAY open a further `SelectString` range picker, before the `Shop` addon finally opens:
+
+```
+Interact → [SelectIconString category] → [maybe SelectString range] → Shop → buy
+```
+
+**Chosen design (author-declared index path).** `PurchaseItemStep` gains an OPTIONAL `OpenPath: int[]` — the zero-based option indices to select in sequence to reach the Shop (e.g. `[0, 2]` = SelectIconString option 0, then SelectString option 2). Rationale:
+- **Locale-stable.** Menu option *order* is identical across client languages; only the displayed text differs. An index path is language-independent (matching the labels by string would not be — see [[locale-stable-quest-identifiers]]). The existing `IInteractor.SelectStringOption(int index)` already drives both `SelectIconString` and `SelectString` via FireCallback.
+- **Deterministic / engine-pure.** No live string matching or game-data lookup in the decision path.
+- **Recordable.** The authoring-detection slice (E) can capture the `SelectIconString`/`SelectString` selections the player makes between interacting with the vendor and the Shop opening, and pre-fill `OpenPath` automatically.
+
+**Runtime behavior (follow-up):** `DalamudVendor.Purchase`, per tick — if `Shop` open → resolve row + buy (current); else if a `SelectIconString`/`SelectString` is open → select the next `OpenPath` index (advancing through the path as each menu instance opens) and report `ShopOpening`; else → `ShopOpening`. Absent an `OpenPath`, the direct case still works, and a gated vendor with no path → `AwaitUser` ("vendor requires menu navigation; author an openPath") rather than stalling.
+
+**Rejected alternatives:** auto-search/brute-force (try each category, scan the Shop, back out) — stateful, slow, can briefly mis-navigate or mis-spend; game-data category derivation — fragile, complex. Both rejected for v1.
+
+**Cross-slice impact when built:** schema (`OpenPath` field + round-trip test, mirrors Slice A), `DalamudVendor` menu-walk + per-purchase path state (Slice C-style, untested in CI), and authoring capture of the path (Slice E). Until then, gated vendors are documented as unsupported and degrade to `AwaitUser`.
+
 ---
 
 ## 9. Implementation order (slice plan, ordered for TDD)
