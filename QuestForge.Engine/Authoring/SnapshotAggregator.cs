@@ -32,6 +32,8 @@ public sealed class SnapshotAggregator
     private bool _selectYesnoConfirmed;
     private IReadOnlyList<byte>? _questVariables;
 
+    private AetheryteId? _teleportCompleted;
+
     // ── purchase span state ────────────────────────────────────────────────
     private bool _shopOpen;
     private bool _purchaseSpanStarted;
@@ -104,7 +106,8 @@ public sealed class SnapshotAggregator
         KillCorrelatedTargets        = BuildKillCorrelatedTargets(),
         CombatStartPosition          = _combatStartPosition,
         CombatStartZone              = _combatStartZone,
-        PurchaseDetected             = BuildPurchaseDetected()
+        PurchaseDetected             = BuildPurchaseDetected(),
+        TeleportCompleted            = _teleportCompleted
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -475,6 +478,20 @@ public sealed class SnapshotAggregator
             // OnActiveGcAxesObserved per the "last-seen non-null wins" rule.
         }
     }
+
+    /// <summary>
+    /// Called by UIObserver.PollTeleportDestination when the Teleport menu closes after a
+    /// destination was selected. Records the destination aetheryte for inference. Survives
+    /// ResetDeltas; cleared by OnTeleportConsumed (called from AuthoringHost.RecordStep).
+    /// Does NOT update LastAttuned or LastAethernetShardInteracted (Decision I11 / I2).
+    /// </summary>
+    public void OnTeleportCompleted(AetheryteId destination) => _teleportCompleted = destination;
+
+    /// <summary>
+    /// Called at the end of RecordStep to consume the completed teleport so it does not bleed
+    /// into the next recording window. Mirrors OnAethernetTeleportConsumed exactly.
+    /// </summary>
+    public void OnTeleportConsumed() => _teleportCompleted = null;
 
     // ── Private span-correlation helper ──────────────────────────────────────
 

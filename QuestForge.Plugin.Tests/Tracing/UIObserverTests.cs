@@ -79,6 +79,15 @@ public sealed class FakeAddonProbe : IAddonProbe
         _telepotDestinationIds[idx] = rowId;
     }
 
+    // Builder must add `uint? GetTeleportDestinationId(int idx);` to IAddonProbe interface.
+    private readonly Dictionary<int, uint?> _teleportDestinationIds = new();
+
+    /// <summary>
+    /// Sets the "Teleport" menu (cross-region) destination for a given list index.
+    /// Distinct from SetTelepotDestination (which sets the aethernet TelepotTown destinations).
+    /// </summary>
+    public void SetTeleportDestination(int idx, uint? rowId) => _teleportDestinationIds[idx] = rowId;
+
     public bool  IsAddonOpen(string addonName)         => _openAddons.Contains(addonName);
     public int?  GetSelectedItemIndex(string addonName) =>
         _selectedIndices.TryGetValue(addonName, out var v) ? v : null;
@@ -86,6 +95,10 @@ public sealed class FakeAddonProbe : IAddonProbe
         _telepotDestinations.TryGetValue(idx, out var v) ? v : null;
     public uint? GetTelepotTownDestinationId(int idx) =>
         _telepotDestinationIds.TryGetValue(idx, out var v) ? v : null;
+
+    // This method will implement the new interface member once Builder adds it.
+    public uint? GetTeleportDestinationId(int idx) =>
+        _teleportDestinationIds.TryGetValue(idx, out var v) ? v : null;
 }
 
 // ─── FakeGameProbe ───────────────────────────────────────────────────────────
@@ -2544,7 +2557,6 @@ public sealed class UIObserverTests
     // ─────────────────────────────────────────────────────────────────────────
     // UO-V: Quest variables observations (QUEST_VARIABLES_TRACE_PLAN.md §4 Group UO)
     //
-    // RED: UIObserver.PollQuestState does not yet write GetQuestVariables observations
     // AND FakeGameProbe has no per-quest variables setter.
     // Both conditions make these tests fail (compile-error + assertion failure).
     // ─────────────────────────────────────────────────────────────────────────
@@ -2718,6 +2730,355 @@ public sealed class UIObserverTests
         Assert.NotNull(secondObs.Value);
         var changedElements = secondObs.Value!.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
         Assert.Equal(new byte[] { 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 }, changedElements);
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UO-J: Teleport (cross-region) polling — PollTeleportDestination
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // These tests pin UIObserver.PollTeleportDestination behaviour.
+    // ALL UO-J tests will fail until Builder:
+    //   1. Adds uint? GetTeleportDestinationId(int idx) to IAddonProbe (Task IT-7)
+    //   2. Implements UIObserver.PollTeleportDestination method (Task IT-8)
+    //   3. Wires PollTeleportDestination into OnFrameworkUpdate after PollAethernetDestination (Task IT-8)
+    //   4. Extends ResetWindowState to clear _teleportMenuWasOpen, _pendingTeleportDestId,
+    //      and call _aggregator?.OnTeleportConsumed() (Task IT-8)
+    //   5. Adds SnapshotAggregator.OnTeleportCompleted / OnTeleportConsumed (Task IT-2)
+    //   6. Adds GameStateSnapshot.TeleportCompleted property (Task IT-1)
+    //
+    // Uses addon name "Teleport" — confirmed in-game (§F O1 RESOLVED).
+    //
+    // Mirrors UO-F* (aethernet TelepotTown tests) one-for-one.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Shared constant for the confirmed teleport addon name.
+    private const string TeleportAddonName = "Teleport";
+
+    [Fact]
+    public void UO_J1_PollTeleportDestination_MenuOpens_NoImmediateObservation()
+    {
+        /*
+         * RED: Will fail until Builder implements PollTeleportDestination (Task IT-8).
+         *
+         * CONTRACT: Given Teleport addon opens on tick 1 (with a selected destination id),
+         *           When tick 1 fires,
+         *           Then no TeleportCompleted observation is written
+         *           (fire only on close-transition, not on open).
+         *
+         * BUILDER GUIDANCE: PollTeleportDestination sets _teleportMenuWasOpen = true and
+         *   latches _pendingTeleportDestId, but does NOT call WriteObservation or
+         *   OnTeleportCompleted on the open tick.
+         *
+         * Mirrors UO_F1.
+         */
+
+        // Arrange
+        var (observer, framework, addonProbe, _, _, writer, _) = BuildFixture();
+        addonProbe.OpenAddon(TeleportAddonName);
+        addonProbe.SetSelectedIndex(TeleportAddonName, 0);
+        addonProbe.SetTeleportDestination(0, 8u);
+
+        // Act
+        framework.Tick();
+
+        // Assert — no TeleportCompleted observation written yet
+        var obs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "TeleportCompleted")
+            .ToList();
+        Assert.Empty(obs);
+
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_J2_PollTeleportDestination_MenuOpensThenCloses_FiresObservation()
+    {
+        /*
+         * RED: Will fail until Builder implements PollTeleportDestination (Task IT-8).
+         *
+         * CONTRACT: Given Teleport opens on tick 1 (destination latched as 8u),
+         *           When Teleport closes on tick 2,
+         *           Then:
+         *             - An ObservationEvent with Method="TeleportCompleted", Argument=8u is written.
+         *             - aggregator.Current.TeleportCompleted == AetheryteId(8).
+         *
+         * BUILDER GUIDANCE: On close-transition, call WriteObservation("TeleportCompleted", destId, 0u, …)
+         *   and aggregator?.OnTeleportCompleted(new AetheryteId(destId)).
+         *
+         * Mirrors UO_F2.
+         */
+
+        // Arrange
+        var (observer, framework, addonProbe, _, _, writer, _, aggregator) = BuildFixtureWithAggregator();
+        addonProbe.OpenAddon(TeleportAddonName);
+        addonProbe.SetSelectedIndex(TeleportAddonName, 0);
+        addonProbe.SetTeleportDestination(0, 8u);
+        framework.Tick(); // tick 1 — menu observed open, destination latched
+
+        addonProbe.CloseAddon(TeleportAddonName); // menu closes
+
+        // Act
+        framework.Tick(); // tick 2 — close-transition fires
+
+        // Assert — TeleportCompleted observation written
+        var obs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .FirstOrDefault(e => e.Method == "TeleportCompleted");
+        Assert.NotNull(obs);
+
+        // Assert — aggregator field set
+        Assert.NotNull(aggregator.Current.TeleportCompleted);
+        Assert.Equal(new QuestForge.Adapters.Types.AetheryteId(8), aggregator.Current.TeleportCompleted!.Value);
+
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_J3_PollTeleportDestination_MenuClosesWithoutSelection_NoObservation()
+    {
+        /*
+         * RED: Will fail until Builder implements PollTeleportDestination (Task IT-8).
+         *
+         * CONTRACT: Given Teleport opens on tick 1 but no destination is ever set
+         *           (idx returned but GetTeleportDestinationId returns null),
+         *           When it closes on tick 2,
+         *           Then:
+         *             - No TeleportCompleted observation written.
+         *             - aggregator.Current.TeleportCompleted is null.
+         *
+         * WHY: Cancellation case — player opens then closes without confirming.
+         *      _pendingTeleportDestId stays null → close branch is a no-op.
+         *
+         * Mirrors UO_F3. Pins Decision I8's cancellation handling.
+         */
+
+        // Arrange
+        var (observer, framework, addonProbe, _, _, writer, _, aggregator) = BuildFixtureWithAggregator();
+        addonProbe.OpenAddon(TeleportAddonName);
+        // No SetSelectedIndex, no SetTeleportDestination — nothing latched
+        framework.Tick(); // menu open, nothing latched
+
+        addonProbe.CloseAddon(TeleportAddonName);
+
+        // Act
+        framework.Tick();
+
+        // Assert — no TeleportCompleted observation
+        var obs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "TeleportCompleted")
+            .ToList();
+        Assert.Empty(obs);
+
+        Assert.Null(aggregator.Current.TeleportCompleted);
+
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_J4_PollTeleportDestination_NullAddonProbe_NoObservationNoNre()
+    {
+        /*
+         * RED: Will fail until Builder implements PollTeleportDestination (Task IT-8).
+         *
+         * CONTRACT: Given IAddonProbe is null,
+         *           When ticks fire,
+         *           Then no TeleportCompleted observation is written and no NRE thrown.
+         *
+         * BUILDER GUIDANCE: Guard: `if (_addonProbe is null) return;` at the top of
+         *   PollTeleportDestination — same as PollAethernetDestination.
+         *
+         * Mirrors UO_F4.
+         */
+
+        // Arrange
+        var writer   = new FakeTraceWriter();
+        var session  = new TraceSession(TraceMode.Always, Path.GetTempPath(), _ => writer);
+        session.OnPluginStart();
+        var framework = new FakeFramework();
+        var observer  = new UIObserver(framework, session, PassiveRunId, addonProbe: null);
+
+        // Act
+        var ex = Record.Exception(() =>
+        {
+            framework.Tick();
+            framework.Tick();
+        });
+
+        // Assert — no TeleportCompleted observation, no exception
+        Assert.Null(ex);
+        var obs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "TeleportCompleted")
+            .ToList();
+        Assert.Empty(obs);
+
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_J5_PollTeleportDestination_ResetWindowState_ClearsTeleportOpenFlag()
+    {
+        /*
+         * RED: Will fail until Builder implements PollTeleportDestination + ResetWindowState update (Task IT-8).
+         *
+         * CONTRACT: Given Teleport was open on tick 1 (_teleportMenuWasOpen = true internally),
+         *           When ResetWindowState() is called then the menu closes,
+         *           Then tick 3 does NOT fire a TeleportCompleted observation
+         *           (_teleportMenuWasOpen was reset to false so close-branch is a no-op).
+         *
+         * BUILDER GUIDANCE: ResetWindowState must set `_teleportMenuWasOpen = false;`
+         *   and `_pendingTeleportDestId = null;` — mirrors the aethernet _aethernetMenuWasOpen reset.
+         *
+         * Mirrors UO_B2. Pins Decision I8's ResetWindowState symmetry.
+         */
+
+        // Arrange
+        var (observer, framework, addonProbe, _, _, writer, _, aggregator) = BuildFixtureWithAggregator();
+        addonProbe.OpenAddon(TeleportAddonName);
+        addonProbe.SetSelectedIndex(TeleportAddonName, 0);
+        addonProbe.SetTeleportDestination(0, 8u);
+        framework.Tick(); // tick 1 — menu latched as open
+
+        // Act
+        observer.ResetWindowState(); // clears _teleportMenuWasOpen
+        addonProbe.CloseAddon(TeleportAddonName);
+        var countBefore = writer.Count;
+        framework.Tick(); // tick 2 — should NOT fire because was-open flag was reset
+
+        // Assert — no TeleportCompleted observation fired
+        var newObs = writer.RecordedEvents.Skip(countBefore)
+            .OfType<ObservationEvent>()
+            .Where(e => e.Method == "TeleportCompleted")
+            .ToList();
+        Assert.Empty(newObs);
+
+        Assert.Null(aggregator.Current.TeleportCompleted);
+
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_J6_PollTeleportDestination_ResetWindowState_CallsOnTeleportConsumed()
+    {
+        /*
+         * RED: Will fail until Builder wires OnTeleportConsumed into ResetWindowState (Task IT-8)
+         *      and Builder adds OnTeleportCompleted/OnTeleportConsumed to SnapshotAggregator (Task IT-2).
+         *
+         * CONTRACT: Given aggregator has TeleportCompleted=AetheryteId(8) set as a stale value
+         *           (e.g. from a previous recording window),
+         *           When ResetWindowState() is called,
+         *           Then aggregator.Current.TeleportCompleted is null
+         *           (the reset calls OnTeleportConsumed for symmetry with OnAethernetTeleportConsumed).
+         *
+         * WHY: ResetWindowState must clear any stale TeleportCompleted so the new recording
+         *      window starts clean. Mirrors the existing OnAethernetTeleportConsumed call in
+         *      ResetWindowState.
+         */
+
+        // Arrange
+        var (observer, framework, addonProbe, _, _, writer, _, aggregator) = BuildFixtureWithAggregator();
+
+        // Force a stale TeleportCompleted on the aggregator directly
+        aggregator.OnTeleportCompleted(new QuestForge.Adapters.Types.AetheryteId(8));
+
+        // Pre-condition: field is set
+        Assert.NotNull(aggregator.Current.TeleportCompleted);
+
+        // Act
+        observer.ResetWindowState();
+
+        // Assert — field cleared
+        Assert.Null(aggregator.Current.TeleportCompleted);
+
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_J7_PollTeleportDestination_DestinationLatchedMidMenu_LastWins()
+    {
+        /*
+         * RED: Will fail until Builder implements PollTeleportDestination (Task IT-8).
+         *
+         * CONTRACT: Given:
+         *   - Tick 1: menu open, idx=0 → latches 8u
+         *   - Tick 2: menu still open, idx=1 → latches 56u (player scrolled the list)
+         *   - Menu closes on tick 3,
+         *           When tick 3 fires,
+         *           Then aggregator.Current.TeleportCompleted == AetheryteId(56)
+         *           (most-recent-wins; final latch before close wins).
+         *
+         * WHY: Player may scroll through the list; we always want the final confirmed selection.
+         *   `_pendingTeleportDestId` is overwritten each tick while the menu is open.
+         *
+         * Mirrors "most-recent-wins" convention established for aethernet.
+         */
+
+        // Arrange
+        var (observer, framework, addonProbe, _, _, writer, _, aggregator) = BuildFixtureWithAggregator();
+
+        addonProbe.OpenAddon(TeleportAddonName);
+        addonProbe.SetSelectedIndex(TeleportAddonName, 0);
+        addonProbe.SetTeleportDestination(0, 8u);
+        framework.Tick(); // tick 1 — latches 8u
+
+        addonProbe.SetSelectedIndex(TeleportAddonName, 1);
+        addonProbe.SetTeleportDestination(1, 56u);
+        framework.Tick(); // tick 2 — re-latches 56u
+
+        addonProbe.CloseAddon(TeleportAddonName);
+
+        // Act
+        framework.Tick(); // tick 3 — close-transition fires with last-latched value
+
+        Assert.NotNull(aggregator.Current.TeleportCompleted);
+        Assert.Equal(new QuestForge.Adapters.Types.AetheryteId(56), aggregator.Current.TeleportCompleted!.Value);
+
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_J8_PollTeleportDestination_DestinationIdxNullMapping_NoObservation()
+    {
+        /*
+         * RED: Will fail until Builder implements PollTeleportDestination (Task IT-8).
+         *
+         * CONTRACT: Given:
+         *   - Teleport opens on tick 1, idx=0 is set,
+         *     but SetTeleportDestination(0, null) — GetTeleportDestinationId returns null
+         *     (row didn't resolve in the adapter),
+         *   - Menu closes on tick 2,
+         *           When tick 2 fires,
+         *           Then:
+         *             - No TeleportCompleted observation written.
+         *             - aggregator.Current.TeleportCompleted is null.
+         *
+         * WHY: Guards `if (destId.HasValue) _pendingTeleportDestId = destId;` in PollTeleportDestination.
+         *   A null destId means the idx→RowId resolution failed; do not latch a bad id.
+         *
+         * Pins Decision I8's `if (destId.HasValue)` guard.
+         */
+
+        // Arrange
+        var (observer, framework, addonProbe, _, _, writer, _, aggregator) = BuildFixtureWithAggregator();
+
+        addonProbe.OpenAddon(TeleportAddonName);
+        addonProbe.SetSelectedIndex(TeleportAddonName, 0);
+        // null rowId — resolution failed
+        addonProbe.SetTeleportDestination(0, null);
+        framework.Tick(); // tick 1 — idx set but destId is null → nothing latched
+
+        addonProbe.CloseAddon(TeleportAddonName);
+
+        // Act
+        framework.Tick(); // tick 2 — close-transition; _pendingTeleportDestId is null → no-op
+
+        // Assert
+        var obs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "TeleportCompleted")
+            .ToList();
+        Assert.Empty(obs);
+
+        Assert.Null(aggregator.Current.TeleportCompleted);
 
         observer.Dispose();
     }

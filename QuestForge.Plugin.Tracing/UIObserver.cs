@@ -64,6 +64,12 @@ public sealed class UIObserver : IDisposable
     private uint?  _pendingAethernetFromId;
     private uint?  _pendingAethernetToId;
 
+    // ── Teleport (cross-region general action) tracking ───────────────────
+    // Confirmed addon name: "Teleport" (§F O1 in TELEPORT_INFERENCE_PLAN.md).
+    private const string TeleportAddonName = "Teleport";
+    private bool   _teleportMenuWasOpen;
+    private uint?  _pendingTeleportDestId;
+
     // ── SelectIconString (dialogue) tracking ─────────────────────────────
     private bool _dialogueIconStringWasOpen;
     private int? _pendingDialogueIdx;
@@ -162,8 +168,12 @@ public sealed class UIObserver : IDisposable
         _lastTargetBaseId          = 0;
         _lastBattleNpcBaseId       = 0;
 
+        _teleportMenuWasOpen  = false;
+        _pendingTeleportDestId = null;
+
         _aggregator?.OnAethernetTeleportConsumed();
         _aggregator?.OnDialogueOptionConsumed();
+        _aggregator?.OnTeleportConsumed();
     }
 
     /// <summary>
@@ -195,6 +205,7 @@ public sealed class UIObserver : IDisposable
         // PollTargetNpc runs every-frame so NPC interaction (LastNpcInteracted → talk Rule 7 /
         // attune Rule 2.5) and aethernet-shard capture are not throttled to the 250 ms heartbeat.
         PollAethernetDestination();
+        PollTeleportDestination();
         PollDialogueOption();
         PollSelectYesno();
         PollTargetNpc();
@@ -569,6 +580,37 @@ public sealed class UIObserver : IDisposable
             var destId = _addonProbe.GetTelepotTownDestinationId(selectedIdx.Value);
             if (destId.HasValue && destId != _pendingAethernetFromId)
                 _pendingAethernetToId = destId;
+        }
+    }
+
+    private void PollTeleportDestination()
+    {
+        if (_addonProbe is null) return;
+
+        var menuIsOpen = _addonProbe.IsAddonOpen(TeleportAddonName);
+
+        if (!menuIsOpen)
+        {
+            if (_teleportMenuWasOpen && _pendingTeleportDestId.HasValue)
+            {
+                var destId = _pendingTeleportDestId.Value;
+                var now    = _clock.UtcNow;
+                var runId  = CurrentRunId;
+                WriteObservation("TeleportCompleted", destId, 0u, runId, now);
+                _aggregator?.OnTeleportCompleted(new QuestForge.Adapters.Types.AetheryteId(destId));
+            }
+            _teleportMenuWasOpen  = false;
+            _pendingTeleportDestId = null;
+            return;
+        }
+
+        _teleportMenuWasOpen = true;
+
+        var selectedIdx = _addonProbe.GetSelectedItemIndex(TeleportAddonName);
+        if (selectedIdx.HasValue && selectedIdx.Value >= 0)
+        {
+            var destId = _addonProbe.GetTeleportDestinationId(selectedIdx.Value);
+            if (destId.HasValue) _pendingTeleportDestId = destId;
         }
     }
 

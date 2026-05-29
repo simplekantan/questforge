@@ -11,4 +11,5 @@ public interface IAddonProbe
     int? GetSelectedItemIndex(string addonName);
     string? GetTelepotTownDestinationName(int idx);
     uint?   GetTelepotTownDestinationId(int idx);   // resolves name to Aetheryte sheet RowId
+    uint?   GetTeleportDestinationId(int idx);      // resolves Teleport-menu idx → Aetheryte.RowId
 }

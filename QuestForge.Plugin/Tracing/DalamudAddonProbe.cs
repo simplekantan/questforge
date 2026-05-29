@@ -14,6 +14,10 @@ public sealed unsafe class DalamudAddonProbe : IAddonProbe
     // Built once on first TelepotTown open; maps AethernetName display string → Aetheryte sheet RowId.
     private Dictionary<string, uint>? _aethernetNameToId;
 
+    // Built once on first Teleport open; maps PlaceName display string → Aetheryte.RowId
+    // for master aetheryte crystals (IsAetheryte == true).
+    private Dictionary<string, uint>? _teleportNameToId;
+
     public DalamudAddonProbe(IGameGui gameGui, IDataManager dataManager)
     {
         _gameGui     = gameGui;
@@ -63,6 +67,49 @@ public sealed unsafe class DalamudAddonProbe : IAddonProbe
         var name = GetTelepotTownDestinationName(idx);
         if (string.IsNullOrEmpty(name)) return null;
         return GetAethernetNameMap().TryGetValue(name, out var rowId) ? rowId : null;
+    }
+
+    public uint? GetTeleportDestinationId(int idx)
+    {
+        var name = GetTeleportDestinationName(idx);
+        if (string.IsNullOrEmpty(name)) return null;
+        return GetTeleportNameMap().TryGetValue(name, out var rowId) ? rowId : null;
+    }
+
+    // ASSUMPTION (§F O1): The "Teleport" addon lays out entries as ~9 AtkValues each.
+    // From the in-game dump: [7]=region, [14]=dest-name, [16]=cost for entry 0;
+    // [22]=region, [23]=dest-name, [24]=cost for entry 1.
+    // Pattern: destinationStringIndex = 14 + (idx * 9).
+    // Builder must verify this formula in-game using /qf debug addon Teleport.
+    private string? GetTeleportDestinationName(int idx)
+    {
+        var ptr = _gameGui.GetAddonByName("Teleport");
+        if (ptr.IsNull || !ptr.IsReady) return null;
+        var addon = (AtkUnitBase*)ptr.Address;
+        const int DestBase   = 14;
+        const int StridePerEntry = 9;
+        var destIdx = DestBase + (idx * StridePerEntry);
+        if (addon->AtkValuesCount <= destIdx) return null;
+        var val = addon->AtkValues[destIdx];
+        if (val.Type != AtkValueType.String || val.String.Value == null) return null;
+        return Marshal.PtrToStringUTF8((nint)val.String.Value);
+    }
+
+    private Dictionary<string, uint> GetTeleportNameMap()
+    {
+        if (_teleportNameToId != null) return _teleportNameToId;
+        _teleportNameToId = new Dictionary<string, uint>(StringComparer.Ordinal);
+        var sheet = _dataManager.GetExcelSheet<Aetheryte>();
+        if (sheet == null) return _teleportNameToId;
+        foreach (var row in sheet)
+        {
+            // Only master aetheryte crystals appear in the Teleport menu (IsAetheryte == true).
+            if (!row.IsAetheryte) continue;
+            var name = row.PlaceName.ValueNullable?.Name.ExtractText();
+            if (!string.IsNullOrEmpty(name))
+                _teleportNameToId.TryAdd(name, row.RowId);
+        }
+        return _teleportNameToId;
     }
 
     private Dictionary<string, uint> GetAethernetNameMap()

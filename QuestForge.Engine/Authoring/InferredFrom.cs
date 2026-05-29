@@ -14,5 +14,6 @@ public enum InferredFrom
     None,
     InventoryChange,
     Combat,
-    Purchase
+    Purchase,
+    TeleportCompleted
 }

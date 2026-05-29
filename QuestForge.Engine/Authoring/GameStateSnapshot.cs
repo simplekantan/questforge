@@ -119,4 +119,10 @@ public sealed record GameStateSnapshot(
     // during an authoring recording window. Null when no purchase span has occurred.
     // Cleared by ResetDeltas so it is a per-window delta signal.
     public PurchaseDetection? PurchaseDetected { get; init; }
+
+    // Non-positional. Set when a cross-region teleport completes this recording window
+    // (Teleport menu closed after a destination was selected). Cleared by OnTeleportConsumed
+    // in RecordStep so it does not bleed into the next inference window.
+    // Distinct from AethernetTeleportCompleted (which signals an intra-region shard hop).
+    public AetheryteId? TeleportCompleted { get; init; }
 }

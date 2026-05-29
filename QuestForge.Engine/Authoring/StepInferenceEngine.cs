@@ -284,6 +284,23 @@ public sealed class StepInferenceEngine
                 Notes: notes);
         }
 
+        // Rule 4.0: Teleport completed — cross-region teleport via the Teleport general action menu.
+        // Fires before Rule 4 (aethernet/dialog/catch-all) because TeleportCompleted is the definitive
+        // cross-region signal (specific AetheryteId + confirmed zone change). Even if both
+        // TeleportCompleted and AethernetTeleportCompleted are somehow set, teleport wins.
+        // Zone-change guard: if Zone unchanged (stale signal), fall through to Rule 9.
+        if (after.TeleportCompleted is { } teleAetheryteId
+            && after.Zone != before.Zone)
+        {
+            return new InferenceResult(
+                StepType:        "teleport",
+                SuggestedStepId: $"teleport-to-{teleAetheryteId.Value}",
+                SuggestedExpect: $"playerZone() == {after.Zone.Value}",
+                Confidence:      Confidence.High,
+                InferredFrom:    InferredFrom.TeleportCompleted,
+                Notes:           null);
+        }
+
         // Rule 4: Zone changed (no quest change from rules above)
         if (after.Zone != before.Zone)
         {
