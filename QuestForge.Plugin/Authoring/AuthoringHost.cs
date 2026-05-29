@@ -118,6 +118,7 @@ public sealed class AuthoringHost : IDisposable
         Mode = AuthoringMode.Inspect;
         // Attach aggregator so UIObserver polls update LastNpcInteracted/Position for the
         // Interaction panel. Trace gate is closed in Inspect mode so nothing writes to disk.
+        SeedAggregatorZoneFromCurrent();
         _uiObserver.SetAggregator(_aggregator, "inspect");
         _log.Info("QuestForge Authoring: entered Inspect mode");
     }
@@ -130,6 +131,7 @@ public sealed class AuthoringHost : IDisposable
         Mode = AuthoringMode.Author;
         AuthoringTarget = target;
         _aggregator = new SnapshotAggregator(target, SystemClock.Instance);
+        SeedAggregatorZoneFromCurrent();
         // Preload the draft into cache so RecordStep calls are synchronous (cache hit)
         _ = _draftManager.GetOrCreate(target, CancellationToken.None);
 
@@ -141,6 +143,17 @@ public sealed class AuthoringHost : IDisposable
         _uiObserver.SetAggregator(_aggregator, _authoringRunId);
 
         _log.Info($"QuestForge Authoring: entered Author mode for quest {target.Value}, runId: {_authoringRunId}");
+    }
+
+    // TerritoryChanged only fires on transitions, never on initial entry. If the player is
+    // standing still in a zone when authoring starts, the aggregator would otherwise hold
+    // Zone=0 indefinitely (until the next zone change), breaking any inference rule that
+    // gates on zone state. See issue #102.
+    private void SeedAggregatorZoneFromCurrent()
+    {
+        var territoryId = _services.ClientState.TerritoryType;
+        if (territoryId == 0) return;
+        _aggregator.OnZoneChanged(new ZoneId(territoryId), GetPlayerPosition());
     }
 
     public void ExitAuthoring() =>
