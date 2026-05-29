@@ -7,6 +7,7 @@ using QuestForge.Adapters;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Authoring;
+using QuestForge.Engine.Travel;
 using QuestForge.Plugin.Tracing;
 using QuestForge.Plugin.Tracing.Authoring;
 using QuestForge.Schema;
@@ -266,6 +267,22 @@ public sealed class AuthoringHost : IDisposable
     {
         var pos = GetPlayerPosition();
         _aggregator.OnZoneChanged(new ZoneId(territoryId), pos);
+        InferTeleportFromZoneChange(territoryId);
+    }
+
+    // Inferred teleport detection: if the player just changed zones AND the Teleport addon was
+    // observed open within the last TeleportInferenceWindow, treat this as a teleport to the new
+    // zone's master aetheryte (via AetheryteZoneMap reverse lookup).
+    private static readonly TimeSpan TeleportInferenceWindow = TimeSpan.FromSeconds(10);
+
+    private void InferTeleportFromZoneChange(uint territoryId)
+    {
+        if (!_uiObserver.WasTeleportAddonOpenWithin(TeleportInferenceWindow, DateTimeOffset.UtcNow))
+            return;
+        if (!AetheryteZoneMap.TryGetAetheryteByZone(territoryId, out var aetheryteId))
+            return;
+        _aggregator.OnTeleportCompleted(new QuestForge.Adapters.Types.AetheryteId(aetheryteId));
+        _uiObserver.ClearTeleportAddonOpenTimestamp();
     }
 
     private void OnFrameworkUpdate(IFramework _)
