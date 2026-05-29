@@ -98,21 +98,30 @@ Capabilities use a `namespace:name` format. Readers may filter by namespace pref
 |---|---|
 | `step:travel` | `TravelStep` |
 | `step:talk` | `TalkStep` |
-| `step:accept` | `AcceptStep` (Phase 11+) |
-| `step:turn-in` | `TurnInStep` (Phase 11+) |
-| `step:attune` | `AttunementStep` (Phase 11+) |
-| `step:hand-over-item` | `HandOverItemStep` (Phase 11+) |
-| `step:cutscene` | `CutsceneStep` (Phase 11+) |
-| `step:combat` | `CombatStep` (Phase 11+) |
-| `step:duty` | `DutyStep` (Phase 11+) |
-| `step:spd` | `DutyStep` with `kind: spd` (Phase 11+) |
-| `step:use-item` | `UseItemStep` (Phase 11+) |
-| `step:use-action` | `UseActionStep` (Phase 11+) |
-| `step:equip-gear-for-quest` | `EquipGearForQuestStep` / `EquipBestGearStep` (Phase 11+) |
-| `step:change-job` | `ChangeJobStep` (Phase 11+) |
-| `step:minigame` | `MinigameStep` (Phase 11+) |
-| `step:branch` | `BranchStep` (Phase 11+) |
-| `step:fragment` | `FragmentStep` (Phase 11+) |
+| `step:accept` | `AcceptStep` |
+| `step:turn-in` | `TurnInStep` |
+| `step:attune` | `AttunementStep` |
+| `step:hand-over-item` | `HandOverItemStep` |
+| `step:cutscene` | `CutsceneStep` |
+| `step:combat` | `CombatStep` |
+| `step:duty` | `DutyStep` |
+| `step:spd` | `DutyStep` with `kind: spd` |
+| `step:use-item` | `UseItemStep` (schema-only; no engine dispatch yet) |
+| `step:use-action` | `UseActionStep` |
+| `step:use-emote` | `UseEmoteStep` |
+| `step:teleport` | `TeleportStep` |
+| `step:purchase-item` | `PurchaseItemStep` |
+| `step:interact-object` | `InteractObjectStep` |
+| `step:pickup-item` | `PickupItemStep` |
+| `step:say-chat-message` | `SayChatMessageStep` |
+| `step:equip-gear-for-quest` | `EquipGearForQuestStep` |
+| `step:equip-best-gear` | `EquipBestGearStep` |
+| `step:change-job` | `ChangeJobStep` |
+| `step:minigame` | `MinigameStep` |
+| `step:await-user` | `AwaitUserStep` |
+| `step:wait` | `WaitStep` |
+| `step:branch` | `BranchStep` |
+| `step:fragment` | `FragmentStep` |
 
 **Predicate functions** (`predicate:`)
 
@@ -121,9 +130,13 @@ Capabilities use a `namespace:name` format. Readers may filter by namespace pref
 | `predicate:playerNear` | `playerNear(pos, radius)` |
 | `predicate:playerZone` | `playerZone()` |
 | `predicate:questSequence` | `questSequence(id)` |
+| `predicate:questFlag` | `questFlag(id, bit)` |
 | `predicate:isQuestComplete` | `isQuestComplete(id)` |
 | `predicate:isQuestAccepted` | `isQuestAccepted(id)` |
-| `predicate:inCombat` | `inCombat()` (Phase 11+) |
+| `predicate:isAttuned` | `isAttuned(aetheryteId)` |
+| `predicate:playerHasItem` | `playerHasItem(itemId, qty?)` |
+| `predicate:not` | `not(pred)` |
+| `predicate:inCombat` | `inCombat()` |
 
 Add further tags as the predicate language expands.
 
@@ -149,12 +162,16 @@ Example: if the engine emits Navigate 1,847 times followed by Interact 312 times
 | Canonical string | C# type | Notes |
 |---|---|---|
 | `"navigate"` | `EngineAction.Navigate` | |
-| `"interact"` | `EngineAction.Interact` | |
-| `"attune"` | `EngineAction.Attune` | `AttunementStep` dispatch — player attuning to an aetheryte crystal. |
+| `"interact"` | `EngineAction.Interact` | Also covers `AttunementStep` and similar — those steps dispatch as Interact actions on the target NPC/object. |
 | `"handover"` | `EngineAction.HandOver` | `HandOverItemStep` dispatch — player handing over quest items to an NPC. |
 | `"useaethernet"` | `EngineAction.UseAethernet` | `TravelStep` with `routeHint.aethernet` — Lifestream aethernet shortcut. |
-| `"wait"` | `EngineAction.Wait` | Rarely appears in `expectedTransitions` — only when all steps in a sequence are satisfied but the game's sequence number has not yet advanced. Simple linear quests typically do not produce a Wait transition. |
-| `"awaitUser"` | `EngineAction.AwaitUser` | Terminal action; appears in `expectedTransitions` only when AwaitUser is expected as an intermediate state before Done. |
+| `"teleport"` | `EngineAction.Teleport` | `TeleportStep` dispatch — cross-region teleport to a master aetheryte. |
+| `"purchase"` | `EngineAction.Purchase` | `PurchaseItemStep` dispatch — buy item from vendor (gil or GC seals). |
+| `"useaction"` | `EngineAction.UseAction` | `UseActionStep` dispatch — execute a game action (combat ability, general action, key item) on an optional NPC target. |
+| `"useemote"` | `EngineAction.UseEmote` | `UseEmoteStep` dispatch — execute an emote via text command. |
+| `"engage"` | `EngineAction.Engage` | `CombatStep` dispatch AND global defense rule — engage an attacker before advancing. |
+| `"wait"` | `EngineAction.Wait` | Rarely appears in `expectedTransitions` — only when all steps in a sequence are satisfied but the game's sequence number has not yet advanced, or when an action is gated (casting, cooldown). |
+| `"awaituser"` | `EngineAction.AwaitUser` | Terminal action. Lowercased per the extractor's `ToLowerInvariant()` normalization. Never appears in `expectedTransitions` (filtered as terminal); appears in `terminalOutcome` as `"awaitUser"` with original casing. |
 | `"done"` | `EngineAction.Done` | Never appears in `expectedTransitions`; appears in `terminalOutcome` only. |
 
 When new `EngineAction` subtypes are added, a new canonical string is registered here. **The canonical strings are stable contracts**; C# type renames require updating the mapping, not every fixture.
@@ -180,14 +197,29 @@ Files live in `questforge-data/fixtures/engine/` and are named by the **capabili
 
 ```
 simple-linear-acceptance.json   # travel + talk + accept + return + complete
-with-dialogue-choices.json      # quest with SelectString branch
-with-escort.json                # quest with escort NPC
+with-attunement.json            # multi-zone attunement quest (shipped)
+with-accept.json                # accept-step-led quest
+with-turn-in.json               # turn-in-step-led quest
+with-hand-over-item.json        # quest with hand-over (gift to NPC)
+with-interact-object.json       # quest with InteractObjectStep
+with-pickup-item.json           # quest with PickupItemStep
+with-use-action.json            # quest with UseActionStep (e.g. MRD L5 "Axe in the Stone")
+with-use-emote.json             # quest with UseEmoteStep (e.g. /cheer at NPC)
+with-teleport.json              # quest with TeleportStep (cross-region travel)
+with-purchase-item.json         # quest with PurchaseItemStep (gil or GC seals)
+with-dialogue-choices.json      # quest with SelectString branch (Phase 11+ TBD)
+with-escort.json                # quest with escort NPC (Phase 11+ TBD)
 with-spd.json                   # single-player duty
 with-dungeon.json               # full duty (dungeon/trial)
-with-teleportation.json         # quest requiring Lifestream teleport
-with-gear-requirement.json      # quest requiring gear equip
+with-gear-requirement.json      # quest requiring gear equip (Phase 11+ TBD)
 with-branching.json             # quest with BranchStep
+with-fragments.json             # quest with FragmentStep
 ```
+
+The `with-<shape>.json` filenames are the canonical names registered in
+`TraceToFixtureExtractor.FilenameLookup` / `DistinguishingCapPriority`; using a
+different filename for a registered shape will fight the extractor's filename
+suggestion.
 
 When multiple quests share the same shape, use the simplest/shortest one as the reference quest for that fixture.
 
@@ -353,12 +385,22 @@ When `questforge-data` is absent (developer without the data repo), the fixture 
 The `capabilities` field across all committed fixtures gives a live coverage map. A future CI check can enforce that all implemented step types have at least one fixture:
 
 ```
-step:travel       ✅ simple-linear-acceptance.json
-step:talk         ✅ simple-linear-acceptance.json
-step:accept       ❌ (Phase 11+)
-step:duty         ❌ (Phase 11+)
+step:travel             ✅ simple-linear-acceptance.json, with-attunement.json
+step:talk               ✅ simple-linear-acceptance.json, with-attunement.json
+step:accept             ✅ with-attunement.json
+step:turn-in            ✅ with-attunement.json
+step:attune             ✅ with-attunement.json
+step:hand-over-item     ✅ with-attunement.json
+step:use-action         ❌ (no fixture yet — record from MRD L5 quest)
+step:use-emote          ❌ (no fixture yet — record from any /cheer quest)
+step:teleport           ❌ (no fixture yet)
+step:purchase-item      ❌ (no fixture yet)
+step:duty               ❌
+step:combat             ❌
 predicate:playerNear    ✅ simple-linear-acceptance.json
-predicate:inCombat      ❌ (Phase 11+)
+predicate:isAttuned     ✅ with-attunement.json
+predicate:playerHasItem ✅ with-attunement.json
+predicate:inCombat      ❌
 ```
 
 A new fixture automatically fills coverage gaps. The `capabilities` list is **informational** — it is not verified against the quest file's actual predicates in Phase 7. The `qf-trace validate-fixture` tool (Phase 10) will cross-validate capabilities against the quest definition.
