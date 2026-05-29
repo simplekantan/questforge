@@ -271,7 +271,9 @@ public sealed class EngineHost : IDisposable
         // in the air — accept this v1 limitation; vnavmesh usually grounds at stop-distance.
         // NOTE (Q4): mount-decision reads are on the host, not QuestEngine, so replay fixtures
         // against QuestEngine.Tick() are unaffected (see MOUNT_SUPPORT_PLAN.md §3 Q4).
-        if (_lastDispatchedActionWasNavigate && action is not EngineAction.Navigate)
+        // Teleport is exempt: the game dismounts the player automatically on arrival if the
+        // destination zone prohibits mounts (e.g. cities). No pre-dismount needed.
+        if (_lastDispatchedActionWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport)
         {
             // Don't dismount while vnavmesh is still moving the player. Some non-Navigate
             // actions fire early — notably Engage, which the engine emits as soon as a combat

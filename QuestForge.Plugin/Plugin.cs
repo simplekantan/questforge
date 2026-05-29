@@ -6,6 +6,7 @@ using ECommons.Automation;
 using QuestForge.Adapters.Dalamud;
 using QuestForge.Adapters.Dalamud.Authoring;
 using QuestForge.Adapters.Tracing;
+using QuestForge.Engine.Travel;
 using QuestForge.Plugin.Authoring;
 using QuestForge.Plugin.Commands;
 using QuestForge.Plugin.Interaction;
@@ -69,6 +70,8 @@ public sealed class Plugin : IDalamudPlugin
             onOpenError: ex => log.Error(ex, "QuestForge: failed to open trace file"));
         _traceSession.OnPluginStart();
 
+        PopulateAetheryteZoneMap(dataManager, log);
+
         _host = new EngineHost(services, _traceSession);
         _responder = new SelectYesnoResponder(_host, addonLifecycle, gameGui, log);
         _host.SetRunStartCallback(_responder.TryAnswerOpenPopup);
@@ -123,6 +126,28 @@ public sealed class Plugin : IDalamudPlugin
         catch { /* Hook already owned by another plugin — IGameConfig covers ESC */ }
 
         _framework.Update += OnFrameworkUpdate;
+    }
+
+    private static void PopulateAetheryteZoneMap(IDataManager dataManager, IPluginLog log)
+    {
+        var sheet = dataManager.GetExcelSheet<Lumina.Excel.Sheets.Aetheryte>();
+        if (sheet == null)
+        {
+            log.Warning("QuestForge: Aetheryte sheet unavailable — AetheryteZoneMap will use defaults only");
+            return;
+        }
+
+        var map = new Dictionary<uint, uint>();
+        foreach (var row in sheet)
+        {
+            if (!row.IsAetheryte) continue;         // skip Aethernet shards
+            var zoneId = row.Territory.RowId;
+            if (zoneId == 0) continue;              // skip unrooted entries
+            map[row.RowId] = zoneId;
+        }
+
+        AetheryteZoneMap.Populate(map);
+        log.Debug($"QuestForge: AetheryteZoneMap populated with {map.Count} entries from Lumina");
     }
 
     private static Dictionary<QuestForge.Adapters.Types.QuestId, string> BuildQuestCategories(string questsDir)
