@@ -75,15 +75,49 @@ public sealed class DraftValidator
             }
         }
 
+        // E7: UseActionStep with ActionId == 0
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is UseActionStep ua && ua.ActionId == 0)
+            {
+                errors.Add(new DraftValidationError("E7",
+                    $"Step '{steps[i].StepId}' is a UseActionStep with ActionId == 0.",
+                    [i]));
+            }
+        }
+
+        // E8: UseActionStep with TargetNpcId == 0 (null is allowed; explicit zero is invalid)
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is UseActionStep ua && ua.TargetNpcId == 0)
+            {
+                errors.Add(new DraftValidationError("E8",
+                    $"Step '{steps[i].StepId}' is a UseActionStep with TargetNpcId == 0.",
+                    [i]));
+            }
+        }
+
         // W1: Step has no Expect
         for (var i = 0; i < steps.Count; i++)
         {
             var step = steps[i];
             if (step.Raw is null) continue;
-            if (step.Raw.Expect is null)
+            if (step.Raw.Expect is null && step.Raw is not UseActionStep)
             {
                 warnings.Add(new DraftValidationWarning("W1",
                     $"Step '{step.StepId}' has no 'expect' predicate. Consider adding one for reliability.",
+                    [i]));
+            }
+        }
+
+        // W7: UseActionStep with no Expect — engine spin-loops without one (UA7 stronger than W1)
+        for (var i = 0; i < steps.Count; i++)
+        {
+            var step = steps[i];
+            if (step.Raw is UseActionStep ua && ua.Expect is null)
+            {
+                warnings.Add(new DraftValidationWarning("W7",
+                    $"Step '{step.StepId}' is a UseActionStep with no 'expect' predicate — without it the engine will spin-loop re-emitting the action. Add an expect predicate.",
                     [i]));
             }
         }

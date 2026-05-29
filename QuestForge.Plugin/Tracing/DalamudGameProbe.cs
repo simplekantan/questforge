@@ -1,5 +1,6 @@
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using Lumina.Excel.Sheets;
 using QuestForge.Plugin.Tracing;
@@ -70,5 +71,15 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
         if (player is null) return null;
         var p = player.Position;
         return (p.X, p.Y, p.Z, (int)_clientState.TerritoryType);
+    }
+
+    public (uint Sequence, uint FfxivActionType, uint ActionId)? GetLastActionEffect()
+    {
+        var player = _objectTable.LocalPlayer;
+        if (player is null) return null;
+        var bc = (BattleChara*)player.Address;
+        if (bc is null) return null;
+        ref var castInfo = ref bc->CastInfo;
+        return (castInfo.ResponseGlobalSequence, (uint)castInfo.ResponseActionType, castInfo.ResponseActionId);
     }
 }

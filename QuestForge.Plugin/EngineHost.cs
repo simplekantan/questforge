@@ -10,6 +10,7 @@ using QuestForge.Adapters.Dalamud.State;
 using QuestForge.Adapters.Dalamud.Gear;
 using QuestForge.Adapters.Dalamud.Interaction;
 using QuestForge.Adapters.Dalamud.Minigames;
+using QuestForge.Adapters.Dalamud.Actions;
 using QuestForge.Adapters.Dalamud.Movement;
 using QuestForge.Adapters.Dalamud.Timing;
 using QuestForge.Adapters.Recording;
@@ -40,6 +41,7 @@ public sealed class EngineHost : IDisposable
     private readonly DalamudInteractor _interactor;
     private readonly DalamudVendor _vendor;
     private readonly DalamudMount _mount;
+    private readonly DalamudActionExecutor _actionExecutor;
     private readonly WrathComboAdapter _combat;
     private readonly DalamudGearManager _gear;
     private readonly NullMinigameSkipper _minigames;
@@ -104,6 +106,7 @@ public sealed class EngineHost : IDisposable
         _interactor      = new DalamudInteractor(services);
         _vendor          = new DalamudVendor(services);
         _mount           = new DalamudMount(services);
+        _actionExecutor  = new DalamudActionExecutor(services);
         _combat          = new WrathComboAdapter(services);
         _gear            = new DalamudGearManager(services);
         _minigames       = new NullMinigameSkipper();
@@ -206,7 +209,8 @@ public sealed class EngineHost : IDisposable
             gs, qs, _navigator, _teleporter, _interactor,
             _recordingCombat, _gear, _minigames, _dialogue, _timing,
             _traceSession, new DalamudLogger<QuestEngine>(_services.Log),
-            vendor: _vendor);
+            vendor: _vendor,
+            actionExecutor: _actionExecutor);
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
         _onRunStart?.Invoke();
@@ -438,6 +442,17 @@ public sealed class EngineHost : IDisposable
                 // Mark this dispatch as a Purchase so the next non-Purchase action will
                 // close the shop addon first (see the pre-switch close hook above).
                 _lastDispatchedActionWasPurchase = true;
+                break;
+
+            case EngineAction.UseAction ua:
+                DebounceLog(
+                    $"useaction:{ua.Type}:{ua.ActionId}:{ua.TargetNpcId?.Value}",
+                    $"[UseAction] type={ua.Type} id={ua.ActionId}" +
+                    (ua.TargetNpcId is { } uaId ? $" target={uaId.Value}" : " (self)"));
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
+                TryCutsceneSkipConfirm();
+                await _actionExecutor.UseAction(ua.Type, ua.ActionId, ua.TargetNpcId, ct);
                 break;
 
             case EngineAction.Wait:

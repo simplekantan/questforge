@@ -80,6 +80,11 @@ public sealed class UIObserver : IDisposable
     // ── SelectYesno tracking ──────────────────────────────────────────────
     private bool _selectYesnoWasOpen;
 
+    // ── Action-effect tracking ────────────────────────────────────────────
+    // Tracks the most recently seen ResponseGlobalSequence. null = not yet baselined.
+    // First observation sets baseline without firing an event (see PollPlayerActionEffect).
+    private uint? _lastObservedActionSequence;
+
     // ── Target tracking ───────────────────────────────────────────────────
     // _lastTargetBaseId dedups the every-frame PollTargetNpc (aetheryte + interactable-NPC).
     // _lastBattleNpcBaseId dedups the heartbeat PollBattleNpcTarget (hostile combat target).
@@ -173,9 +178,12 @@ public sealed class UIObserver : IDisposable
 
         _teleportAddonLastOpenAt = DateTimeOffset.MinValue;
 
+        _lastObservedActionSequence = null;
+
         _aggregator?.OnAethernetTeleportConsumed();
         _aggregator?.OnDialogueOptionConsumed();
         _aggregator?.OnTeleportConsumed();
+        _aggregator?.OnActionConsumed();
     }
 
     /// <summary>
@@ -211,6 +219,7 @@ public sealed class UIObserver : IDisposable
         PollDialogueOption();
         PollSelectYesno();
         PollTargetNpc();
+        PollPlayerActionEffect();
 
         // Heartbeat pollers (throttled to 250 ms)
         var now = _clock.UtcNow;
@@ -606,6 +615,44 @@ public sealed class UIObserver : IDisposable
     /// teleport inference fires so a subsequent zone change can't re-trigger from the same window.
     /// </summary>
     public void ClearTeleportAddonOpenTimestamp() => _teleportAddonLastOpenAt = DateTimeOffset.MinValue;
+
+    private void PollPlayerActionEffect()
+    {
+        if (_gameProbe is null) return;
+
+        var probe = _gameProbe.GetLastActionEffect();
+        if (probe is null) return;
+        var (sequence, ffxivActionType, actionId) = probe.Value;
+
+        if (_lastObservedActionSequence is null)
+        {
+            _lastObservedActionSequence = sequence;
+            return;
+        }
+
+        if (sequence == _lastObservedActionSequence) return;
+
+        _lastObservedActionSequence = sequence;
+
+        var schemaType = QuestForge.Adapters.Actions.ActionTypeMapper.FromFFXIVActionType(ffxivActionType);
+        if (schemaType is null) return;
+
+        uint? targetBaseId = null;
+        var hostile      = _targetProbe?.GetBattleNpcTarget();
+        var interactable = _targetProbe?.GetInteractableNpcTarget();
+        if (hostile is { } h)
+            targetBaseId = h.BaseId;
+        else if (interactable is { } i)
+            targetBaseId = i.BaseId;
+
+        var now   = _clock.UtcNow;
+        var runId = CurrentRunId;
+        WriteObservation("ActionCompleted",
+            actionId,
+            new { actionType = (int)schemaType.Value, targetBaseId = targetBaseId ?? 0u },
+            runId, now);
+        _aggregator?.OnActionCompleted(schemaType.Value, actionId, targetBaseId);
+    }
 
     private void PollDialogueOption()
     {
