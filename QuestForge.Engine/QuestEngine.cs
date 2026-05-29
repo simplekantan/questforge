@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using QuestForge.Adapters;
+using QuestForge.Adapters.Actions;
 using QuestForge.Adapters.Combat;
 using QuestForge.Adapters.Gear;
 using QuestForge.Adapters.Interaction;
@@ -34,6 +35,7 @@ public sealed class QuestEngine
     private readonly IDialogueResolver _dialogue;
     private readonly ITimingProfile _timing;
     private readonly IVendor? _vendor;
+    private readonly IActionExecutor? _actionExecutor;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly TimeProvider _clock;
@@ -75,9 +77,11 @@ public sealed class QuestEngine
         ITraceWriter trace,
         ILogger<QuestEngine> logger,
         TimeProvider? clock = null,
-        IVendor? vendor = null)
+        IVendor? vendor = null,
+        IActionExecutor? actionExecutor = null)
     {
         _vendor = vendor;
+        _actionExecutor = actionExecutor;
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
         _clock = clock ?? TimeProvider.System;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
@@ -569,6 +573,14 @@ public sealed class QuestEngine
                 return (purchaseAction, step.Id);
             }
 
+            // 6a. UseActionStep async arm — step-gated so GetPlayerState/GetActionStatus are only
+            //     read when the cursor is on a UseActionStep.
+            if (step is UseActionStep useActionStep)
+            {
+                var useAction = await ResolveUseAction(useActionStep, ct);
+                return (useAction, step.Id);
+            }
+
             // 6b. TeleportStep async arm — step-gated so IsPlayerInCombat is only read when the
             //     cursor is on a TeleportStep. Pre-flight guards (unknown aetheryte, in combat)
             //     run inside ResolveTeleportAction.
@@ -810,6 +822,40 @@ public sealed class QuestEngine
         }
 
         return purchaseAction;
+    }
+
+    private async Task<EngineAction> ResolveUseAction(UseActionStep step, CancellationToken ct)
+    {
+        if (_actionExecutor is null)
+            return new EngineAction.AwaitUser(
+                "UseActionStep dispatched but no IActionExecutor wired — host must supply one");
+
+        // Guard 1: casting → Wait (defer until cast finishes)
+        var stateResult = await _gameState.GetPlayerState(ct);
+        if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
+            return new EngineAction.Wait("player casting; deferring use-action", Origin: step);
+
+        // Guard 2/3: action status — Unusable → AwaitUser; OnCooldown → Wait
+        var statusResult = await _actionExecutor.GetActionStatus(step.ActionType, step.ActionId, ct);
+        if (statusResult is Result<ActionStatus>.Success { Value: var status })
+        {
+            switch (status)
+            {
+                case ActionStatus.Unusable u:
+                    return new EngineAction.AwaitUser(
+                        $"action {step.ActionId} unusable: {u.Reason}");
+                case ActionStatus.OnCooldown oc:
+                    return new EngineAction.Wait(
+                        $"action {step.ActionId} on cooldown: {oc.Remaining.TotalSeconds:F1}s",
+                        Origin: step);
+                case ActionStatus.Ready:
+                    break;
+            }
+        }
+        // Fail-open: status read failure → proceed to emit
+
+        var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
+        return new EngineAction.UseAction(step.ActionType, step.ActionId, target, Origin: step);
     }
 
     private async Task<EngineAction> ResolveTeleportAction(TeleportStep step, CancellationToken ct)

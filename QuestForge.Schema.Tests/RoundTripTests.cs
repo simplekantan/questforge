@@ -297,16 +297,36 @@ public class RoundTripTests
     {
         var step = new UseActionStep
         {
-            Id = "heavy-swing-rocks",
+            Id = "axe-the-rock",
+            ActionType = ActionType.Action,
             ActionId = 31,
-            Target = new ActionTarget { Kind = "object", InteractableId = 2001234, Zone = 134 },
-            RepeatUntilExpect = true,
+            TargetNpcId = 2001234u,
             Expect = new PredicateExpect { Predicate = "questFlag(65849, 3)" }
         };
 
         var result = RoundTrip(step);
+        Assert.Equal(ActionType.Action, result.ActionType);
         Assert.Equal(31u, result.ActionId);
-        Assert.True(result.RepeatUntilExpect);
+        Assert.Equal(2001234u, result.TargetNpcId);
+    }
+
+    [Fact]
+    public void UseActionStep_NullTarget_RoundTrips()
+    {
+        var step = new UseActionStep
+        {
+            Id = "sprint-to-keep-up",
+            ActionType = ActionType.GeneralAction,
+            ActionId = 4,
+            TargetNpcId = null,
+            Expect = new PredicateExpect { Predicate = "playerHasBuff(50)" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        Assert.DoesNotContain("\"targetNpcId\"", json, System.StringComparison.OrdinalIgnoreCase);
+
+        var result = RoundTrip(step);
+        Assert.Null(result.TargetNpcId);
     }
 
     [Fact]

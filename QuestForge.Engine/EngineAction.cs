@@ -1,3 +1,4 @@
+using QuestForge.Adapters.Actions;
 using QuestForge.Adapters.Movement;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Combat;
@@ -18,6 +19,12 @@ public abstract record EngineAction
     public sealed record Wait(string Reason, Step? Origin = null) : EngineAction;
     public sealed record AwaitUser(string Reason) : EngineAction;
     public sealed record Done : EngineAction;
+
+    public sealed record UseAction(
+        ActionType Type,
+        uint ActionId,
+        NpcId? TargetNpcId,
+        Step? Origin = null) : EngineAction;
 
     /// <summary>
     /// Emitted while a CombatStep is the active step and expect is unmet, OR when global

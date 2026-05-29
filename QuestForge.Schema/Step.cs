@@ -168,9 +168,10 @@ public class UseItemStep : Step
 
 public class UseActionStep : Step
 {
+    public ActionType ActionType { get; init; }
     public uint ActionId { get; init; }
-    public ActionTarget Target { get; init; } = default!;
-    public bool RepeatUntilExpect { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public uint? TargetNpcId { get; init; }
 }
 
 public class EquipGearForQuestStep : Step

@@ -83,17 +83,6 @@ public sealed class WrathComboAdapter : ICombat, IDisposable
         return Task.FromResult<Result<Unit>>(Result.Ok());
     }
 
-    // ---- direct action use (use-action step type — unchanged from part A) ----
-
-    public Task<Result<UseActionOutcome>> UseAction(uint actionId, NpcId? target, CancellationToken ct)
-        => Task.FromResult<Result<UseActionOutcome>>(Result.Ok(UseActionOutcome.Failed));
-
-    public Task<Result<UseActionOutcome>> UseActionOnObject(uint actionId, InteractableId target, CancellationToken ct)
-        => Task.FromResult<Result<UseActionOutcome>>(Result.Ok(UseActionOutcome.Failed));
-
-    public Task<Result<bool>> IsActionUsable(uint actionId, CancellationToken ct)
-        => Task.FromResult<Result<bool>>(Result.Ok(false));
-
     // ---- revocation ----
 
     private void OnRevoked(int reason)

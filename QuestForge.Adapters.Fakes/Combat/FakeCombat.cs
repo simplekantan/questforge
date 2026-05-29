@@ -77,23 +77,4 @@ public sealed class FakeCombat : ICombat
         return Task.FromResult<Result<Unit>>(Result.Ok());
     }
 
-    // ---- ICombat — direct action use (use-action step type, unchanged) ----
-
-    public Task<Result<UseActionOutcome>> UseAction(uint actionId, NpcId? target, CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-        return Task.FromResult<Result<UseActionOutcome>>(Result.Ok(UseActionOutcome.Executed));
-    }
-
-    public Task<Result<UseActionOutcome>> UseActionOnObject(uint actionId, InteractableId target, CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-        return Task.FromResult<Result<UseActionOutcome>>(Result.Ok(UseActionOutcome.Executed));
-    }
-
-    public Task<Result<bool>> IsActionUsable(uint actionId, CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-        return Task.FromResult<Result<bool>>(Result.Ok(true));
-    }
 }
