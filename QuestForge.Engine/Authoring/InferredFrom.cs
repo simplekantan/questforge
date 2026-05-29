@@ -17,4 +17,5 @@ public enum InferredFrom
     Purchase,
     TeleportCompleted,
     ActionCompleted,
+    EmoteCompleted,
 }

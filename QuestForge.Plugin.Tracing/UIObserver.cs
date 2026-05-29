@@ -85,6 +85,12 @@ public sealed class UIObserver : IDisposable
     // First observation sets baseline without firing an event (see PollPlayerActionEffect).
     private uint? _lastObservedActionSequence;
 
+    // ── Emote tracking ────────────────────────────────────────────────────
+    // Tracks the most recently observed EmoteController.EmoteId.
+    // 0 = player not emoting / not yet observed. Unlike _lastObservedActionSequence there is
+    // no silent-baseline: a non-zero value on the first read fires immediately (Decision UEI9).
+    private uint _lastObservedEmoteId;
+
     // ── Target tracking ───────────────────────────────────────────────────
     // _lastTargetBaseId dedups the every-frame PollTargetNpc (aetheryte + interactable-NPC).
     // _lastBattleNpcBaseId dedups the heartbeat PollBattleNpcTarget (hostile combat target).
@@ -179,11 +185,13 @@ public sealed class UIObserver : IDisposable
         _teleportAddonLastOpenAt = DateTimeOffset.MinValue;
 
         _lastObservedActionSequence = null;
+        _lastObservedEmoteId = 0u;
 
         _aggregator?.OnAethernetTeleportConsumed();
         _aggregator?.OnDialogueOptionConsumed();
         _aggregator?.OnTeleportConsumed();
         _aggregator?.OnActionConsumed();
+        _aggregator?.OnEmoteConsumed();
     }
 
     /// <summary>
@@ -220,6 +228,7 @@ public sealed class UIObserver : IDisposable
         PollSelectYesno();
         PollTargetNpc();
         PollPlayerActionEffect();
+        PollPlayerEmote();
 
         // Heartbeat pollers (throttled to 250 ms)
         var now = _clock.UtcNow;
@@ -652,6 +661,44 @@ public sealed class UIObserver : IDisposable
             new { actionType = (int)schemaType.Value, targetBaseId = targetBaseId ?? 0u },
             runId, now);
         _aggregator?.OnActionCompleted(schemaType.Value, actionId, targetBaseId);
+    }
+
+    private void PollPlayerEmote()
+    {
+        if (_gameProbe is null) return;
+
+        var current = _gameProbe.GetPlayerEmoteId();
+        if (current is null) return;   // no LocalPlayer
+        var currentId = (uint)current.Value;
+
+        // Same value — no transition.
+        if (currentId == _lastObservedEmoteId) return;
+
+        // Emote ended (X → 0) — reset state silently, no event.
+        if (currentId == 0u)
+        {
+            _lastObservedEmoteId = 0u;
+            return;
+        }
+
+        // Transition to a new non-zero emote (0 → X or X → Y). Fire.
+        _lastObservedEmoteId = currentId;
+
+        uint? targetBaseId = null;
+        var hostile      = _targetProbe?.GetBattleNpcTarget();
+        var interactable = _targetProbe?.GetInteractableNpcTarget();
+        if (hostile is { } h)
+            targetBaseId = h.BaseId;
+        else if (interactable is { } i)
+            targetBaseId = i.BaseId;
+
+        var now   = _clock.UtcNow;
+        var runId = CurrentRunId;
+        WriteObservation("EmoteCompleted",
+            currentId,
+            new { targetBaseId = targetBaseId ?? 0u },
+            runId, now);
+        _aggregator?.OnEmoteCompleted(currentId, targetBaseId);
     }
 
     private void PollDialogueOption()

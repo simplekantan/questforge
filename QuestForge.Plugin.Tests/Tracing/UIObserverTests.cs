@@ -153,6 +153,19 @@ public sealed class FakeGameProbe : IGameProbe
 
     public (uint Sequence, uint FfxivActionType, uint ActionId)? GetLastActionEffect()
         => _nextActionEffect;
+
+    // ── UEI-T7: GetPlayerEmoteId extension ──────────────────────────────────
+    // Sticky: once set, the same ushort is returned on every call until cleared.
+    // Tests call SetPlayerEmoteId(17) then fw.Tick() to simulate the player starting
+    // an emote. To simulate the emote ending, call SetPlayerEmoteId(0) then fw.Tick().
+    // A null return (ClearPlayerEmoteId) means "no LocalPlayer" — poller exits early.
+
+    private ushort? _nextEmoteId;   // null = no LocalPlayer / probe returns null
+
+    public void SetPlayerEmoteId(ushort emoteId) => _nextEmoteId = emoteId;
+    public void ClearPlayerEmoteId() => _nextEmoteId = null;
+
+    public ushort? GetPlayerEmoteId() => _nextEmoteId;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3248,6 +3261,418 @@ public sealed class UIObserverTests
 
         Assert.NotNull(aggregator.Current.ActionCompleted);
         Assert.Equal(5005u, aggregator.Current.ActionCompleted!.TargetBaseId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_L* — PollPlayerEmote state-machine tests
+    //
+    // ALL tests below will fail to compile until Builder adds:
+    //   - IGameProbe.GetPlayerEmoteId()              (Task UEI-T7)
+    //   - FakeGameProbe.SetPlayerEmoteId / ClearPlayerEmoteId / GetPlayerEmoteId
+    //                                                (Task UEI-T7)
+    //   - UIObserver.PollPlayerEmote()               (Task UEI-T8)
+    //   - UIObserver._lastObservedEmoteId field       (Task UEI-T8)
+    //   - UIObserver.ResetWindowState emote clearing  (Task UEI-T8)
+    //   - SnapshotAggregator.OnEmoteCompleted / OnEmoteConsumed (Task UEI-T3)
+    //   - GameStateSnapshot.EmoteCompleted property   (Task UEI-T1)
+    //
+    // CRITICAL contract difference from UO_K* (ActionCompleted):
+    //   UO_K1: first non-zero ActionSequence observation is a SILENT baseline.
+    //   UO_L1: first non-zero EmoteId observation FIRES immediately.
+    //   Reason: EmoteId is momentary state (reflects what is happening NOW),
+    //   not a monotonically-rising counter (which is a stale history value).
+    //   Pins Decision UEI9.
+    // =========================================================================
+
+    // =========================================================================
+    // UO_L1 — First non-zero observation fires immediately (NO baseline-silent behavior)
+    // =========================================================================
+
+    [Fact]
+    public void UO_L1_FirstNonZeroEmoteId_FiresImmediately_NoBaseline()
+    {
+        // CONTRACT: Given the player is mid-emote at session start (EmoteId=17 from tick 1),
+        //           When the first tick fires,
+        //           Then exactly one "EmoteCompleted" observation is written with Argument=17.
+        //           AND agg.Current.EmoteCompleted is non-null with EmoteId=17 and TargetBaseId=null.
+        //
+        // CRITICAL: Unlike PollPlayerActionEffect (UO_K1 silent baseline), PollPlayerEmote
+        //           treats the first non-zero EmoteId as a live event (emoting RIGHT NOW).
+        //           Pins Decision UEI9 "different baseline strategy."
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetPlayerEmoteId(17); // player is mid-emote at session start
+
+        framework.Tick();
+
+        var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "EmoteCompleted")
+            .ToList();
+        Assert.Single(emoteObs);
+        Assert.True(
+            emoteObs[0].Argument?.GetRawText() == "17",
+            $"Expected Argument=17 but got {emoteObs[0].Argument?.GetRawText()}");
+
+        Assert.NotNull(aggregator.Current.EmoteCompleted);
+        Assert.Equal(17u, aggregator.Current.EmoteCompleted!.EmoteId);
+        Assert.Null(aggregator.Current.EmoteCompleted.TargetBaseId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_L2 — Same EmoteId on second tick: no event (sustained emote)
+    // =========================================================================
+
+    [Fact]
+    public void UO_L2_SameEmoteId_SecondTick_NoEvent()
+    {
+        // CONTRACT: Given EmoteId=17 on tick 1 (event fired), still 17 on tick 2,
+        //           When tick 2 fires,
+        //           Then NO second "EmoteCompleted" observation is written.
+        //           agg.Current.EmoteCompleted.EmoteId is still 17.
+        //
+        // WHY: Same-value transition is a no-op — the player is still in the same emote.
+        // Pins Decision UEI9 "same value = no-op."
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetPlayerEmoteId(17);
+        framework.Tick(); // event 1 fires
+
+        framework.Tick(); // still 17 — no new event
+
+        var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "EmoteCompleted")
+            .ToList();
+        Assert.Single(emoteObs); // still exactly 1
+        Assert.NotNull(aggregator.Current.EmoteCompleted);
+        Assert.Equal(17u, aggregator.Current.EmoteCompleted!.EmoteId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_L3 — Emote ends (X → 0): state resets silently, no event; re-arming verified
+    // =========================================================================
+
+    [Fact]
+    public void UO_L3_EmoteEnds_ZeroTransition_NoEvent_StateResets_RearmVerified()
+    {
+        // CONTRACT: Given EmoteId=17 on tick 1 (event fired), EmoteId=0 on tick 2 (emote ends),
+        //           When tick 2 fires,
+        //           Then NO second "EmoteCompleted" observation (end is NOT an event).
+        //           agg.Current.EmoteCompleted remains set (UIObserver did not call OnEmoteConsumed).
+        //
+        // CONTINUATION: After the state reset (0), a new emote (22) starts on tick 3:
+        //           Then a SECOND "EmoteCompleted" observation fires with Argument=22.
+        //           agg.Current.EmoteCompleted.EmoteId == 22.
+        // Pins Decision UEI9 "X → 0 resets state silently; re-arm on next 0 → X."
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetPlayerEmoteId(17);
+        framework.Tick(); // tick 1: 0 → 17, event 1 fires
+
+        gameProbe.SetPlayerEmoteId(0);
+        framework.Tick(); // tick 2: 17 → 0, silent reset
+
+        var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "EmoteCompleted")
+            .ToList();
+        Assert.Single(emoteObs); // still just 1
+
+        // agg still holds the signal from tick 1 (UIObserver only consumes on ResetWindowState/RecordStep)
+        Assert.NotNull(aggregator.Current.EmoteCompleted);
+
+        // ── Continuation: new emote fires after state is re-armed ───────────
+        gameProbe.SetPlayerEmoteId(22);
+        framework.Tick(); // tick 3: 0 → 22, event 2 fires
+
+        var emoteObs2 = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "EmoteCompleted")
+            .ToList();
+        Assert.Equal(2, emoteObs2.Count);
+        Assert.True(
+            emoteObs2[1].Argument?.GetRawText() == "22",
+            $"Expected second Argument=22 but got {emoteObs2[1].Argument?.GetRawText()}");
+        Assert.Equal(22u, aggregator.Current.EmoteCompleted!.EmoteId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_L4 — Different emote (X → Y, both non-zero): fires for Y
+    // =========================================================================
+
+    [Fact]
+    public void UO_L4_DifferentEmote_XToY_FiresForY()
+    {
+        // CONTRACT: Given EmoteId=17 on tick 1 (event 1: id=17), then EmoteId=22 on tick 2
+        //           (player switched emotes without idling to 0),
+        //           When tick 2 fires,
+        //           Then a second "EmoteCompleted" observation fires with Argument=22.
+        //           agg.Current.EmoteCompleted.EmoteId == 22.
+        // Pins Decision UEI9 "X → Y (X≠0, Y≠0) fires for Y."
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetPlayerEmoteId(17);
+        framework.Tick(); // event 1: id=17
+
+        gameProbe.SetPlayerEmoteId(22);
+        framework.Tick(); // event 2: id=22 (X=17 → Y=22)
+
+        var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "EmoteCompleted")
+            .ToList();
+        Assert.Equal(2, emoteObs.Count);
+        Assert.True(
+            emoteObs[1].Argument?.GetRawText() == "22",
+            $"Expected second Argument=22 but got {emoteObs[1].Argument?.GetRawText()}");
+        Assert.Equal(22u, aggregator.Current.EmoteCompleted!.EmoteId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_L5 — ResetWindowState clears _lastObservedEmoteId and calls OnEmoteConsumed
+    // =========================================================================
+
+    [Fact]
+    public void UO_L5_ResetWindowState_ClearsEmoteState_NextTickRearms()
+    {
+        // CONTRACT: Given EmoteId=17 on tick 1 (event fired; _lastObservedEmoteId=17),
+        //           When ResetWindowState() is called,
+        //           Then agg.Current.EmoteCompleted is null (OnEmoteConsumed was called).
+        //           When EmoteId=22 is set and tick 2 fires,
+        //           Then a second "EmoteCompleted" event fires with Argument=22.
+        // Pins Decision UEI8 (ResetWindowState calls OnEmoteConsumed) and
+        //      Decision UEI9 (_lastObservedEmoteId=0 re-baselines for next tick).
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetPlayerEmoteId(17);
+        framework.Tick(); // event 1 fires; _lastObservedEmoteId = 17
+
+        observer.ResetWindowState(); // sets _lastObservedEmoteId = 0 AND calls OnEmoteConsumed
+
+        // Between reset and next tick: EmoteCompleted must be null (consumed)
+        Assert.Null(aggregator.Current.EmoteCompleted);
+
+        gameProbe.SetPlayerEmoteId(22);
+        framework.Tick(); // event 2 fires (0 → 22 because reset cleared to 0)
+
+        var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "EmoteCompleted")
+            .ToList();
+        Assert.Equal(2, emoteObs.Count);
+        Assert.Equal(22u, aggregator.Current.EmoteCompleted!.EmoteId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_L6 — Null TargetManager.Target (no target probe): TargetBaseId is null
+    // =========================================================================
+
+    [Fact]
+    public void UO_L6_NoTarget_TargetBaseIdIsNull()
+    {
+        // CONTRACT: Given FakeTargetProbe returns null for all queries (default),
+        //           When EmoteId=17 is set and tick fires,
+        //           Then ObservationEvent has Method="EmoteCompleted", Argument=17.
+        //           agg.Current.EmoteCompleted.TargetBaseId is null (self-cast / no target).
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetPlayerEmoteId(17);
+        framework.Tick();
+
+        var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "EmoteCompleted")
+            .ToList();
+        Assert.Single(emoteObs);
+        Assert.True(
+            emoteObs[0].Argument?.GetRawText() == "17",
+            $"Expected Argument=17 but got {emoteObs[0].Argument?.GetRawText()}");
+
+        Assert.NotNull(aggregator.Current.EmoteCompleted);
+        Assert.Null(aggregator.Current.EmoteCompleted!.TargetBaseId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_L7 — Interactable NPC target: TargetBaseId is the NPC BaseId
+    // =========================================================================
+
+    [Fact]
+    public void UO_L7_InteractableNpcTarget_TargetBaseIdIsSet()
+    {
+        // CONTRACT: Given FakeTargetProbe returns an interactable NPC with BaseId=1000789,
+        //           When EmoteId=17 is set and tick fires,
+        //           Then agg.Current.EmoteCompleted.TargetBaseId == 1000789u.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        targetProbe.SetInteractableNpcTarget((BaseId: 1000789u, X: 0f, Y: 0f, Z: 0f, Zone: 132));
+        gameProbe.SetPlayerEmoteId(17);
+        framework.Tick();
+
+        var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "EmoteCompleted")
+            .ToList();
+        Assert.Single(emoteObs);
+        Assert.NotNull(aggregator.Current.EmoteCompleted);
+        Assert.Equal(1000789u, aggregator.Current.EmoteCompleted!.TargetBaseId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_L8 — Null IGameProbe: no observation, no NRE
+    // =========================================================================
+
+    [Fact]
+    public void UO_L8_NullGameProbe_NoEmoteObservation_NoNre()
+    {
+        // CONTRACT: Given UIObserver constructed with gameProbe=null,
+        //           When multiple ticks fire,
+        //           Then NO "EmoteCompleted" observation is written and no exception thrown.
+        //
+        // Mirrors UO_K7 defensive pattern.
+
+        var writer   = new FakeTraceWriter();
+        var session  = new TraceSession(TraceMode.Always, Path.GetTempPath(), _ => writer);
+        session.OnPluginStart();
+        var clock     = new FakeClock(T0);
+        var framework = new FakeFramework();
+        var observer  = new UIObserver(
+            framework: framework, traceSession: session, passiveRunId: PassiveRunId,
+            addonProbe: null, gameProbe: null, clock: clock);
+
+        var ex = Record.Exception(() =>
+        {
+            framework.Tick();
+            framework.Tick();
+        });
+
+        Assert.Null(ex);
+
+        var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "EmoteCompleted")
+            .ToList();
+        Assert.Empty(emoteObs);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_L9 — BattleNpc target wins over interactable NPC (priority order)
+    // =========================================================================
+
+    [Fact]
+    public void UO_L9_BothBattleNpcAndInteractable_BattleNpcWins()
+    {
+        // CONTRACT: Given FakeTargetProbe.SetBattleNpcTarget(5005u) AND
+        //           SetInteractableNpcTarget(1000789u) are both set,
+        //           When EmoteId=17 is set and tick fires,
+        //           Then agg.Current.EmoteCompleted.TargetBaseId == 5005u (BattleNpc wins).
+        //
+        // Mirrors UO_K10's target priority order. Pins Decision UEI9's branch order:
+        //   if (hostile is { } h) targetBaseId = h.BaseId;
+        //   else if (interactable is { } i) targetBaseId = i.BaseId;
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        targetProbe.SetBattleNpcTarget((BaseId: 5005u,    X: 0f, Y: 0f, Z: 0f, Zone: 132));
+        targetProbe.SetInteractableNpcTarget((BaseId: 1000789u, X: 0f, Y: 0f, Z: 0f, Zone: 132));
+        gameProbe.SetPlayerEmoteId(17);
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.EmoteCompleted);
+        Assert.Equal(5005u, aggregator.Current.EmoteCompleted!.TargetBaseId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_L10 — No SetPlayerEmoteId call (probe returns null): no event ever fires
+    // =========================================================================
+
+    [Fact]
+    public void UO_L10_NullEmoteId_NoEvent()
+    {
+        // CONTRACT: Given FakeGameProbe.GetPlayerEmoteId() returns null (no SetPlayerEmoteId called),
+        //           When multiple ticks fire,
+        //           Then NO "EmoteCompleted" observation is written.
+        //           agg.Current.EmoteCompleted is null.
+        //
+        // Pins the `if (current is null) return;` early-out in PollPlayerEmote.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        // No SetPlayerEmoteId call — probe returns null by default.
+        framework.Tick();
+        framework.Tick();
+        framework.Tick();
+
+        var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "EmoteCompleted")
+            .ToList();
+        Assert.Empty(emoteObs);
+        Assert.Null(aggregator.Current.EmoteCompleted);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_L11 — Persistent emote (sit/doze): event fires ONCE on start, not on each sustaining tick
+    // =========================================================================
+
+    [Fact]
+    public void UO_L11_PersistentEmote_FiresOnceOnStart_NotOnSustainingTicks()
+    {
+        // CONTRACT: Given EmoteId=50 (/sit — a persistent pose emote) set before tick 1,
+        //           When 4 ticks fire with the same EmoteId=50,
+        //           Then exactly ONE "EmoteCompleted" observation is written.
+        //           agg.Current.EmoteCompleted.EmoteId == 50u.
+        //
+        // WHY: Tick 1 fires on 0 → 50 transition. Ticks 2-4 see 50 == 50 (same value), no-op.
+        // Pins Decision UEI9 "persistent emote fires once on start, never again while sustained."
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetPlayerEmoteId(50); // sticky — same id on every tick
+
+        framework.Tick(); // tick 1: 0 → 50, fires
+        framework.Tick(); // tick 2: 50 == 50, no-op
+        framework.Tick(); // tick 3: 50 == 50, no-op
+        framework.Tick(); // tick 4: 50 == 50, no-op
+
+        var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "EmoteCompleted")
+            .ToList();
+        Assert.Single(emoteObs);
+        Assert.True(
+            emoteObs[0].Argument?.GetRawText() == "50",
+            $"Expected Argument=50 but got {emoteObs[0].Argument?.GetRawText()}");
+        Assert.NotNull(aggregator.Current.EmoteCompleted);
+        Assert.Equal(50u, aggregator.Current.EmoteCompleted!.EmoteId);
 
         observer.Dispose();
     }

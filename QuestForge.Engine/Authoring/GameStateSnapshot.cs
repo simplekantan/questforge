@@ -20,6 +20,20 @@ public sealed record ActionCompletedSignal(
     uint? TargetBaseId);
 
 /// <summary>
+/// Records that the player triggered an emote during this recording window. Set by
+/// SnapshotAggregator.OnEmoteCompleted, which is driven by UIObserver.PollPlayerEmote
+/// reading LocalPlayer.EmoteController.EmoteId. Cleared by OnEmoteConsumed (called from
+/// AuthoringHost.RecordStep) so it does not bleed into the next recording window.
+///
+/// EmoteId is the Lumina Emote sheet RowId (matches UseEmoteStep.EmoteId).
+/// TargetBaseId is the BNpcBase / ENpcBase row id of the emote's target
+/// (null = self-cast / no target / target not in ObjectTable).
+/// </summary>
+public sealed record EmoteCompletedSignal(
+    uint EmoteId,
+    uint? TargetBaseId);
+
+/// <summary>
 /// Signals that a vendor shop was opened and purchases were detected during an authoring window.
 /// </summary>
 public sealed record PurchaseDetection(
@@ -144,4 +158,10 @@ public sealed record GameStateSnapshot(
     // supported game action (Action / GeneralAction / KeyItem) during this recording window.
     // Cleared by OnActionConsumed in RecordStep so it does not bleed into the next window.
     public ActionCompletedSignal? ActionCompleted { get; init; }
+
+    // Non-positional. Set when UIObserver.PollPlayerEmote observes that the player triggered an
+    // emote during this recording window (LocalPlayer.EmoteController.EmoteId transitioned to a
+    // new non-zero value). Cleared by OnEmoteConsumed in RecordStep so it does not bleed into
+    // the next window.
+    public EmoteCompletedSignal? EmoteCompleted { get; init; }
 }

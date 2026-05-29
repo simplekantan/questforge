@@ -13,4 +13,5 @@ public interface IGameProbe
     IReadOnlyList<(uint ItemId, int Qty)> GetKeyItemSlots();
     (float X, float Y, float Z, int Zone)? GetPlayerPosition();
     (uint Sequence, uint FfxivActionType, uint ActionId)? GetLastActionEffect();
+    ushort? GetPlayerEmoteId();
 }

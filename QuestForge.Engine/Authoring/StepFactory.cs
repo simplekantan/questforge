@@ -142,6 +142,14 @@ public static class StepFactory
                 ActionId = after?.ActionCompleted?.ActionId ?? 0u,
                 TargetNpcId = after?.ActionCompleted?.TargetBaseId
             },
+            "use-emote" => new UseEmoteStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                EmoteId = after?.EmoteCompleted?.EmoteId ?? 0u,
+                TargetNpcId = after?.EmoteCompleted?.TargetBaseId,
+                Motion = true
+            },
             "attune" => new AttunementStep
             {
                 Id = stepId,

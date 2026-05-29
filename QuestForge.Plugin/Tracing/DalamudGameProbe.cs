@@ -82,4 +82,13 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
         ref var castInfo = ref bc->CastInfo;
         return (castInfo.ResponseGlobalSequence, (uint)castInfo.ResponseActionType, castInfo.ResponseActionId);
     }
+
+    public ushort? GetPlayerEmoteId()
+    {
+        var player = _objectTable.LocalPlayer;
+        if (player is null) return null;
+        var ch = (FFXIVClientStructs.FFXIV.Client.Game.Character.Character*)player.Address;
+        if (ch is null) return null;
+        return ch->EmoteController.EmoteId;
+    }
 }

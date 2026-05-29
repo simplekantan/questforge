@@ -34,6 +34,7 @@ public sealed class SnapshotAggregator
 
     private AetheryteId? _teleportCompleted;
     private ActionCompletedSignal? _actionCompleted;
+    private EmoteCompletedSignal? _emoteCompleted;
 
     // ── purchase span state ────────────────────────────────────────────────
     private bool _shopOpen;
@@ -109,7 +110,8 @@ public sealed class SnapshotAggregator
         CombatStartZone              = _combatStartZone,
         PurchaseDetected             = BuildPurchaseDetected(),
         TeleportCompleted            = _teleportCompleted,
-        ActionCompleted              = _actionCompleted
+        ActionCompleted              = _actionCompleted,
+        EmoteCompleted               = _emoteCompleted
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -513,6 +515,23 @@ public sealed class SnapshotAggregator
     /// Mirrors OnTeleportConsumed exactly.
     /// </summary>
     public void OnActionConsumed() => _actionCompleted = null;
+
+    /// <summary>
+    /// Called by UIObserver.PollPlayerEmote when a new non-zero EmoteId is observed on the local
+    /// player (the player just started an emote this frame). Records the emote id and optional target
+    /// (from TargetManager.Target at the time of the read). Survives ResetDeltas; cleared by
+    /// OnEmoteConsumed (called from AuthoringHost.RecordStep).
+    /// Does NOT update LastNpcInteracted or any other unrelated field (Decision UEI3).
+    /// </summary>
+    public void OnEmoteCompleted(uint emoteId, uint? targetBaseId)
+        => _emoteCompleted = new EmoteCompletedSignal(emoteId, targetBaseId);
+
+    /// <summary>
+    /// Called at the end of RecordStep (and from UIObserver.ResetWindowState for symmetry) to
+    /// consume the emote-completed signal so it does not bleed into the next recording window.
+    /// Mirrors OnActionConsumed exactly.
+    /// </summary>
+    public void OnEmoteConsumed() => _emoteCompleted = null;
 
     // ── Private span-correlation helper ──────────────────────────────────────
 
