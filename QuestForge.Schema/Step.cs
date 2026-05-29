@@ -154,10 +154,12 @@ public class SayChatMessageStep : Step
     public NpcLocation? Target { get; init; }
 }
 
-public class UseEmoteStep : Step
+public sealed class UseEmoteStep : Step
 {
     public uint EmoteId { get; init; }
-    public NpcLocation? Target { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public uint? TargetNpcId { get; init; }
+    public bool Motion { get; init; } = true;
 }
 
 public class UseItemStep : Step

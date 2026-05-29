@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using QuestForge.Adapters;
 using QuestForge.Adapters.Fakes;
 using QuestForge.Adapters.Fakes.Actions;
+using QuestForge.Adapters.Fakes.Emotes;
 using QuestForge.Adapters.Fakes.Combat;
 using QuestForge.Adapters.Fakes.Gear;
 using QuestForge.Adapters.Fakes.Interaction;
@@ -53,6 +54,7 @@ public sealed class EngineTestHarness
     public FakeMount Mount { get; } = new FakeMount();
 
     public FakeActionExecutor ActionExecutor { get; } = new FakeActionExecutor();
+    public FakeEmoteExecutor EmoteExecutor { get; } = new FakeEmoteExecutor();
 
     /// <summary>
     /// The FakeTraceWriter used for assertions in tests. In the default constructor,
@@ -123,7 +125,8 @@ public sealed class EngineTestHarness
             _effectiveTrace,
             NullLogger<QuestEngine>.Instance,
             vendor: Vendor,
-            actionExecutor: ActionExecutor);
+            actionExecutor: ActionExecutor,
+            emoteExecutor: EmoteExecutor);
         Engine = new HarnessEngine(inner, GameState, Mount, Navigator);
     }
 
@@ -213,6 +216,15 @@ public sealed class EngineTestHarness
                         _jsonOpts));
                     var uaResult = await ActionExecutor.UseAction(ua.Type, ua.ActionId, ua.TargetNpcId, ct);
                     EmitActionCompleted("UseAction", uaResult.IsSuccess ? "Done" : "Failed");
+                    break;
+
+                case EngineAction.UseEmote ue:
+                    actions.Add(action);
+                    EmitActionSubmitted("UseEmote", JsonSerializer.SerializeToElement(
+                        new { emoteId = ue.EmoteId, targetNpcId = ue.TargetNpcId?.Value, motion = ue.Motion },
+                        _jsonOpts));
+                    var ueResult = await EmoteExecutor.UseEmote(ue.EmoteId, ue.TargetNpcId, ue.Motion, ct);
+                    EmitActionCompleted("UseEmote", ueResult.IsSuccess ? "Done" : "Failed");
                     break;
 
                 case EngineAction.Wait:
