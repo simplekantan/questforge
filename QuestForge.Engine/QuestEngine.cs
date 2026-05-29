@@ -16,6 +16,7 @@ using QuestForge.Adapters.Types;
 using QuestForge.Engine.Combat;
 using QuestForge.Engine.Dialogue;
 using QuestForge.Engine.Predicates;
+using QuestForge.Engine.Travel;
 using QuestForge.Schema;
 
 namespace QuestForge.Engine;
@@ -132,7 +133,7 @@ public sealed class QuestEngine
         {
             if (step is not FragmentStep fragmentStep)
             {
-                yield return SynthesizePurchaseExpect(step);
+                yield return SynthesizeTeleportExpect(SynthesizePurchaseExpect(step));
                 continue;
             }
 
@@ -178,7 +179,7 @@ public sealed class QuestEngine
             {
                 var scopedId   = $"{scopePrefix}{innerStep.Id}";
                 var substituted = SubstituteExpect(innerStep.Expect, fragmentStep.Params);
-                yield return SynthesizePurchaseExpect(CloneStepWith(innerStep, scopedId, substituted));
+                yield return SynthesizeTeleportExpect(SynthesizePurchaseExpect(CloneStepWith(innerStep, scopedId, substituted)));
             }
         }
     }
@@ -195,6 +196,28 @@ public sealed class QuestEngine
             return step;
         var synthesized = new PredicateExpect { Predicate = $"playerHasItem({ps.ItemId},{ps.Quantity})" };
         return CloneStepWith(ps, ps.Id, synthesized);
+    }
+
+    /// <summary>
+    /// When <paramref name="step"/> is a <see cref="TeleportStep"/> with no authored <c>Expect</c>,
+    /// synthesises a default <c>playerZone() == expectedZone</c> expect from <see cref="AetheryteZoneMap"/>.
+    /// Authored <c>Expect</c> values are left untouched. Steps for unknown aetheryte IDs are left untouched
+    /// (the dispatch arm handles the unknown-ID case at runtime).
+    ///
+    /// Synthesis is also suppressed when the immediately preceding step already carries a
+    /// <c>playerZone() == N</c> expect for the same target zone N. This prevents the step from
+    /// being spuriously confirmed in the same tick that the preceding step is confirmed (e.g. a
+    /// TravelStep that navigates to zone 130 followed immediately by a TeleportStep targeting zone 130).
+    /// </summary>
+    private static Step SynthesizeTeleportExpect(Step step)
+    {
+        if (step is not TeleportStep ts || ts.Expect is not null)
+            return step;
+        if (!AetheryteZoneMap.TryGetZone(ts.AetheryteId.Value, out var zoneId))
+            return step;
+
+        var synthesized = new PredicateExpect { Predicate = $"playerZone() == {zoneId}" };
+        return CloneStepWith(ts, ts.Id, synthesized);
     }
 
     /// <summary>
@@ -546,6 +569,15 @@ public sealed class QuestEngine
                 return (purchaseAction, step.Id);
             }
 
+            // 6b. TeleportStep async arm — step-gated so IsPlayerInCombat is only read when the
+            //     cursor is on a TeleportStep. Pre-flight guards (unknown aetheryte, in combat)
+            //     run inside ResolveTeleportAction.
+            if (step is TeleportStep teleportStep)
+            {
+                var teleportAction = await ResolveTeleportAction(teleportStep, ct);
+                return (teleportAction, step.Id);
+            }
+
             // 7. WaitStep arm — time-based completion, no game-state predicate consulted.
             if (step is WaitStep waitStep)
             {
@@ -778,6 +810,19 @@ public sealed class QuestEngine
         }
 
         return purchaseAction;
+    }
+
+    private async Task<EngineAction> ResolveTeleportAction(TeleportStep step, CancellationToken ct)
+    {
+        if (!AetheryteZoneMap.TryGetZone(step.AetheryteId.Value, out _))
+            return new EngineAction.AwaitUser(
+                $"teleport target aetheryte {step.AetheryteId.Value} not in zone map — author must extend AetheryteZoneMap");
+
+        var inCombatResult = await _gameState.IsPlayerInCombat(ct);
+        if (inCombatResult is Result<bool>.Success { Value: true })
+            return new EngineAction.AwaitUser("cannot teleport while in combat");
+
+        return new EngineAction.Teleport(new Adapters.Types.AetheryteId(step.AetheryteId.Value), Origin: step);
     }
 
     /// <summary>

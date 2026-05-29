@@ -14,6 +14,7 @@ public abstract record EngineAction
     // SourcePosition: world position of the source aethernet shard the player navigates to
     // before the teleport fires. Null when no source position is known (immediate dispatch).
     public sealed record UseAethernet(AethernetId Destination, WorldPosition? SourcePosition = null) : EngineAction;
+    public sealed record Teleport(Adapters.Types.AetheryteId Destination, Step? Origin = null) : EngineAction;
     public sealed record Wait(string Reason, Step? Origin = null) : EngineAction;
     public sealed record AwaitUser(string Reason) : EngineAction;
     public sealed record Done : EngineAction;

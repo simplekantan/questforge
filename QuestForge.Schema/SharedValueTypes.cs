@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace QuestForge.Schema;
@@ -9,7 +10,52 @@ namespace QuestForge.Schema;
 // Schema-side AetheryteId alias. Lives here (not in Adapters) to keep Schema as a leaf
 // with no upward dependency. The engine converts Schema.AetheryteId → Adapters.Types.AetheryteId
 // via .Value when dispatching AttunementStep.
+//
+// The converter writes/reads as a plain uint (e.g. 8) for clean JSON authoring.
+// For backward compatibility with older JSON that used the object form {"value": N},
+// the reader also accepts that format so existing quest files remain valid.
+[JsonConverter(typeof(AetheryteIdConverter))]
 public readonly record struct AetheryteId(uint Value);
+
+/// <summary>
+/// Reads/writes <see cref="AetheryteId"/> as a plain uint in JSON (e.g. <c>8</c>).
+/// Also accepts the legacy object form <c>{"value": 8}</c> on read for backward
+/// compatibility with older quest files authored before this converter existed.
+/// </summary>
+public sealed class AetheryteIdConverter : JsonConverter<AetheryteId>
+{
+    public override AetheryteId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Number)
+            return new AetheryteId(reader.GetUInt32());
+
+        if (reader.TokenType == JsonTokenType.StartObject)
+        {
+            uint value = 0;
+            while (reader.Read())
+            {
+                if (reader.TokenType == JsonTokenType.EndObject)
+                    break;
+                if (reader.TokenType == JsonTokenType.PropertyName
+                    && string.Equals(reader.GetString(), "value", StringComparison.OrdinalIgnoreCase))
+                {
+                    reader.Read();
+                    value = reader.GetUInt32();
+                }
+                else if (reader.TokenType == JsonTokenType.PropertyName)
+                {
+                    reader.Read(); // skip unknown property value
+                }
+            }
+            return new AetheryteId(value);
+        }
+
+        throw new JsonException($"Expected a number or object for AetheryteId, got {reader.TokenType}.");
+    }
+
+    public override void Write(Utf8JsonWriter writer, AetheryteId value, JsonSerializerOptions options)
+        => writer.WriteNumberValue(value.Value);
+}
 
 public record Position3(float X, float Y, float Z);
 

@@ -33,6 +33,7 @@ namespace QuestForge.Schema;
 [JsonDerivedType(typeof(HandOverItemStep),      "hand-over-item")]
 [JsonDerivedType(typeof(WaitStep),              "wait")]
 [JsonDerivedType(typeof(PurchaseItemStep),      "purchase-item")]
+[JsonDerivedType(typeof(TeleportStep),          "teleport")]
 public class Step
 {
     public string Id { get; init; } = default!;
@@ -243,6 +244,11 @@ public class PurchaseItemStep : Step
     public PurchaseCurrency Currency { get; init; } = PurchaseCurrency.Gil;
     public int? GcCategory { get; init; }
     public int? GcRankTier { get; init; }
+}
+
+public class TeleportStep : Step
+{
+    public AetheryteId AetheryteId { get; init; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<PurchaseCurrency>))]

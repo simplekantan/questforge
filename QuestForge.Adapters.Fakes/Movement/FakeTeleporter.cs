@@ -10,6 +10,7 @@ public sealed class FakeTeleporter : ITeleporter
     private readonly FakeGameStateProvider _state;
 
     private TeleportOutcome? _nextTeleportResult;
+    private (string Reason, string? Detail)? _nextTeleportFailure;
     private AetheryteId? _homeAetheryte;
     private TimeSpan _returnCooldown = TimeSpan.Zero;
 
@@ -31,6 +32,8 @@ public sealed class FakeTeleporter : ITeleporter
 
     // ----- Scripting -----
     public void ScriptNextTeleportResult(TeleportOutcome outcome) => _nextTeleportResult = outcome;
+    public void ScriptNextTeleportFailure(string reason, string? detail = null)
+        => _nextTeleportFailure = (reason, detail);
     public void SetHomeAetheryte(AetheryteId? id) => _homeAetheryte = id;
     public void SetReturnCooldown(TimeSpan cooldown) => _returnCooldown = cooldown;
 
@@ -44,6 +47,7 @@ public sealed class FakeTeleporter : ITeleporter
         RecordedAethernetTeleports.Clear();
         RecordedReturns.Clear();
         _nextTeleportResult = null;
+        _nextTeleportFailure = null;
     }
 
     // ----- ITeleporter implementation -----
@@ -52,6 +56,13 @@ public sealed class FakeTeleporter : ITeleporter
     {
         ct.ThrowIfCancellationRequested();
         RecordedTeleports.Add(new TeleportCall(destination, DateTimeOffset.UtcNow));
+
+        if (_nextTeleportFailure.HasValue)
+        {
+            var (reason, detail) = _nextTeleportFailure.Value;
+            _nextTeleportFailure = null;
+            return Task.FromResult<Result<TeleportOutcome>>(Result.Fail<TeleportOutcome>(reason, detail));
+        }
 
         var outcome = ConsumeNextResult();
 

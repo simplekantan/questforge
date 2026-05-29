@@ -166,6 +166,13 @@ public sealed class EngineTestHarness
                     EmitActionCompleted("UseAethernet", aethernetResult.IsSuccess ? aethernetResult.ValueOrThrow.ToString() : "Failed");
                     break;
 
+                case EngineAction.Teleport tp:
+                    actions.Add(action);
+                    EmitActionSubmitted("Teleport", JsonSerializer.SerializeToElement(tp.Destination, _jsonOpts));
+                    var tpResult = await Teleporter.TeleportToAetheryte(tp.Destination, ct);
+                    EmitActionCompleted("Teleport", tpResult.IsSuccess ? tpResult.ValueOrThrow.ToString() : "Failed");
+                    break;
+
                 case EngineAction.Navigate nav:
                     actions.Add(action);
                     EmitActionSubmitted("Navigate", JsonSerializer.SerializeToElement(nav.Destination, _jsonOpts));
