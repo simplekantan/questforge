@@ -261,6 +261,28 @@ public sealed class StepInferenceEngine
             }
         }
 
+        // Rule 3.5 — ActionCompleted
+        // Fires when UIObserver.PollPlayerActionEffect detected that the player used a supported
+        // game action (Action / GeneralAction / KeyItem) during this recording window.
+        // PRIORITY: above Rule 3 (QuestSequence advanced) — use-action is more specific than
+        // the catch-all sequence-advance which defaults to "talk". Above Rule 4.0 (TeleportCompleted)
+        // because ActionCompleted is the more specific signal when both are present.
+        // CONFIDENCE: High — the player demonstrably pressed the button.
+        // EXPECT: null — author MUST write the postcondition (Decision UA4).
+        if (after.ActionCompleted is { } actionSignal)
+        {
+            var stepIdSuffix = actionSignal.TargetBaseId is { } tid
+                ? $"{actionSignal.ActionId}-on-{tid}"
+                : $"{actionSignal.ActionId}";
+            return new InferenceResult(
+                StepType:        "use-action",
+                SuggestedStepId: $"use-action-{stepIdSuffix}",
+                SuggestedExpect: null,
+                Confidence:      Confidence.High,
+                InferredFrom:    InferredFrom.ActionCompleted,
+                Notes:           "Author MUST write the Expect predicate (no universal action postcondition).");
+        }
+
         // Rule 3: QuestSequence advanced
         if (after.QuestSequence > before.QuestSequence)
         {

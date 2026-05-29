@@ -134,6 +134,14 @@ public static class StepFactory
                 // draft validator catches it rather than throwing here.
                 AetheryteId = new QuestForge.Schema.AetheryteId(after?.TeleportCompleted?.Value ?? 0u)
             },
+            "use-action" => new UseActionStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                ActionType = after?.ActionCompleted?.ActionType ?? QuestForge.Schema.ActionType.Action,
+                ActionId = after?.ActionCompleted?.ActionId ?? 0u,
+                TargetNpcId = after?.ActionCompleted?.TargetBaseId
+            },
             "attune" => new AttunementStep
             {
                 Id = stepId,

@@ -33,6 +33,7 @@ public sealed class SnapshotAggregator
     private IReadOnlyList<byte>? _questVariables;
 
     private AetheryteId? _teleportCompleted;
+    private ActionCompletedSignal? _actionCompleted;
 
     // ── purchase span state ────────────────────────────────────────────────
     private bool _shopOpen;
@@ -107,7 +108,8 @@ public sealed class SnapshotAggregator
         CombatStartPosition          = _combatStartPosition,
         CombatStartZone              = _combatStartZone,
         PurchaseDetected             = BuildPurchaseDetected(),
-        TeleportCompleted            = _teleportCompleted
+        TeleportCompleted            = _teleportCompleted,
+        ActionCompleted              = _actionCompleted
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -492,6 +494,25 @@ public sealed class SnapshotAggregator
     /// into the next recording window. Mirrors OnAethernetTeleportConsumed exactly.
     /// </summary>
     public void OnTeleportConsumed() => _teleportCompleted = null;
+
+    /// <summary>
+    /// Called by UIObserver.PollPlayerActionEffect when a new ResponseGlobalSequence is observed.
+    /// Records the action's type, id, and optional target. Survives ResetDeltas; cleared by
+    /// OnActionConsumed (called from AuthoringHost.RecordStep).
+    /// Does NOT update LastNpcInteracted, LastAttuned, or any other unrelated field (Decision UAI3).
+    /// </summary>
+    public void OnActionCompleted(
+        QuestForge.Schema.ActionType actionType,
+        uint actionId,
+        uint? targetBaseId)
+        => _actionCompleted = new ActionCompletedSignal(actionType, actionId, targetBaseId);
+
+    /// <summary>
+    /// Called at the end of RecordStep (and from UIObserver.ResetWindowState for symmetry) to
+    /// consume the action-completed signal so it does not bleed into the next recording window.
+    /// Mirrors OnTeleportConsumed exactly.
+    /// </summary>
+    public void OnActionConsumed() => _actionCompleted = null;
 
     // ── Private span-correlation helper ──────────────────────────────────────
 

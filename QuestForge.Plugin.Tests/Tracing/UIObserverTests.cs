@@ -137,6 +137,22 @@ public sealed class FakeGameProbe : IGameProbe
         _keyItems.AsReadOnly();
 
     public (float X, float Y, float Z, int Zone)? GetPlayerPosition() => null; // tests use aggregator directly
+
+    // ── UAI-T8: GetLastActionEffect extension ────────────────────────────────
+    // Sticky: once set, the same tuple is returned on every call until cleared.
+    // Mirrors _unlockedAetherytes semantics — represents "what the game currently shows."
+    // Tests call SetLastActionEffect(seq, type, id) then fw.Tick() to simulate the player
+    // pressing an action.
+
+    private (uint, uint, uint)? _nextActionEffect;
+
+    public void SetLastActionEffect(uint sequence, uint ffxivActionType, uint actionId)
+        => _nextActionEffect = (sequence, ffxivActionType, actionId);
+
+    public void ClearLastActionEffect() => _nextActionEffect = null;
+
+    public (uint Sequence, uint FfxivActionType, uint ActionId)? GetLastActionEffect()
+        => _nextActionEffect;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2815,6 +2831,424 @@ public sealed class UIObserverTests
         framework.Tick();
 
         Assert.False(observer.WasTeleportAddonOpenWithin(TimeSpan.FromSeconds(10), clock.UtcNow));
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UO-K: PollPlayerActionEffect — sequence-based action-completed poller
+    //
+    // Covers spec UAI8 / §I UO_K1-10.
+    //
+    // ALL tests in this group will fail to compile/runtime until Builder adds:
+    //   - IGameProbe.GetLastActionEffect()                          (Task UAI-T8)
+    //   - FakeGameProbe.SetLastActionEffect / ClearLastActionEffect (Task UAI-T8)
+    //   - FakeGameProbe.GetLastActionEffect()                       (Task UAI-T8)
+    //   - UIObserver.PollPlayerActionEffect + _lastObservedActionSequence  (Task UAI-T9)
+    //   - UIObserver.ResetWindowState: clears sequence + calls OnActionConsumed (Task UAI-T9)
+    //   - SnapshotAggregator.OnActionCompleted / OnActionConsumed   (Task UAI-T4)
+    //   - GameStateSnapshot.ActionCompleted                          (Task UAI-T2)
+    //   - ActionTypeMapper.FromFFXIVActionType (used by the poller)  (Task UAI-T1)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Helper: build a fixture that also injects a FakeTargetProbe.
+    private static (UIObserver observer,
+                    FakeFramework framework,
+                    FakeAddonProbe addonProbe,
+                    FakeGameProbe gameProbe,
+                    FakeClock clock,
+                    FakeTraceWriter writer,
+                    TraceSession traceSession,
+                    SnapshotAggregator aggregator,
+                    FakeTargetProbe targetProbe)
+        BuildFixtureWithAggregatorAndTarget(TraceMode mode = TraceMode.Always)
+    {
+        var writer  = new FakeTraceWriter();
+        var session = new TraceSession(mode, Path.GetTempPath(), _ => writer);
+        session.OnPluginStart();
+
+        var clock       = new FakeClock(T0);
+        var addonProbe  = new FakeAddonProbe();
+        var gameProbe   = new FakeGameProbe();
+        var targetProbe = new FakeTargetProbe();
+        var framework   = new FakeFramework();
+        var aggregator  = new SnapshotAggregator(null, clock);
+
+        var observer = new UIObserver(
+            framework:    framework,
+            traceSession: session,
+            passiveRunId: PassiveRunId,
+            addonProbe:   addonProbe,
+            gameProbe:    gameProbe,
+            clock:        clock,
+            targetProbe:  targetProbe);
+
+        observer.SetAggregator(aggregator, activeRunId: "active-001");
+
+        return (observer, framework, addonProbe, gameProbe, clock, writer, session, aggregator, targetProbe);
+    }
+
+    // =========================================================================
+    // UO_K1 — First observation establishes baseline; no event fires
+    // =========================================================================
+
+    [Fact]
+    public void UO_K1_FirstObservation_EstablishesBaseline_NoEventFired()
+    {
+        // CONTRACT: Given the game probe reports sequence=100 on the first tick
+        //           (pre-session state from actions taken before Author mode started),
+        //           When the first tick fires after UIObserver is constructed,
+        //           Then NO "ActionCompleted" observation is written and
+        //                agg.Current.ActionCompleted is null.
+        //
+        // WHY: Treating the first observation as an event would draft a step for an action
+        //      the author had no intention of including. The first read is baseline-only.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        // Game has a non-zero sequence from before the session started.
+        gameProbe.SetLastActionEffect(sequence: 100u, ffxivActionType: 1u, actionId: 31u);
+
+        // Act — first tick
+        framework.Tick();
+
+        // Assert
+        var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ActionCompleted")
+            .ToList();
+        Assert.Empty(actionObs);
+        Assert.Null(aggregator.Current.ActionCompleted);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_K2 — Unchanged sequence on second tick: no event
+    // =========================================================================
+
+    [Fact]
+    public void UO_K2_SameSequence_SecondTick_NoEvent()
+    {
+        // CONTRACT: Given the sequence is 100 on tick 1 (baseline established)
+        //           and still 100 on tick 2 (no action used),
+        //           When tick 2 fires,
+        //           Then NO "ActionCompleted" observation is written.
+        //
+        // WHY: The poller only fires on sequence increment — same value means no new action.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLastActionEffect(sequence: 100u, ffxivActionType: 1u, actionId: 31u);
+        framework.Tick(); // baseline tick
+
+        // Act — second tick, same sequence
+        framework.Tick();
+
+        var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ActionCompleted")
+            .ToList();
+        Assert.Empty(actionObs);
+        Assert.Null(aggregator.Current.ActionCompleted);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_K3 — Sequence increments: fires OnActionCompleted exactly once
+    // =========================================================================
+
+    [Fact]
+    public void UO_K3_SequenceIncrements_FiresOnActionCompletedOnce()
+    {
+        // CONTRACT: Given baseline sequence=100 established on tick 1,
+        //           When sequence changes to 101 and tick 2 fires,
+        //           Then exactly one "ActionCompleted" observation is written
+        //                with Argument=31u (the actionId),
+        //                agg.Current.ActionCompleted is set with ActionType=Action,
+        //                ActionId=31u, and TargetBaseId=null (no target probe set).
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLastActionEffect(sequence: 100u, ffxivActionType: 1u, actionId: 31u);
+        framework.Tick(); // baseline
+
+        gameProbe.SetLastActionEffect(sequence: 101u, ffxivActionType: 1u, actionId: 31u);
+
+        // Act
+        framework.Tick();
+
+        var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ActionCompleted")
+            .ToList();
+        Assert.Single(actionObs);
+        Assert.True(
+            actionObs[0].Argument?.GetRawText() == "31",
+            $"Expected Argument=31 but got {actionObs[0].Argument?.GetRawText()}");
+
+        Assert.NotNull(aggregator.Current.ActionCompleted);
+        Assert.Equal(QuestForge.Schema.ActionType.Action, aggregator.Current.ActionCompleted!.ActionType);
+        Assert.Equal(31u, aggregator.Current.ActionCompleted.ActionId);
+        Assert.Null(aggregator.Current.ActionCompleted.TargetBaseId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_K4 — Multiple sequence increments: fires once per increment
+    // =========================================================================
+
+    [Fact]
+    public void UO_K4_MultipleSequenceIncrements_FiresOncePerIncrement()
+    {
+        // CONTRACT: Given baseline=100, tick 2 increments to 101 (action 31),
+        //           tick 3 increments to 102 (action 35),
+        //           Then two "ActionCompleted" observations are written total:
+        //             first with Argument=31, second with Argument=35.
+        //           agg.Current.ActionCompleted reflects the latest (action 35).
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u); framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 1u, 31u); framework.Tick(); // event 1
+        gameProbe.SetLastActionEffect(102u, 1u, 35u); framework.Tick(); // event 2
+
+        var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ActionCompleted")
+            .ToList();
+        Assert.Equal(2, actionObs.Count);
+        Assert.True(actionObs[0].Argument?.GetRawText() == "31",
+            $"First observation Argument should be 31, got {actionObs[0].Argument?.GetRawText()}");
+        Assert.True(actionObs[1].Argument?.GetRawText() == "35",
+            $"Second observation Argument should be 35, got {actionObs[1].Argument?.GetRawText()}");
+
+        Assert.NotNull(aggregator.Current.ActionCompleted);
+        Assert.Equal(35u, aggregator.Current.ActionCompleted!.ActionId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_K5 — Unsupported ActionType (e.g. Item=2): no event, but sequence advances
+    // =========================================================================
+
+    [Fact]
+    public void UO_K5_UnsupportedActionType_NoEvent_SequenceStillAdvances()
+    {
+        // CONTRACT: Given baseline=100 (tick 1), then seq=101 with type=2 (Item, unsupported)
+        //           (tick 2 — no event, but baseline advances to 101),
+        //           Then seq=102 with type=1 (Action, supported) (tick 3 — ONE event for id=31).
+        //           Total: exactly ONE "ActionCompleted" observation (the supported one at seq 102).
+        //
+        // CRITICAL: The baseline must advance past 101 even when type=2 (unsupported), so that
+        //           tick 3 (seq=102) only fires one event (102 > 101, not 102 > 100).
+        //           The implementation does _lastObservedActionSequence = sequence BEFORE the
+        //           type-mapper check.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u);  framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 2u, 999u); framework.Tick(); // unsupported Item — no event
+        gameProbe.SetLastActionEffect(102u, 1u, 31u);  framework.Tick(); // supported — ONE event
+
+        var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ActionCompleted")
+            .ToList();
+        Assert.Single(actionObs);
+        Assert.True(actionObs[0].Argument?.GetRawText() == "31",
+            $"Expected Argument=31 (supported action), got {actionObs[0].Argument?.GetRawText()}");
+
+        Assert.NotNull(aggregator.Current.ActionCompleted);
+        Assert.Equal(31u, aggregator.Current.ActionCompleted!.ActionId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_K6 — ResetWindowState clears the last-observed sequence: next tick is new baseline
+    // =========================================================================
+
+    [Fact]
+    public void UO_K6_ResetWindowState_ClearsSequence_NextTickIsNewBaseline()
+    {
+        // CONTRACT: Given baseline=100 established on tick 1,
+        //           When ResetWindowState is called (modal opened; window reset),
+        //           Then the next tick (seq=200) is treated as baseline — no event fires.
+        //           Also: agg.Current.ActionCompleted is null (OnActionConsumed was called).
+        //
+        // WHY re-baseline: after a window reset, any pre-reset sequence value is stale.
+        //   The next authoring session's first observation must not fire as an event.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u); framework.Tick(); // baseline = 100
+
+        observer.ResetWindowState(); // clears sequence + calls OnActionConsumed
+
+        gameProbe.SetLastActionEffect(200u, 1u, 31u);
+
+        // Act — tick after reset: large jump but it is the new baseline
+        framework.Tick();
+
+        var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ActionCompleted")
+            .ToList();
+        Assert.Empty(actionObs);
+        Assert.Null(aggregator.Current.ActionCompleted);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_K7 — Null IGameProbe: no observation, no NRE
+    // =========================================================================
+
+    [Fact]
+    public void UO_K7_NullGameProbe_NoObservation_NoNre()
+    {
+        // CONTRACT: Given UIObserver constructed with gameProbe=null,
+        //           When multiple ticks fire,
+        //           Then NO "ActionCompleted" observation is written and no exception thrown.
+        //
+        // Mirrors UO_A2 defensive pattern.
+
+        var writer   = new FakeTraceWriter();
+        var session  = new TraceSession(TraceMode.Always, Path.GetTempPath(), _ => writer);
+        session.OnPluginStart();
+        var clock     = new FakeClock(T0);
+        var framework = new FakeFramework();
+        var observer  = new UIObserver(
+            framework: framework, traceSession: session, passiveRunId: PassiveRunId,
+            addonProbe: null, gameProbe: null, clock: clock);
+
+        var ex = Record.Exception(() =>
+        {
+            framework.Tick();
+            framework.Tick();
+        });
+
+        Assert.Null(ex);
+
+        var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ActionCompleted")
+            .ToList();
+        Assert.Empty(actionObs);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_K8 — BattleNpc target: TargetBaseId is the BattleNpc BaseId
+    // =========================================================================
+
+    [Fact]
+    public void UO_K8_BattleNpcTarget_TargetBaseIdIsSet()
+    {
+        // CONTRACT: Given the FakeTargetProbe returns a BattleNpc with BaseId=5005u
+        //           and the player uses an action (seq 100→101, type=1, id=31),
+        //           When tick 2 fires,
+        //           Then agg.Current.ActionCompleted.TargetBaseId == 5005u.
+        //
+        // WHY: The author targets an enemy during a combat quest objective; the recorded
+        //      step must name the enemy's NPC template id.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        targetProbe.SetBattleNpcTarget((BaseId: 5005u, X: 0f, Y: 0f, Z: 0f, Zone: 132));
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u); framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 1u, 31u);
+
+        // Act
+        framework.Tick();
+
+        var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ActionCompleted")
+            .ToList();
+        Assert.Single(actionObs);
+
+        Assert.NotNull(aggregator.Current.ActionCompleted);
+        Assert.Equal(5005u, aggregator.Current.ActionCompleted!.TargetBaseId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_K9 — No target (self-cast): TargetBaseId is null
+    // =========================================================================
+
+    [Fact]
+    public void UO_K9_NoTarget_TargetBaseIdIsNull()
+    {
+        // CONTRACT: Given the FakeTargetProbe returns null for all queries
+        //           and the player uses Sprint (seq 100→101, type=5/GeneralAction, id=4),
+        //           When tick 2 fires,
+        //           Then agg.Current.ActionCompleted.TargetBaseId is null (self-cast).
+        //
+        // WHY: Sprint, Return, and similar actions have no external target.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        // FakeTargetProbe defaults to null for all queries — no SetBattleNpcTarget call.
+
+        gameProbe.SetLastActionEffect(100u, 5u, 4u); framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 5u, 4u);
+
+        // Act
+        framework.Tick();
+
+        var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ActionCompleted")
+            .ToList();
+        Assert.Single(actionObs);
+        Assert.True(actionObs[0].Argument?.GetRawText() == "4",
+            $"Expected Argument=4 (Sprint id), got {actionObs[0].Argument?.GetRawText()}");
+
+        Assert.NotNull(aggregator.Current.ActionCompleted);
+        Assert.Null(aggregator.Current.ActionCompleted!.TargetBaseId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_K10 — Both BattleNpc and interactable set: BattleNpc wins (priority)
+    // =========================================================================
+
+    [Fact]
+    public void UO_K10_BothBattleNpcAndInteractable_BattleNpcWins()
+    {
+        // CONTRACT: Given FakeTargetProbe.SetBattleNpcTarget(5005u) AND
+        //           SetInteractableNpcTarget(1234567u) are both set (defensive — only one
+        //           can be the real hard target in Dalamud, but the fake allows both),
+        //           When the player uses an action (seq 100→101, type=1, id=31),
+        //           Then agg.Current.ActionCompleted.TargetBaseId == 5005u (BattleNpc wins).
+        //
+        // RATIONALE: PollPlayerActionEffect's branch order:
+        //   if (hostile is { } h) targetBaseId = h.BaseId;
+        //   else if (interactable is { } i) targetBaseId = i.BaseId;
+        // BattleNpc always takes precedence over interactable NPC.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        targetProbe.SetBattleNpcTarget((BaseId: 5005u,    X: 0f, Y: 0f, Z: 0f, Zone: 132));
+        targetProbe.SetInteractableNpcTarget((BaseId: 1234567u, X: 0f, Y: 0f, Z: 0f, Zone: 132));
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u); framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 1u, 31u);
+
+        // Act
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.ActionCompleted);
+        Assert.Equal(5005u, aggregator.Current.ActionCompleted!.TargetBaseId);
+
         observer.Dispose();
     }
 }

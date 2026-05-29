@@ -6,6 +6,20 @@ namespace QuestForge.Engine.Authoring;
 public sealed record AethernetHop(AetheryteId? From, AethernetId To);
 
 /// <summary>
+/// Records that the player used a game action (combat ability, general action, or quest key item)
+/// during this recording window. Set by SnapshotAggregator.OnActionCompleted, which is driven by
+/// UIObserver.PollPlayerActionEffect reading LocalPlayer.CastInfo.Response* fields. Cleared by
+/// OnActionConsumed (called from RecordStep) so it does not bleed into the next window.
+///
+/// TargetBaseId is the BNpcBase/ENpcBase row id of the action's target (null = self-cast / no target).
+/// ActionType is the SCHEMA-side enum, NOT FFXIVClientStructs (testability boundary).
+/// </summary>
+public sealed record ActionCompletedSignal(
+    QuestForge.Schema.ActionType ActionType,
+    uint ActionId,
+    uint? TargetBaseId);
+
+/// <summary>
 /// Signals that a vendor shop was opened and purchases were detected during an authoring window.
 /// </summary>
 public sealed record PurchaseDetection(
@@ -125,4 +139,9 @@ public sealed record GameStateSnapshot(
     // in RecordStep so it does not bleed into the next inference window.
     // Distinct from AethernetTeleportCompleted (which signals an intra-region shard hop).
     public AetheryteId? TeleportCompleted { get; init; }
+
+    // Non-positional. Set when UIObserver.PollPlayerActionEffect observes that the player used a
+    // supported game action (Action / GeneralAction / KeyItem) during this recording window.
+    // Cleared by OnActionConsumed in RecordStep so it does not bleed into the next window.
+    public ActionCompletedSignal? ActionCompleted { get; init; }
 }
