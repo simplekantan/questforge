@@ -124,18 +124,20 @@ public sealed class TeleportStepTests
     // =========================================================================
 
     [Fact]
-    public async Task TeleportStep_AfterNavigate_MountedPlayer_DismountFires()
+    public async Task TeleportStep_AfterNavigate_MountedPlayer_NoDismount()
     {
         /*
-         * Two-step quest: TravelStep (Expect = "playerZone() == 130") → TeleportStep.
-         * Player starts in zone 128 so TravelStep.Expect is initially false.
-         * After tick 1 returns Navigate, we flip the zone to 130 to satisfy TravelStep.
-         * Tick 2 transitions from Navigate → Teleport; the lazy-dismount hook fires.
+         * Teleport is a menu action — the game does not require the player to dismount.
+         * If the destination prohibits mounts (e.g. cities), the game dismounts on arrival.
+         * The lazy-dismount hook must NOT fire for Teleport, even after a Navigate transition.
+         *
+         * TravelStep lands in zone 130; TeleportStep targets aetheryte 8 (zone 129) so
+         * its synthesised Expect is false and the step fires rather than being skipped.
          */
 
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(71004), 0);
-        harness.GameState.SetZone(new ZoneId(128)); // not the TravelStep target zone
+        harness.GameState.SetZone(new ZoneId(128));
         harness.GameState.SetPosition(new WorldPosition(0f, 0f, 0f));
         harness.GameState.SetMountState(MountState.Mounted);
 
@@ -151,24 +153,20 @@ public sealed class TeleportStepTests
             step1: new TeleportStep
             {
                 Id = "teleport-after-navigate",
-                AetheryteId = new AetheryteId(1000)
+                AetheryteId = new AetheryteId(8) // maps to zone 129 — different from TravelStep destination
             });
 
         harness.Engine.StartQuest(quest);
 
-        // Tick 1: TravelStep.Expect false → Navigate emitted
         var tick1 = await harness.Engine.Tick(CancellationToken.None);
         Assert.IsType<EngineAction.Navigate>(tick1);
 
-        // Simulate arrival
         harness.GameState.SetZone(new ZoneId(130));
 
-        // Tick 2: TravelStep satisfied → advance to TeleportStep; lazy-dismount fires
         var tick2 = await harness.Engine.Tick(CancellationToken.None);
 
         Assert.IsType<EngineAction.Teleport>(tick2);
-        Assert.True(harness.Mount.DismountCallCount >= 1,
-            $"Expected DismountCallCount >= 1 but was {harness.Mount.DismountCallCount}.");
+        Assert.Equal(0, harness.Mount.DismountCallCount);
     }
 
     // =========================================================================
@@ -176,9 +174,9 @@ public sealed class TeleportStepTests
     // =========================================================================
 
     [Fact]
-    public async Task TeleportStep_Standalone_MountedPlayer_NoPriorNavigate_NoDismount()
+    public async Task TeleportStep_Standalone_MountedPlayer_NoDismount()
     {
-        // Lazy-dismount hook is bound to prior Navigate transitions; no prior Navigate → no dismount.
+        // Teleport is a menu action — no dismount required regardless of prior navigation state.
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(71004_2), 0);
         harness.GameState.SetZone(new ZoneId(129));

@@ -294,7 +294,8 @@ public sealed class HarnessEngine
         // moved past it (postcondition met → emitted a non-Navigate action), dismount
         // BEFORE the action is returned to the caller. Flying-dismount may cause fall damage
         // (v1 limitation); vnavmesh usually grounds at stop-distance.
-        if (_lastDispatchedWasNavigate && action is not EngineAction.Navigate)
+        // Teleport is exempt: the game dismounts on arrival if the destination prohibits mounts.
+        if (_lastDispatchedWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport)
         {
             // Mirror EngineHost: only consider dismount when vnavmesh has actually stopped.
             // The engine emits Engage early (target in scan range) while the CombatController
