@@ -9,7 +9,7 @@ namespace QuestForge.Adapters.Recording;
 /// Recording proxy for ICombat.
 /// Records SetTarget / ClearTarget / StartRotation / StopRotation as non-deduped
 /// ObservationEvents (debug-only — replay does not consume them; FakeCombat is used instead).
-/// Delegates reads (IsRotationModuleAvailable / GetRotationModule / UseAction*) through
+/// Delegates reads (IsRotationModuleAvailable / GetRotationModule) through
 /// unrecorded — those produce no side-effects visible in the trace.
 ///
 /// No dedup: combat acts are an ordered command log, not a value-change observation stream.
@@ -102,20 +102,11 @@ public sealed class RecordingCombat : ICombat
         return r;
     }
 
-    // ---- Unrecorded delegate-through methods (reads / direct action use) ----
+    // ---- Unrecorded delegate-through methods (reads) ----
 
     public Task<Result<bool>> IsRotationModuleAvailable(CancellationToken ct)
         => _inner.IsRotationModuleAvailable(ct);
 
     public Task<Result<RotationModuleInfo>> GetRotationModule(CancellationToken ct)
         => _inner.GetRotationModule(ct);
-
-    public Task<Result<UseActionOutcome>> UseAction(uint actionId, NpcId? target, CancellationToken ct)
-        => _inner.UseAction(actionId, target, ct);
-
-    public Task<Result<UseActionOutcome>> UseActionOnObject(uint actionId, InteractableId target, CancellationToken ct)
-        => _inner.UseActionOnObject(actionId, target, ct);
-
-    public Task<Result<bool>> IsActionUsable(uint actionId, CancellationToken ct)
-        => _inner.IsActionUsable(actionId, ct);
 }

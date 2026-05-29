@@ -21,6 +21,7 @@ namespace QuestForge.Schema;
 [JsonSerializable(typeof(UseEmoteStep))]
 [JsonSerializable(typeof(UseItemStep))]
 [JsonSerializable(typeof(UseActionStep))]
+[JsonSerializable(typeof(ActionType))]
 [JsonSerializable(typeof(EquipGearForQuestStep))]
 [JsonSerializable(typeof(EquipBestGearStep))]
 [JsonSerializable(typeof(ChangeJobStep))]

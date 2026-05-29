@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using QuestForge.Adapters;
 using QuestForge.Adapters.Fakes;
+using QuestForge.Adapters.Fakes.Actions;
 using QuestForge.Adapters.Fakes.Combat;
 using QuestForge.Adapters.Fakes.Gear;
 using QuestForge.Adapters.Fakes.Interaction;
@@ -50,6 +51,8 @@ public sealed class EngineTestHarness
     /// The Builder will wire this into RunToCompletion's Navigate pre-switch hook.
     /// </summary>
     public FakeMount Mount { get; } = new FakeMount();
+
+    public FakeActionExecutor ActionExecutor { get; } = new FakeActionExecutor();
 
     /// <summary>
     /// The FakeTraceWriter used for assertions in tests. In the default constructor,
@@ -119,7 +122,8 @@ public sealed class EngineTestHarness
             TimingProfile,
             _effectiveTrace,
             NullLogger<QuestEngine>.Instance,
-            vendor: Vendor);
+            vendor: Vendor,
+            actionExecutor: ActionExecutor);
         Engine = new HarnessEngine(inner, GameState, Mount, Navigator);
     }
 
@@ -200,6 +204,15 @@ public sealed class EngineTestHarness
                     var purchaseResult = await Vendor.Purchase(purchase.Vendor, purchase.Item, purchase.Quantity, purchase.Currency, ct, purchase.GcCategory, purchase.GcRankTier);
                     EmitActionCompleted("Purchase", purchaseResult.IsSuccess ? purchaseResult.ValueOrThrow.ToString() : "Failed");
                     lastDispatchedWasPurchase = true;
+                    break;
+
+                case EngineAction.UseAction ua:
+                    actions.Add(action);
+                    EmitActionSubmitted("UseAction", JsonSerializer.SerializeToElement(
+                        new { type = ua.Type.ToString(), actionId = ua.ActionId, targetNpcId = ua.TargetNpcId?.Value },
+                        _jsonOpts));
+                    var uaResult = await ActionExecutor.UseAction(ua.Type, ua.ActionId, ua.TargetNpcId, ct);
+                    EmitActionCompleted("UseAction", uaResult.IsSuccess ? "Done" : "Failed");
                     break;
 
                 case EngineAction.Wait:
