@@ -7,6 +7,7 @@ using QuestForge.Adapters;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Authoring;
+using QuestForge.Engine.Travel;
 using QuestForge.Plugin.Tracing;
 using QuestForge.Plugin.Tracing.Authoring;
 using QuestForge.Schema;
@@ -183,7 +184,7 @@ public sealed class AuthoringHost : IDisposable
     public InferenceResult PreviewInference(GameStateSnapshot before)
     {
         var after = _aggregator.Current;
-        _services.Log.Debug($"[QF-DIAG] PreviewInference: zone {before.Zone.Value}→{after.Zone.Value} AethernetTeleportCompleted={after.AethernetTeleportCompleted?.To.Value} DialogueOptionSelected={after.DialogueOptionSelected} DialogueNpcSource={after.DialogueNpcSource?.NpcId} isAethernet_before_shard={before.LastAethernetShardInteracted?.Value} isAethernet_before_npc={before.LastNpcInteracted?.Value}");
+        _services.Log.Debug($"[QF-DIAG] PreviewInference: zone {before.Zone.Value}→{after.Zone.Value} AethernetTeleportCompleted={after.AethernetTeleportCompleted?.To.Value} TeleportCompleted={after.TeleportCompleted?.Value} DialogueOptionSelected={after.DialogueOptionSelected} DialogueNpcSource={after.DialogueNpcSource?.NpcId} isAethernet_before_shard={before.LastAethernetShardInteracted?.Value} isAethernet_before_npc={before.LastNpcInteracted?.Value}");
         return _inferenceEngine.Infer(before, after);
     }
 
@@ -255,6 +256,7 @@ public sealed class AuthoringHost : IDisposable
         // Consume per-step events so they don't bleed into the next recording window.
         _aggregator.OnAethernetTeleportConsumed();
         _aggregator.OnDialogueOptionConsumed();
+        _aggregator.OnTeleportConsumed();
 
         return Task.CompletedTask;
     }
@@ -265,6 +267,22 @@ public sealed class AuthoringHost : IDisposable
     {
         var pos = GetPlayerPosition();
         _aggregator.OnZoneChanged(new ZoneId(territoryId), pos);
+        InferTeleportFromZoneChange(territoryId);
+    }
+
+    // Inferred teleport detection: if the player just changed zones AND the Teleport addon was
+    // observed open within the last TeleportInferenceWindow, treat this as a teleport to the new
+    // zone's master aetheryte (via AetheryteZoneMap reverse lookup).
+    private static readonly TimeSpan TeleportInferenceWindow = TimeSpan.FromSeconds(10);
+
+    private void InferTeleportFromZoneChange(uint territoryId)
+    {
+        if (!_uiObserver.WasTeleportAddonOpenWithin(TeleportInferenceWindow, DateTimeOffset.UtcNow))
+            return;
+        if (!AetheryteZoneMap.TryGetAetheryteByZone(territoryId, out var aetheryteId))
+            return;
+        _aggregator.OnTeleportCompleted(new QuestForge.Adapters.Types.AetheryteId(aetheryteId));
+        _uiObserver.ClearTeleportAddonOpenTimestamp();
     }
 
     private void OnFrameworkUpdate(IFramework _)

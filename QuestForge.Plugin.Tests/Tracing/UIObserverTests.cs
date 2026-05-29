@@ -2544,7 +2544,6 @@ public sealed class UIObserverTests
     // ─────────────────────────────────────────────────────────────────────────
     // UO-V: Quest variables observations (QUEST_VARIABLES_TRACE_PLAN.md §4 Group UO)
     //
-    // RED: UIObserver.PollQuestState does not yet write GetQuestVariables observations
     // AND FakeGameProbe has no per-quest variables setter.
     // Both conditions make these tests fail (compile-error + assertion failure).
     // ─────────────────────────────────────────────────────────────────────────
@@ -2719,6 +2718,103 @@ public sealed class UIObserverTests
         var changedElements = secondObs.Value!.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
         Assert.Equal(new byte[] { 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 }, changedElements);
 
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UO-J: Teleport addon timestamp tracking — PollTeleportAddonOpen
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // FFXIVClientStructs's AddonTeleport struct is stale for the current game version (typed
+    // access to TeleportTreeList returns garbage and crashes). The Teleport addon also has no
+    // reliable AtkValues layout for selection capture. Instead, UIObserver only tracks whether
+    // the addon was open recently; the destination is inferred at zone-change time via
+    // AetheryteZoneMap reverse lookup (see AuthoringHost.OnTerritoryChanged).
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private const string TeleportAddonName = "Teleport";
+
+    [Fact]
+    public void UO_J1_AddonOpen_StampsTimestamp_WasOpenWithinReturnsTrue()
+    {
+        var (observer, framework, addonProbe, _, clock, _, _) = BuildFixture();
+        addonProbe.OpenAddon(TeleportAddonName);
+
+        framework.Tick();
+
+        Assert.True(observer.WasTeleportAddonOpenWithin(TimeSpan.FromSeconds(10), clock.UtcNow));
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_J2_AddonNeverOpen_WasOpenWithinReturnsFalse()
+    {
+        var (observer, framework, _, _, clock, _, _) = BuildFixture();
+
+        framework.Tick();
+
+        Assert.False(observer.WasTeleportAddonOpenWithin(TimeSpan.FromSeconds(10), clock.UtcNow));
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_J3_AddonOpenedLongAgo_WasOpenWithinReturnsFalse_WhenAsOfBeyondWindow()
+    {
+        var (observer, framework, addonProbe, _, clock, _, _) = BuildFixture();
+        addonProbe.OpenAddon(TeleportAddonName);
+        framework.Tick(); // stamp t0
+        addonProbe.CloseAddon(TeleportAddonName);
+
+        var future = clock.UtcNow + TimeSpan.FromSeconds(15);
+
+        Assert.False(observer.WasTeleportAddonOpenWithin(TimeSpan.FromSeconds(10), future));
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_J4_ResetWindowState_ClearsTeleportTimestamp()
+    {
+        var (observer, framework, addonProbe, _, clock, _, _) = BuildFixture();
+        addonProbe.OpenAddon(TeleportAddonName);
+        framework.Tick();
+        Assert.True(observer.WasTeleportAddonOpenWithin(TimeSpan.FromSeconds(10), clock.UtcNow));
+
+        observer.ResetWindowState();
+
+        Assert.False(observer.WasTeleportAddonOpenWithin(TimeSpan.FromSeconds(10), clock.UtcNow));
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_J5_ClearTeleportAddonOpenTimestamp_ResetsTrigger()
+    {
+        var (observer, framework, addonProbe, _, clock, _, _) = BuildFixture();
+        addonProbe.OpenAddon(TeleportAddonName);
+        framework.Tick();
+        Assert.True(observer.WasTeleportAddonOpenWithin(TimeSpan.FromSeconds(10), clock.UtcNow));
+
+        observer.ClearTeleportAddonOpenTimestamp();
+
+        Assert.False(observer.WasTeleportAddonOpenWithin(TimeSpan.FromSeconds(10), clock.UtcNow));
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_J6_NullAddonProbe_NoNre()
+    {
+        // Mirrors UO_F's null-probe defence: the observer should be safe even without an IAddonProbe.
+        var writer  = new FakeTraceWriter();
+        var session = new TraceSession(TraceMode.Always, Path.GetTempPath(), _ => writer);
+        session.OnPluginStart();
+        var clock     = new FakeClock(T0);
+        var framework = new FakeFramework();
+        var observer  = new UIObserver(
+            framework: framework, traceSession: session, passiveRunId: PassiveRunId,
+            addonProbe: null, gameProbe: null, clock: clock);
+
+        framework.Tick();
+
+        Assert.False(observer.WasTeleportAddonOpenWithin(TimeSpan.FromSeconds(10), clock.UtcNow));
         observer.Dispose();
     }
 }

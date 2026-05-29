@@ -122,6 +122,18 @@ public static class StepFactory
                 Target = npcLoc,
                 Items = itemsOverride ?? (after?.KeyItemsRemoved?.ToArray() ?? [])
             },
+            "teleport" => new TeleportStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                Zone = zoneStr,
+                RequiredZone = ZoneStr(before?.Zone.Value ?? 0u),
+                // Read AetheryteId from the snapshot's TeleportCompleted signal.
+                // Defensive: if TeleportCompleted is null (should not happen — inference engine
+                // only returns "teleport" when the field is set), fall back to 0u so the
+                // draft validator catches it rather than throwing here.
+                AetheryteId = new QuestForge.Schema.AetheryteId(after?.TeleportCompleted?.Value ?? 0u)
+            },
             "attune" => new AttunementStep
             {
                 Id = stepId,

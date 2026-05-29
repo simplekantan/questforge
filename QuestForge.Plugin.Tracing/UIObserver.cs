@@ -64,6 +64,15 @@ public sealed class UIObserver : IDisposable
     private uint?  _pendingAethernetFromId;
     private uint?  _pendingAethernetToId;
 
+    // ── Teleport (cross-region general action) tracking ───────────────────
+    // The Teleport addon's internal struct (per FFXIVClientStructs) is out of date for the current
+    // game version — reading SelectedItemIndex/Items returns garbage and crashes the game. Instead
+    // we only track whether the addon was open recently; the actual destination is inferred at
+    // zone-change time via AetheryteZoneMap reverse lookup (each zone has exactly one master
+    // aetheryte). See AuthoringHost.OnTerritoryChanged for the inference.
+    private const string TeleportAddonName = "Teleport";
+    private DateTimeOffset _teleportAddonLastOpenAt = DateTimeOffset.MinValue;
+
     // ── SelectIconString (dialogue) tracking ─────────────────────────────
     private bool _dialogueIconStringWasOpen;
     private int? _pendingDialogueIdx;
@@ -162,8 +171,11 @@ public sealed class UIObserver : IDisposable
         _lastTargetBaseId          = 0;
         _lastBattleNpcBaseId       = 0;
 
+        _teleportAddonLastOpenAt = DateTimeOffset.MinValue;
+
         _aggregator?.OnAethernetTeleportConsumed();
         _aggregator?.OnDialogueOptionConsumed();
+        _aggregator?.OnTeleportConsumed();
     }
 
     /// <summary>
@@ -195,6 +207,7 @@ public sealed class UIObserver : IDisposable
         // PollTargetNpc runs every-frame so NPC interaction (LastNpcInteracted → talk Rule 7 /
         // attune Rule 2.5) and aethernet-shard capture are not throttled to the 250 ms heartbeat.
         PollAethernetDestination();
+        PollTeleportAddonOpen();
         PollDialogueOption();
         PollSelectYesno();
         PollTargetNpc();
@@ -571,6 +584,28 @@ public sealed class UIObserver : IDisposable
                 _pendingAethernetToId = destId;
         }
     }
+
+    private void PollTeleportAddonOpen()
+    {
+        if (_addonProbe is null) return;
+        if (_addonProbe.IsAddonOpen(TeleportAddonName))
+            _teleportAddonLastOpenAt = _clock.UtcNow;
+    }
+
+    /// <summary>
+    /// True if the Teleport addon was observed open within the given window ending at the supplied
+    /// instant. Used by AuthoringHost.OnTerritoryChanged to correlate a zone change with a recent
+    /// teleport menu interaction.
+    /// </summary>
+    public bool WasTeleportAddonOpenWithin(TimeSpan window, DateTimeOffset asOf)
+        => _teleportAddonLastOpenAt != DateTimeOffset.MinValue
+           && (asOf - _teleportAddonLastOpenAt) <= window;
+
+    /// <summary>
+    /// Clears the teleport-addon-open timestamp. Called by AuthoringHost after a successful
+    /// teleport inference fires so a subsequent zone change can't re-trigger from the same window.
+    /// </summary>
+    public void ClearTeleportAddonOpenTimestamp() => _teleportAddonLastOpenAt = DateTimeOffset.MinValue;
 
     private void PollDialogueOption()
     {
