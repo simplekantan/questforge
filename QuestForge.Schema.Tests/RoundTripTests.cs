@@ -247,19 +247,68 @@ public class RoundTripTests
         Assert.Equal("say", result.Channel);
     }
 
+    // UE10 — round-trip with TargetNpcId set and motion=true (default)
+    // TODO: UseEmoteStep must be rewritten to { EmoteId, TargetNpcId: uint?, Motion: bool = true }
+    //       The old Target: NpcLocation? field is removed (Decision UE3).
     [Fact]
-    public void UseEmoteStep_RoundTrips()
+    public void UseEmoteStep_MotionTrue_WithTarget_RoundTrips_UE10()
     {
         var step = new UseEmoteStep
         {
             Id = "salute",
             EmoteId = 7,
-            Target = new NpcLocation(1000789, 132, new Position3(0f, 0f, 0f)),
+            TargetNpcId = 1000789u,  // TODO: new field — replaces Target: NpcLocation?
+            Motion = true,            // TODO: new field
             Expect = new PredicateExpect { Predicate = "questFlag(65657, 5)" }
         };
 
         var result = RoundTrip(step);
         Assert.Equal(7u, result.EmoteId);
+        Assert.Equal(1000789u, result.TargetNpcId);
+        Assert.True(result.Motion);
+    }
+
+    // UE11 — round-trip with motion=false explicit and no target
+    // TODO: UseEmoteStep.Motion must round-trip as false when set explicitly.
+    [Fact]
+    public void UseEmoteStep_MotionFalse_NoTarget_RoundTrips_UE11()
+    {
+        var step = new UseEmoteStep
+        {
+            Id = "yell",
+            EmoteId = 17,
+            TargetNpcId = null,  // TODO: new field
+            Motion = false,       // TODO: new field — explicit false
+            Expect = new PredicateExpect { Predicate = "questSequence(65657) >= 3" }
+        };
+
+        var result = RoundTrip(step);
+        Assert.Equal(17u, result.EmoteId);
+        Assert.Null(result.TargetNpcId);
+        Assert.False(result.Motion);
+    }
+
+    // UE12 — Motion defaults to true when field absent from JSON
+    // Pins Decision UE2: authors omitting "motion" get motion=true (broadcast suppressed).
+    // TODO: UseEmoteStep.Motion must default to true on deserialization when absent.
+    [Fact]
+    public void UseEmoteStep_MotionAbsentInJson_DefaultsToTrue_UE12()
+    {
+        const string json = """
+            {
+              "type": "use-emote",
+              "id": "celebrate",
+              "emoteId": 17,
+              "expect": "questSequence(65657) >= 3"
+            }
+            """;
+
+        var result = Assert.IsType<UseEmoteStep>(
+            JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions));
+
+        Assert.Equal(17u, result.EmoteId);
+        Assert.Null(result.TargetNpcId);
+        Assert.True(result.Motion);
     }
 
     [Fact]

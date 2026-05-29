@@ -33,4 +33,10 @@ public abstract record EngineAction
     /// Target is the actor the CombatController selected this tick (null = nothing to attack).
     /// </summary>
     public sealed record Engage(CombatStep? Step, KillTarget? Target) : EngineAction;
+
+    public sealed record UseEmote(
+        uint EmoteId,
+        Adapters.Types.NpcId? TargetNpcId,
+        bool Motion,
+        Step? Origin = null) : EngineAction;
 }

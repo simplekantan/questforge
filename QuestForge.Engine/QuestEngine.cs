@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using QuestForge.Adapters;
 using QuestForge.Adapters.Actions;
+using QuestForge.Adapters.Emotes;
 using QuestForge.Adapters.Combat;
 using QuestForge.Adapters.Gear;
 using QuestForge.Adapters.Interaction;
@@ -36,6 +37,7 @@ public sealed class QuestEngine
     private readonly ITimingProfile _timing;
     private readonly IVendor? _vendor;
     private readonly IActionExecutor? _actionExecutor;
+    private readonly IEmoteExecutor? _emoteExecutor;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly TimeProvider _clock;
@@ -78,10 +80,12 @@ public sealed class QuestEngine
         ILogger<QuestEngine> logger,
         TimeProvider? clock = null,
         IVendor? vendor = null,
-        IActionExecutor? actionExecutor = null)
+        IActionExecutor? actionExecutor = null,
+        IEmoteExecutor? emoteExecutor = null)
     {
         _vendor = vendor;
         _actionExecutor = actionExecutor;
+        _emoteExecutor = emoteExecutor;
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
         _clock = clock ?? TimeProvider.System;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
@@ -581,6 +585,14 @@ public sealed class QuestEngine
                 return (useAction, step.Id);
             }
 
+            // 6a2. UseEmoteStep async arm — step-gated so GetPlayerState is only read when
+            //      the cursor is on a UseEmoteStep.
+            if (step is UseEmoteStep useEmoteStep)
+            {
+                var useEmote = await ResolveUseEmote(useEmoteStep, ct);
+                return (useEmote, step.Id);
+            }
+
             // 6b. TeleportStep async arm — step-gated so IsPlayerInCombat is only read when the
             //     cursor is on a TeleportStep. Pre-flight guards (unknown aetheryte, in combat)
             //     run inside ResolveTeleportAction.
@@ -856,6 +868,20 @@ public sealed class QuestEngine
 
         var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
         return new EngineAction.UseAction(step.ActionType, step.ActionId, target, Origin: step);
+    }
+
+    private async Task<EngineAction> ResolveUseEmote(UseEmoteStep step, CancellationToken ct)
+    {
+        if (_emoteExecutor is null)
+            return new EngineAction.AwaitUser(
+                "UseEmoteStep dispatched but no IEmoteExecutor wired — host must supply one");
+
+        var stateResult = await _gameState.GetPlayerState(ct);
+        if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
+            return new EngineAction.Wait("player casting; deferring use-emote", Origin: step);
+
+        var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
+        return new EngineAction.UseEmote(step.EmoteId, target, step.Motion, Origin: step);
     }
 
     private async Task<EngineAction> ResolveTeleportAction(TeleportStep step, CancellationToken ct)
