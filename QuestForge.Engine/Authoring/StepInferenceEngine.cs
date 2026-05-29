@@ -261,6 +261,31 @@ public sealed class StepInferenceEngine
             }
         }
 
+        // Rule 3.5e — EmoteCompleted
+        // Fires when UIObserver.PollPlayerEmote detected that the player started an emote during
+        // this recording window (LocalPlayer.EmoteController.EmoteId transitioned to a new non-zero id).
+        //
+        // PRIORITY: above Rule 3.5 (ActionCompleted). Emote and action signals are mutually exclusive
+        // in practice (different game code paths), but if both fire in the same window the emote is
+        // the more deliberate authoring intent.
+        // PRIORITY: above Rule 3 (QuestSequence advanced) — use-emote is more specific than the
+        // catch-all sequence-advance which defaults to "talk".
+        // PRIORITY: below Rules 1, 2, 2.1, 2.2, 2.2b, 2.3, 2.4, 2.5, 2.6.
+        // CONFIDENCE: High. EXPECT: null — author MUST write the postcondition (Decision UE4).
+        if (after.EmoteCompleted is { } emoteSignal)
+        {
+            var stepIdSuffix = emoteSignal.TargetBaseId is { } tid
+                ? $"{emoteSignal.EmoteId}-on-{tid}"
+                : $"{emoteSignal.EmoteId}";
+            return new InferenceResult(
+                StepType:        "use-emote",
+                SuggestedStepId: $"use-emote-{stepIdSuffix}",
+                SuggestedExpect: null,
+                Confidence:      Confidence.High,
+                InferredFrom:    InferredFrom.EmoteCompleted,
+                Notes:           $"Author MUST write the Expect predicate (no universal emote postcondition). EmoteId={emoteSignal.EmoteId}");
+        }
+
         // Rule 3.5 — ActionCompleted
         // Fires when UIObserver.PollPlayerActionEffect detected that the player used a supported
         // game action (Action / GeneralAction / KeyItem) during this recording window.
