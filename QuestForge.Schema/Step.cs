@@ -180,19 +180,25 @@ public class UseActionStep : Step
     public uint? TargetNpcId { get; init; }
 }
 
-public class EquipGearForQuestStep : Step
+public sealed class EquipGearForQuestStep : Step
 {
-    public GearItem[] Items { get; init; } = [];
+    /// <summary>
+    /// Item IDs to equip. The adapter determines the target slot from each item's
+    /// EquipSlotCategory (Lumina lookup). For rings, the adapter picks the first
+    /// available ring slot.
+    /// </summary>
+    public uint[] ItemIds { get; init; } = [];
 }
 
-public class EquipBestGearStep : Step
-{
-    public GearConstraints? Constraints { get; init; }
-}
+public sealed class EquipBestGearStep : Step { }
 
-public class ChangeJobStep : Step
+public sealed class ChangeJobStep : Step
 {
-    public string Job { get; init; } = default!;
+    /// <summary>
+    /// ClassJob row ID from the game's ClassJob sheet.
+    /// Example: 32 = Dark Knight, 19 = Paladin, 24 = White Mage.
+    /// </summary>
+    public uint JobId { get; init; }
 }
 
 public class MinigameStep : Step

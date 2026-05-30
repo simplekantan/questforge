@@ -174,6 +174,45 @@ public sealed class DraftValidator
             }
         }
 
+        // E16: EquipGearForQuestStep with empty ItemIds
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is EquipGearForQuestStep eg && eg.ItemIds.Length == 0)
+            {
+                errors.Add(new DraftValidationError("E16",
+                    $"Step '{steps[i].StepId}' is an EquipGearForQuestStep with empty ItemIds array.",
+                    [i]));
+            }
+        }
+
+        // E17: EquipGearForQuestStep with zero value in ItemIds
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is EquipGearForQuestStep eg)
+            {
+                for (var j = 0; j < eg.ItemIds.Length; j++)
+                {
+                    if (eg.ItemIds[j] == 0)
+                    {
+                        errors.Add(new DraftValidationError("E17",
+                            $"Step '{steps[i].StepId}' is an EquipGearForQuestStep with ItemIds containing a zero value at index {j}.",
+                            [i]));
+                    }
+                }
+            }
+        }
+
+        // E18: ChangeJobStep with JobId == 0
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is ChangeJobStep cj && cj.JobId == 0)
+            {
+                errors.Add(new DraftValidationError("E18",
+                    $"Step '{steps[i].StepId}' is a ChangeJobStep with JobId == 0.",
+                    [i]));
+            }
+        }
+
         // W1: Step has no Expect
         for (var i = 0; i < steps.Count; i++)
         {

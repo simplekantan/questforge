@@ -498,48 +498,6 @@ public class RoundTripTests
     }
 
     [Fact]
-    public void EquipGearForQuestStep_RoundTrips()
-    {
-        var step = new EquipGearForQuestStep
-        {
-            Id = "equip-armor",
-            Items = [new GearItem("body", 12345), new GearItem("head", 12346)],
-            Expect = new PredicateExpect { Predicate = "playerHasEquipped(item:12345, slot:body)" }
-        };
-
-        var result = RoundTrip(step);
-        Assert.Equal(2, result.Items.Length);
-    }
-
-    [Fact]
-    public void EquipBestGearStep_RoundTrips()
-    {
-        var step = new EquipBestGearStep
-        {
-            Id = "gear-up",
-            Constraints = new GearConstraints(50),
-            Expect = new PredicateExpect { Predicate = "playerAverageItemLevel() >= 50" }
-        };
-
-        var result = RoundTrip(step);
-        Assert.Equal(50, result.Constraints!.MinItemLevel);
-    }
-
-    [Fact]
-    public void ChangeJobStep_RoundTrips()
-    {
-        var step = new ChangeJobStep
-        {
-            Id = "switch-job",
-            Job = "Gladiator",
-            Expect = new PredicateExpect { Predicate = "currentJob() == \"Gladiator\"" }
-        };
-
-        var result = RoundTrip(step);
-        Assert.Equal("Gladiator", result.Job);
-    }
-
-    [Fact]
     public void MinigameStep_RoundTrips()
     {
         var step = new MinigameStep
@@ -1245,6 +1203,226 @@ public class RoundTripTests
 
         Assert.Null(result.GcCategory);   // RED: property does not exist yet
         Assert.Null(result.GcRankTier);   // RED: property does not exist yet
+    }
+
+    // =========================================================================
+    // Issue #122 -- Gear step schema update round-trip tests (RED PHASE)
+    // All tests reference NEW property names (ItemIds, JobId) and the removal
+    // of GearConstraints. They will fail to compile until the builder updates
+    // EquipGearForQuestStep, EquipBestGearStep, and ChangeJobStep in Step.cs.
+    // =========================================================================
+
+    // GS-RT1: EquipGearForQuestStep round-trips with uint[] ItemIds
+    [Fact]
+    public void EquipGearForQuestStep_ItemIds_RoundTrips_GS_RT1()
+    {
+        /*
+         * RED: Will fail to compile -- EquipGearForQuestStep.ItemIds does not exist yet
+         *      (current shape has GearItem[] Items).
+         *
+         * CONTRACT: Given EquipGearForQuestStep with ItemIds = [12345u, 12346u],
+         *           When serialized as Step then deserialized,
+         *           Then result is EquipGearForQuestStep with ItemIds.Length == 2,
+         *                ItemIds[0] == 12345u, ItemIds[1] == 12346u.
+         *
+         * BUILDER GUIDANCE: Replace GearItem[] Items with uint[] ItemIds on EquipGearForQuestStep.
+         */
+
+        var step = new EquipGearForQuestStep
+        {
+            Id = "equip-quest-armor",
+            ItemIds = [12345u, 12346u],  // RED: property does not exist yet
+            Expect = new PredicateExpect { Predicate = "playerHasEquipped(12345)" }
+        };
+
+        var result = RoundTrip(step);
+
+        Assert.Equal("equip-quest-armor", result.Id);
+        Assert.Equal(2, result.ItemIds.Length);
+        Assert.Equal(12345u, result.ItemIds[0]);
+        Assert.Equal(12346u, result.ItemIds[1]);
+    }
+
+    // GS-RT2: EquipGearForQuestStep discriminator and camelCase in JSON
+    [Fact]
+    public void EquipGearForQuestStep_Discriminator_GS_RT2()
+    {
+        /*
+         * RED: Will fail to compile -- ItemIds does not exist yet.
+         *
+         * CONTRACT: Given EquipGearForQuestStep with ItemIds = [12345u, 12346u],
+         *           When serialized,
+         *           Then compact JSON contains "type":"equip-gear-for-quest"
+         *                and "itemIds":[12345,12346].
+         */
+
+        var step = new EquipGearForQuestStep
+        {
+            Id = "equip-quest-armor",
+            ItemIds = [12345u, 12346u],  // RED: property does not exist yet
+            Expect = new PredicateExpect { Predicate = "playerHasEquipped(12345)" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+
+        Assert.Contains("\"type\":\"equip-gear-for-quest\"", compactJson, StringComparison.Ordinal);
+        Assert.Contains("\"itemIds\":[12345,12346]", compactJson, StringComparison.Ordinal);
+    }
+
+    // GS-RT3: EquipGearForQuestStep with missing itemIds field defaults to empty array
+    [Fact]
+    public void EquipGearForQuestStep_MissingItemIds_DefaultsToEmpty_GS_RT3()
+    {
+        /*
+         * RED: Will fail to compile -- ItemIds does not exist yet.
+         *
+         * CONTRACT: Given JSON with type "equip-gear-for-quest" and no itemIds field,
+         *           When deserialized,
+         *           Then ItemIds is [] (empty array, no exception).
+         */
+
+        const string json = """
+            {
+              "type": "equip-gear-for-quest",
+              "id": "x"
+            }
+            """;
+
+        var step = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+        var equipGear = Assert.IsType<EquipGearForQuestStep>(step);
+        Assert.Empty(equipGear.ItemIds);  // RED: property does not exist yet
+    }
+
+    // GS-RT4: EquipBestGearStep round-trips (empty body, no Constraints property)
+    [Fact]
+    public void EquipBestGearStep_EmptyBody_RoundTrips_GS_RT4()
+    {
+        /*
+         * RED: Will fail because test asserts the Constraints property is GONE.
+         *      Current shape still has GearConstraints? Constraints.
+         *      This test validates the new shape (no step-specific properties).
+         *
+         * CONTRACT: Given EquipBestGearStep with only Id set,
+         *           When serialized as Step then deserialized,
+         *           Then result is EquipBestGearStep with Id == "gear-up".
+         *
+         * BUILDER GUIDANCE: Remove GearConstraints? Constraints property from EquipBestGearStep.
+         */
+
+        var step = new EquipBestGearStep
+        {
+            Id = "gear-up"
+        };
+
+        var result = RoundTrip(step);
+
+        Assert.Equal("gear-up", result.Id);
+    }
+
+    // GS-RT5: EquipBestGearStep discriminator, no "constraints" in JSON
+    [Fact]
+    public void EquipBestGearStep_Discriminator_NoConstraints_GS_RT5()
+    {
+        /*
+         * CONTRACT: Given EquipBestGearStep with only Id set,
+         *           When serialized,
+         *           Then compact JSON contains "type":"equip-best-gear"
+         *                and does NOT contain "constraints".
+         *
+         * BUILDER GUIDANCE: After removing GearConstraints? Constraints, the serialized
+         *   output naturally omits it. This test locks that contract.
+         */
+
+        var step = new EquipBestGearStep
+        {
+            Id = "gear-up"
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+
+        Assert.Contains("\"type\":\"equip-best-gear\"", compactJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"constraints\"", compactJson, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // GS-RT6: ChangeJobStep round-trips with uint JobId
+    [Fact]
+    public void ChangeJobStep_JobId_RoundTrips_GS_RT6()
+    {
+        /*
+         * RED: Will fail to compile -- ChangeJobStep.JobId does not exist yet
+         *      (current shape has string Job).
+         *
+         * CONTRACT: Given ChangeJobStep with JobId = 19u,
+         *           When serialized as Step then deserialized,
+         *           Then result is ChangeJobStep with JobId == 19u.
+         *
+         * BUILDER GUIDANCE: Replace string Job with uint JobId on ChangeJobStep.
+         */
+
+        var step = new ChangeJobStep
+        {
+            Id = "switch-to-paladin",
+            JobId = 19u,  // RED: property does not exist yet
+            Expect = new PredicateExpect { Predicate = "currentJob() == 19" }
+        };
+
+        var result = RoundTrip(step);
+
+        Assert.Equal("switch-to-paladin", result.Id);
+        Assert.Equal(19u, result.JobId);  // RED: property does not exist yet
+    }
+
+    // GS-RT7: ChangeJobStep discriminator and camelCase in JSON
+    [Fact]
+    public void ChangeJobStep_Discriminator_GS_RT7()
+    {
+        /*
+         * RED: Will fail to compile -- JobId does not exist yet.
+         *
+         * CONTRACT: Given ChangeJobStep with JobId = 19u,
+         *           When serialized,
+         *           Then compact JSON contains "type":"change-job" and "jobId":19.
+         *           And does NOT contain "job" as a string-valued property.
+         */
+
+        var step = new ChangeJobStep
+        {
+            Id = "switch-to-paladin",
+            JobId = 19u,  // RED: property does not exist yet
+            Expect = new PredicateExpect { Predicate = "currentJob() == 19" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+
+        Assert.Contains("\"type\":\"change-job\"", compactJson, StringComparison.Ordinal);
+        Assert.Contains("\"jobId\":19", compactJson, StringComparison.Ordinal);
+    }
+
+    // GS-RT8: ChangeJobStep with missing jobId defaults to 0
+    [Fact]
+    public void ChangeJobStep_MissingJobId_DefaultsToZero_GS_RT8()
+    {
+        /*
+         * RED: Will fail to compile -- JobId does not exist yet.
+         *
+         * CONTRACT: Given JSON with type "change-job" and no jobId field,
+         *           When deserialized,
+         *           Then JobId == 0u (default, no exception -- validator catches this).
+         */
+
+        const string json = """
+            {
+              "type": "change-job",
+              "id": "x"
+            }
+            """;
+
+        var step = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+        var changeJob = Assert.IsType<ChangeJobStep>(step);
+        Assert.Equal(0u, changeJob.JobId);  // RED: property does not exist yet
     }
 
 }
