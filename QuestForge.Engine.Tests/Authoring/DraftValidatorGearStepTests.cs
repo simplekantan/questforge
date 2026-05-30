@@ -257,31 +257,32 @@ public sealed class DraftValidatorGearStepTests
     }
 
     // =========================================================================
-    // GS-V9: W1 fires for EquipGearForQuestStep without Expect
+    // GS-V9: W1 suppressed for EquipGearForQuestStep without Expect (updated per EG-9)
     // =========================================================================
 
     /// <summary>
     /// Given the baseline plus an EquipGearForQuestStep with Expect = null,
     /// When Validate() is called,
-    /// Then exactly one warning with Code == "W1" for that step.
-    /// (Gear steps do NOT suppress W1 -- they are not spin-loop-prone.)
+    /// Then W1 does NOT fire (EquipGearForQuestStep has implicit postcondition per Decision EG-9).
+    /// Updated from the original "W1 fires" expectation per EQUIP_GEAR_FOR_QUEST_STEP_PLAN.md EG-9.
     /// </summary>
     [Fact]
-    public void Validate_EquipGearForQuest_NoExpect_RaisesW1_GS_V9()
+    public void Validate_EquipGearForQuest_NoExpect_W1Suppressed_GS_V9()
     {
         var draft = DraftValidatorTestData.ValidBaseline();
         draft.AddStep(DraftValidatorTestData.MakeDraftStep("equip-no-expect", 2,
             new EquipGearForQuestStep
             {
                 Id = "equip-no-expect",
-                ItemIds = [12345u],  // RED: property does not exist yet
-                Expect = null        // missing Expect -- W1 fires
+                ItemIds = [12345u],
+                Expect = null        // missing Expect -- W1 is suppressed per EG-9
             },
             notes: "x"), DraftValidatorTestData.T0);
 
         var result = new DraftValidator().Validate(draft);
 
-        DraftValidatorAssertions.AssertSingleWarning(result, "W1");
+        // W1 must NOT fire for EquipGearForQuestStep (implicit postcondition makes it non-spin-loop)
+        Assert.DoesNotContain(result.Warnings, w => w.Code == "W1");
     }
 
     // =========================================================================

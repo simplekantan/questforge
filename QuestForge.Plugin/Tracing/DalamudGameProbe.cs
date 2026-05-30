@@ -134,4 +134,19 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
             SenderName: pSender.ToString(),
             Message:    pMessage.ToString());
     }
+
+    public IReadOnlyList<uint>? GetEquippedItemIds()
+    {
+        var mgr = InventoryManager.Instance();
+        if (mgr == null) return null;
+        var container = mgr->GetInventoryContainer(InventoryType.EquippedItems);
+        if (container == null || !container->IsLoaded) return null;
+        var result = new uint[14];
+        for (var i = 0; i < 14; i++)
+        {
+            var slot = container->GetInventorySlot(i);
+            result[i] = slot != null ? slot->ItemId : 0u;
+        }
+        return result;
+    }
 }

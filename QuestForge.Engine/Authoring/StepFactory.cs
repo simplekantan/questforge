@@ -166,6 +166,12 @@ public static class StepFactory
                 Message = after?.SayChatMessageSent?.Message ?? string.Empty,
                 TargetNpcId = after?.SayChatMessageSent?.TargetBaseId
             },
+            "equip-gear-for-quest" => new QuestForge.Schema.EquipGearForQuestStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                ItemIds = after?.EquipmentChanged?.NewItemIds.ToArray() ?? []
+            },
             "attune" => new AttunementStep
             {
                 Id = stepId,

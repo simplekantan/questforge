@@ -43,6 +43,14 @@ public interface IGameProbe
     /// populated for outbound messages.
     /// </summary>
     string? GetLocalPlayerName();
+
+    /// <summary>
+    /// Returns the item IDs currently in the 14 equipment slots (InventoryType.EquippedItems),
+    /// in slot order (0 = MainHand, 1 = OffHand, ..., 13 = SoulCrystal).
+    /// Slots with no item have item ID 0. Returns null when InventoryManager is unavailable
+    /// or the container is not loaded.
+    /// </summary>
+    IReadOnlyList<uint>? GetEquippedItemIds();
 }
 
 /// <summary>

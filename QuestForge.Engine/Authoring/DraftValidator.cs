@@ -218,7 +218,7 @@ public sealed class DraftValidator
         {
             var step = steps[i];
             if (step.Raw is null) continue;
-            if (step.Raw.Expect is null && step.Raw is not UseActionStep and not UseEmoteStep and not SayChatMessageStep and not UseItemStep)
+            if (step.Raw.Expect is null && step.Raw is not UseActionStep and not UseEmoteStep and not SayChatMessageStep and not UseItemStep and not EquipGearForQuestStep)
             {
                 warnings.Add(new DraftValidationWarning("W1",
                     $"Step '{step.StepId}' has no 'expect' predicate. Consider adding one for reliability.",

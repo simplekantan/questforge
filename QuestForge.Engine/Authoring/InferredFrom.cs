@@ -20,4 +20,5 @@ public enum InferredFrom
     EmoteCompleted,
     SayChatMessageSent,
     ItemUsed,
+    EquipmentChanged,
 }
