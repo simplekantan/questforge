@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using QuestForge.Adapters.Fakes.Combat;
-using QuestForge.Adapters.Fakes.Gear;
 using QuestForge.Adapters.Fakes.Interaction;
 using QuestForge.Adapters.Fakes.Minigames;
 using QuestForge.Adapters.Fakes.Movement;
@@ -44,7 +43,6 @@ public sealed class QuestEngineConstructorTests
     [InlineData("teleporter")]
     [InlineData("interactor")]
     [InlineData("combat")]
-    [InlineData("gear")]
     [InlineData("minigames")]
     [InlineData("dialogue")]
     [InlineData("timing")]
@@ -53,7 +51,7 @@ public sealed class QuestEngineConstructorTests
     public void Constructor_NullParam_ThrowsArgumentNullException(string nullParam)
     {
         var (gameState, questState, navigator, teleporter, interactor,
-             combat, gear, minigames, dialogue, timing, trace, logger) = GetAllArgs();
+             combat, minigames, dialogue, timing, trace, logger) = GetAllArgs();
 
         var ex = Assert.Throws<ArgumentNullException>(() =>
             new QuestEngine(
@@ -63,7 +61,6 @@ public sealed class QuestEngineConstructorTests
                 nullParam == "teleporter"  ? null! : teleporter,
                 nullParam == "interactor"  ? null! : interactor,
                 nullParam == "combat"      ? null! : combat,
-                nullParam == "gear"        ? null! : gear,
                 nullParam == "minigames"   ? null! : minigames,
                 nullParam == "dialogue"    ? null! : dialogue,
                 nullParam == "timing"      ? null! : timing,
@@ -80,10 +77,10 @@ public sealed class QuestEngineConstructorTests
     private static QuestEngine BuildEngine()
     {
         var (gameState, questState, navigator, teleporter, interactor,
-             combat, gear, minigames, dialogue, timing, trace, logger) = GetAllArgs();
+             combat, minigames, dialogue, timing, trace, logger) = GetAllArgs();
 
         return new QuestEngine(gameState, questState, navigator, teleporter, interactor,
-                               combat, gear, minigames, dialogue, timing, trace, logger);
+                               combat, minigames, dialogue, timing, trace, logger);
     }
 
     private static (
@@ -93,7 +90,6 @@ public sealed class QuestEngineConstructorTests
         FakeTeleporter teleporter,
         FakeInteractor interactor,
         FakeCombat combat,
-        FakeGearManager gear,
         FakeMinigameSkipper minigames,
         FakeDialogueResolver dialogue,
         FakeTimingProfile timing,
@@ -107,13 +103,12 @@ public sealed class QuestEngineConstructorTests
         var teleporter = new FakeTeleporter(gameState);
         var interactor = new FakeInteractor(gameState, questState);
         var combat = new FakeCombat();
-        var gear = new FakeGearManager();
         var minigames = new FakeMinigameSkipper();
         var dialogue = new FakeDialogueResolver();
         var timing = new FakeTimingProfile();
         var trace = new NullTraceWriter();
         var logger = NullLogger<QuestEngine>.Instance;
         return (gameState, questState, navigator, teleporter, interactor,
-                combat, gear, minigames, dialogue, timing, trace, logger);
+                combat, minigames, dialogue, timing, trace, logger);
     }
 }

@@ -88,7 +88,9 @@ public sealed class TraceReplayFixtureStateTests
         Assert.IsType<InertTeleporter>(state.Teleporter);
         Assert.IsType<InertInteractor>(state.Interactor);
         Assert.IsType<FakeCombat>(state.Combat);
-        Assert.IsType<FakeGearManager>(state.Gear);
+        Assert.IsType<FakeGearEquipper>(state.GearEquipper);
+        Assert.IsType<FakeBestGearEquipper>(state.BestGearEquipper);
+        Assert.IsType<FakeJobChanger>(state.JobChanger);
         Assert.IsType<FakeMinigameSkipper>(state.Minigames);
         Assert.IsType<FakeDialogueResolver>(state.Dialogue);
         Assert.IsType<FakeTimingProfile>(state.Timing);
@@ -309,7 +311,7 @@ public sealed class TraceReplayFixtureStateTests
         var engine = new QuestEngine(
             gameState, questState,
             new InertNavigator(), new InertTeleporter(), new InertInteractor(),
-            new FakeCombat(), new FakeGearManager(),
+            new FakeCombat(),
             new FakeMinigameSkipper(), new FakeDialogueResolver(),
             new FakeTimingProfile(),
             new CapturingTraceWriter(), NullLogger<QuestEngine>.Instance);
@@ -512,7 +514,7 @@ public sealed class TraceReplayFixtureStateTests
         var engine = new QuestEngine(
             state.GameState, state.QuestState,
             state.Navigator, state.Teleporter, state.Interactor,
-            state.Combat, state.Gear, state.Minigames, state.Dialogue, state.Timing,
+            state.Combat, state.Minigames, state.Dialogue, state.Timing,
             new CapturingTraceWriter(), NullLogger<QuestEngine>.Instance);
 
         engine.StartQuest(quest);
@@ -565,7 +567,7 @@ public sealed class TraceReplayFixtureStateTests
         var engine = new QuestEngine(
             state.GameState, state.QuestState,
             state.Navigator, state.Teleporter, state.Interactor,
-            state.Combat, state.Gear, state.Minigames, state.Dialogue, state.Timing,
+            state.Combat, state.Minigames, state.Dialogue, state.Timing,
             new CapturingTraceWriter(), NullLogger<QuestEngine>.Instance);
 
         engine.StartQuest(quest);
@@ -693,7 +695,7 @@ public sealed class TraceReplayFixtureStateTests
         var engine = new QuestEngine(
             gameState, questState,
             new InertNavigator(), new InertTeleporter(), new InertInteractor(),
-            new FakeCombat(), new FakeGearManager(),
+            new FakeCombat(),
             new FakeMinigameSkipper(), new FakeDialogueResolver(),
             new FakeTimingProfile(),
             new CapturingTraceWriter(), NullLogger<QuestEngine>.Instance);
@@ -1240,9 +1242,11 @@ public sealed class TraceReplayFixtureStateTests
         public INavigator         Navigator  { get; } = null!;
         public ITeleporter        Teleporter { get; } = null!;
         public IInteractor        Interactor { get; } = null!;
-        public ICombat            Combat     { get; } = null!;
-        public IGearManager       Gear       { get; } = null!;
-        public IMinigameSkipper   Minigames  { get; } = null!;
+        public ICombat            Combat          { get; } = null!;
+        public IGearEquipper      GearEquipper    { get; } = null!;
+        public IBestGearEquipper  BestGearEquipper{ get; } = null!;
+        public IJobChanger        JobChanger      { get; } = null!;
+        public IMinigameSkipper   Minigames       { get; } = null!;
         public IDialogueResolver  Dialogue   { get; } = null!;
         public ITimingProfile     Timing     { get; } = null!;
 

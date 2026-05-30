@@ -45,7 +45,9 @@ internal sealed class SimpleLinearAcceptanceState : IFixtureState
     public ITeleporter Teleporter { get; }
     public IInteractor Interactor { get; }
     public ICombat Combat { get; } = new FakeCombat();
-    public IGearManager Gear { get; } = new FakeGearManager();
+    public IGearEquipper GearEquipper { get; } = new FakeGearEquipper();
+    public IBestGearEquipper BestGearEquipper { get; } = new FakeBestGearEquipper();
+    public IJobChanger JobChanger { get; } = new FakeJobChanger();
     public IMinigameSkipper Minigames { get; } = new FakeMinigameSkipper();
     public IDialogueResolver Dialogue { get; } = new FakeDialogueResolver();
     public ITimingProfile Timing { get; } = new FakeTimingProfile();

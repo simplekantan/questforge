@@ -2,7 +2,6 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using QuestForge.Adapters.Fakes;
 using QuestForge.Adapters.Fakes.Combat;
-using QuestForge.Adapters.Fakes.Gear;
 using QuestForge.Adapters.Fakes.Interaction;
 using QuestForge.Adapters.Fakes.Minigames;
 using QuestForge.Adapters.Fakes.Replay;
@@ -309,7 +308,7 @@ public sealed class CombatFixtureTests
             var engine = new QuestEngine(
                 state.GameState, state.QuestState,
                 state.Navigator, state.Teleporter, state.Interactor,
-                state.Combat, state.Gear, state.Minigames, state.Dialogue, state.Timing,
+                state.Combat, state.Minigames, state.Dialogue, state.Timing,
                 capturingTrace, NullLogger<QuestEngine>.Instance);
 
             engine.StartQuest(quest);
@@ -413,7 +412,7 @@ public sealed class CombatFixtureTests
                 var engine = new QuestEngine(
                     state.GameState, state.QuestState,
                     state.Navigator, state.Teleporter, state.Interactor,
-                    state.Combat, state.Gear, state.Minigames, state.Dialogue, state.Timing,
+                    state.Combat, state.Minigames, state.Dialogue, state.Timing,
                     capturingTrace, NullLogger<QuestEngine>.Instance);
 
                 engine.StartQuest(quest);
@@ -441,7 +440,7 @@ public sealed class CombatFixtureTests
                 var engine = new QuestEngine(
                     state.GameState, state.QuestState,
                     state.Navigator, state.Teleporter, state.Interactor,
-                    state.Combat, state.Gear, state.Minigames, state.Dialogue, state.Timing,
+                    state.Combat, state.Minigames, state.Dialogue, state.Timing,
                     capturingTrace, NullLogger<QuestEngine>.Instance);
 
                 engine.StartQuest(quest);

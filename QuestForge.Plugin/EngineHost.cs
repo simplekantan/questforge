@@ -20,7 +20,6 @@ using QuestForge.Adapters.Emotes;
 using QuestForge.Adapters.Items;
 using QuestForge.Adapters.Dalamud.Timing;
 using QuestForge.Adapters.Recording;
-using QuestForge.Adapters.Gear;
 using QuestForge.Adapters.Interaction;
 using QuestForge.Adapters.Movement;
 using QuestForge.Adapters.State;
@@ -52,7 +51,9 @@ public sealed class EngineHost : IDisposable
     private readonly DalamudChatSender _chatSender;
     private readonly DalamudItemUser _itemUser;
     private readonly WrathComboAdapter _combat;
-    private readonly DalamudGearManager _gear;
+    private readonly DalamudGearEquipper _gearEquipper;
+    private readonly DalamudBestGearEquipper _bestGearEquipper;
+    private readonly DalamudJobChanger _jobChanger;
     private readonly NullMinigameSkipper _minigames;
     private readonly LuminaDialogueResolver _dialogue;
     private readonly SeededTimingProfile _timing;
@@ -120,7 +121,9 @@ public sealed class EngineHost : IDisposable
         _chatSender      = new DalamudChatSender(services);
         _itemUser        = new DalamudItemUser(services);
         _combat          = new WrathComboAdapter(services);
-        _gear            = new DalamudGearManager(services);
+        _gearEquipper    = new DalamudGearEquipper(services);
+        _bestGearEquipper = new DalamudBestGearEquipper(services);
+        _jobChanger      = new DalamudJobChanger(services);
         _minigames       = new NullMinigameSkipper();
         _dialogue        = new LuminaDialogueResolver(services);
         _timing          = new SeededTimingProfile(seed: 0);
@@ -222,13 +225,16 @@ public sealed class EngineHost : IDisposable
 
         _engine = new QuestEngine(
             gs, qs, _navigator, _teleporter, _interactor,
-            _recordingCombat, _gear, _minigames, _dialogue, _timing,
+            _recordingCombat, _minigames, _dialogue, _timing,
             _traceSession, new DalamudLogger<QuestEngine>(_services.Log),
             vendor: _vendor,
             actionExecutor: _actionExecutor,
             emoteExecutor: _emoteExecutor,
             chatSender: _chatSender,
-            itemUser: _itemUser);
+            itemUser: _itemUser,
+            gearEquipper: _gearEquipper,
+            bestGearEquipper: _bestGearEquipper,
+            jobChanger: _jobChanger);
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
         _onRunStart?.Invoke();

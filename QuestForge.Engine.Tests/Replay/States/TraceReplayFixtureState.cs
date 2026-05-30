@@ -28,16 +28,18 @@ internal sealed class TraceReplayFixtureState : IFixtureState
 {
     private readonly SegmentedObservationScanner _scanner;
 
-    public IGameStateProvider GameState  { get; }
-    public IQuestState        QuestState { get; }
-    public INavigator         Navigator  { get; } = new InertNavigator();
-    public ITeleporter        Teleporter { get; } = new InertTeleporter();
-    public IInteractor        Interactor { get; } = new InertInteractor();
-    public ICombat            Combat     { get; } = new FakeCombat();
-    public IGearManager       Gear       { get; } = new FakeGearManager();
-    public IMinigameSkipper   Minigames  { get; } = new FakeMinigameSkipper();
-    public IDialogueResolver  Dialogue   { get; } = new FakeDialogueResolver();
-    public ITimingProfile     Timing     { get; } = new FakeTimingProfile();
+    public IGameStateProvider  GameState       { get; }
+    public IQuestState         QuestState      { get; }
+    public INavigator          Navigator       { get; } = new InertNavigator();
+    public ITeleporter         Teleporter      { get; } = new InertTeleporter();
+    public IInteractor         Interactor      { get; } = new InertInteractor();
+    public ICombat             Combat          { get; } = new FakeCombat();
+    public IGearEquipper       GearEquipper    { get; } = new FakeGearEquipper();
+    public IBestGearEquipper   BestGearEquipper{ get; } = new FakeBestGearEquipper();
+    public IJobChanger         JobChanger      { get; } = new FakeJobChanger();
+    public IMinigameSkipper    Minigames       { get; } = new FakeMinigameSkipper();
+    public IDialogueResolver   Dialogue        { get; } = new FakeDialogueResolver();
+    public ITimingProfile      Timing          { get; } = new FakeTimingProfile();
 
     private TraceReplayFixtureState(IReadOnlyList<TraceEvent> trace)
     {
