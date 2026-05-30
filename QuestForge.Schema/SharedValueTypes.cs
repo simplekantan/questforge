@@ -14,6 +14,15 @@ public enum ActionType
     KeyItem
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<ItemKind>))]
+public enum ItemKind
+{
+    [System.Text.Json.Serialization.JsonStringEnumMemberName("keyItem")]
+    KeyItem,
+    [System.Text.Json.Serialization.JsonStringEnumMemberName("inventoryItem")]
+    InventoryItem
+}
+
 // ---------------------------------------------------------------------------
 // Shared value types — immutable records used across quest and fragment types.
 // ---------------------------------------------------------------------------
@@ -144,19 +153,6 @@ public record GearItem(string Slot, uint ItemId);
 
 public record GearConstraints(int? MinItemLevel = null);
 
-/// <summary>
-/// Flat target for use-item and use-action steps.
-/// Kind discriminates which optional fields are required (validated structurally).
-/// </summary>
-public class UseItemTarget
-{
-    public string Kind { get; init; } = default!;   // "npc" | "object" | "position"
-    public uint? NpcId { get; init; }
-    public uint? InteractableId { get; init; }
-    public int? Zone { get; init; }
-    public Position3? Position { get; init; }
-    public float? Tolerance { get; init; }
-}
 
 /// <summary>Target for interact-object and pickup-item steps.</summary>
 public record InteractableTarget(uint InteractableId, int Zone, Position3 Position);

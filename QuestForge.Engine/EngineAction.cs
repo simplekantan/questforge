@@ -44,4 +44,11 @@ public abstract record EngineAction
         string Message,
         Adapters.Types.NpcId? TargetNpcId,
         Step? Origin = null) : EngineAction;
+
+    public sealed record UseItem(
+        ItemKind Kind,
+        uint ItemId,
+        Adapters.Types.NpcId? TargetNpcId,
+        Position3? TargetPosition,
+        Step? Origin = null) : EngineAction;
 }

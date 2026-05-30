@@ -5,6 +5,7 @@ using QuestForge.Adapters.Fakes;
 using QuestForge.Adapters.Fakes.Actions;
 using QuestForge.Adapters.Fakes.Chat;
 using QuestForge.Adapters.Fakes.Emotes;
+using QuestForge.Adapters.Fakes.Items;
 using QuestForge.Adapters.Fakes.Combat;
 using QuestForge.Adapters.Fakes.Gear;
 using QuestForge.Adapters.Fakes.Interaction;
@@ -57,6 +58,7 @@ public sealed class EngineTestHarness
     public FakeActionExecutor ActionExecutor { get; } = new FakeActionExecutor();
     public FakeEmoteExecutor EmoteExecutor { get; } = new FakeEmoteExecutor();
     public FakeChatSender ChatSender { get; } = new FakeChatSender();
+    public FakeItemUser ItemUser { get; } = new FakeItemUser();
 
     /// <summary>
     /// The FakeTraceWriter used for assertions in tests. In the default constructor,
@@ -129,7 +131,8 @@ public sealed class EngineTestHarness
             vendor: Vendor,
             actionExecutor: ActionExecutor,
             emoteExecutor: EmoteExecutor,
-            chatSender: ChatSender);
+            chatSender: ChatSender,
+            itemUser: ItemUser);
         Engine = new HarnessEngine(inner, GameState, Mount, Navigator);
     }
 
@@ -237,6 +240,23 @@ public sealed class EngineTestHarness
                         _jsonOpts));
                     var scResult = await ChatSender.Send(sc.Message, sc.TargetNpcId, ct);
                     EmitActionCompleted("SayChatMessage", scResult.IsSuccess ? "Done" : "Failed");
+                    break;
+
+                case EngineAction.UseItem ui:
+                    actions.Add(action);
+                    EmitActionSubmitted("UseItem", JsonSerializer.SerializeToElement(
+                        new {
+                            kind = ui.Kind.ToString(),
+                            itemId = ui.ItemId,
+                            targetNpcId = ui.TargetNpcId?.Value,
+                            targetPosition = ui.TargetPosition is { } p
+                                ? new { x = p.X, y = p.Y, z = p.Z }
+                                : (object?)null
+                        },
+                        _jsonOpts));
+                    var uiResult = await ItemUser.UseItem(
+                        ui.Kind, ui.ItemId, ui.TargetNpcId, ui.TargetPosition, ct);
+                    EmitActionCompleted("UseItem", uiResult.IsSuccess ? "Done" : "Failed");
                     break;
 
                 case EngineAction.Wait:

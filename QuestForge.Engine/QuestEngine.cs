@@ -7,6 +7,7 @@ using QuestForge.Adapters;
 using QuestForge.Adapters.Actions;
 using QuestForge.Adapters.Chat;
 using QuestForge.Adapters.Emotes;
+using QuestForge.Adapters.Items;
 using QuestForge.Adapters.Combat;
 using QuestForge.Adapters.Gear;
 using QuestForge.Adapters.Interaction;
@@ -40,6 +41,7 @@ public sealed class QuestEngine
     private readonly IActionExecutor? _actionExecutor;
     private readonly IEmoteExecutor? _emoteExecutor;
     private readonly IChatSender? _chatSender;
+    private readonly IItemUser? _itemUser;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly TimeProvider _clock;
@@ -84,12 +86,14 @@ public sealed class QuestEngine
         IVendor? vendor = null,
         IActionExecutor? actionExecutor = null,
         IEmoteExecutor? emoteExecutor = null,
-        IChatSender? chatSender = null)
+        IChatSender? chatSender = null,
+        IItemUser? itemUser = null)
     {
         _vendor = vendor;
         _actionExecutor = actionExecutor;
         _emoteExecutor = emoteExecutor;
         _chatSender = chatSender;
+        _itemUser = itemUser;
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
         _clock = clock ?? TimeProvider.System;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
@@ -605,6 +609,14 @@ public sealed class QuestEngine
                 return (sayChat, step.Id);
             }
 
+            // 6a4. UseItemStep async arm — step-gated so GetPlayerState is only read when the
+            //      cursor is on a UseItemStep.
+            if (step is UseItemStep useItemStep)
+            {
+                var useItem = await ResolveUseItem(useItemStep, ct);
+                return (useItem, step.Id);
+            }
+
             // 6b. TeleportStep async arm — step-gated so IsPlayerInCombat is only read when the
             //     cursor is on a TeleportStep. Pre-flight guards (unknown aetheryte, in combat)
             //     run inside ResolveTeleportAction.
@@ -908,6 +920,20 @@ public sealed class QuestEngine
 
         var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
         return new EngineAction.SayChatMessage(step.Message, target, Origin: step);
+    }
+
+    private async Task<EngineAction> ResolveUseItem(UseItemStep step, CancellationToken ct)
+    {
+        if (_itemUser is null)
+            return new EngineAction.AwaitUser(
+                "UseItemStep dispatched but no IItemUser wired — host must supply one");
+
+        var stateResult = await _gameState.GetPlayerState(ct);
+        if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
+            return new EngineAction.Wait("player casting; deferring use-item", Origin: step);
+
+        var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
+        return new EngineAction.UseItem(step.Kind, step.ItemId, target, step.TargetPosition, Origin: step);
     }
 
     private async Task<EngineAction> ResolveTeleportAction(TeleportStep step, CancellationToken ct)

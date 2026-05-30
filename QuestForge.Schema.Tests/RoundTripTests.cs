@@ -240,8 +240,8 @@ public class RoundTripTests
         var step = new SayChatMessageStep
         {
             Id = "say-the-magic-word",
-            Message = "Open Sesame",           // TODO: new field shape (Channel removed)
-            TargetNpcId = 1000789u,            // TODO: new field shape (NpcLocation? â†’ uint?)
+            Message = "Open Sesame",
+            TargetNpcId = 1000789u,
             Expect = new PredicateExpect { Predicate = "questFlag(65657, 4)" }
         };
 
@@ -259,8 +259,8 @@ public class RoundTripTests
         var step = new SayChatMessageStep
         {
             Id = "shout-into-void",
-            Message = "Hello",                 // TODO: new field shape
-            TargetNpcId = null,                // TODO: new field shape â€” must serialize as absent, not "targetNpcId": null
+            Message = "Hello",
+            TargetNpcId = null,
             Expect = new PredicateExpect { Predicate = "questSequence(65657) >= 3" }
         };
 
@@ -285,8 +285,8 @@ public class RoundTripTests
         {
             Id = "salute",
             EmoteId = 7,
-            TargetNpcId = 1000789u,  // TODO: new field â€” replaces Target: NpcLocation?
-            Motion = true,            // TODO: new field
+            TargetNpcId = 1000789u,
+            Motion = true,
             Expect = new PredicateExpect { Predicate = "questFlag(65657, 5)" }
         };
 
@@ -304,8 +304,8 @@ public class RoundTripTests
         {
             Id = "yell",
             EmoteId = 17,
-            TargetNpcId = null,  // TODO: new field
-            Motion = false,       // TODO: new field â€” explicit false
+            TargetNpcId = null,
+            Motion = false,
             Expect = new PredicateExpect { Predicate = "questSequence(65657) >= 3" }
         };
 
@@ -337,34 +337,127 @@ public class RoundTripTests
         Assert.True(result.Motion);
     }
 
+    // UI11 — JSON round-trip self-cast (no target fields written)
+    // Replaces UseItemStep_NoTarget_RoundTrips (old shape referenced deleted UseItemTarget)
     [Fact]
-    public void UseItemStep_NoTarget_RoundTrips()
+    public void UseItemStep_SelfCast_RoundTrips_UI11()
     {
         var step = new UseItemStep
         {
-            Id = "use-bell",
-            ItemId = 12345,
-            Expect = new PredicateExpect { Predicate = "questFlag(65657, 4)" }
+            Id = "drink-elixir",
+            Kind = ItemKind.InventoryItem,
+            ItemId = 4554u,
+            TargetNpcId = null,
+            TargetPosition = null,
+            Expect = new PredicateExpect { Predicate = "questFlag(84011, 3)" }
         };
 
-        var result = RoundTrip(step);
-        Assert.Equal(12345u, result.ItemId);
-        Assert.Null(result.Target);
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = Assert.IsType<UseItemStep>(
+            System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions));
+
+        Assert.Equal(ItemKind.InventoryItem, result.Kind);
+        Assert.Equal(4554u, result.ItemId);
+        Assert.Null(result.TargetNpcId);
+        Assert.Null(result.TargetPosition);
+        // Pins [JsonIgnore(WhenWritingNull)] on both target fields
+        Assert.DoesNotContain("targetNpcId", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("targetPosition", json, StringComparison.OrdinalIgnoreCase);
     }
 
+    // UI12 — JSON round-trip with NPC target
+    // Replaces UseItemStep_WithTarget_RoundTrips (old shape referenced deleted UseItemTarget)
     [Fact]
-    public void UseItemStep_WithTarget_RoundTrips()
+    public void UseItemStep_NpcTarget_RoundTrips_UI12()
     {
         var step = new UseItemStep
         {
-            Id = "use-letter",
-            ItemId = 12347,
-            Target = new UseItemTarget { Kind = "npc", NpcId = 1000789, Zone = 130 },
-            Expect = new PredicateExpect { Predicate = "questSequence(65657) >= 3" }
+            Id = "ring-bell",
+            Kind = ItemKind.KeyItem,
+            ItemId = 2000456u,
+            TargetNpcId = 1000789u,
+            TargetPosition = null,
+            Expect = new PredicateExpect { Predicate = "questFlag(65657, 5)" }
         };
 
-        var result = RoundTrip(step);
-        Assert.Equal("npc", result.Target!.Kind);
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = Assert.IsType<UseItemStep>(
+            System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions));
+
+        Assert.Equal(ItemKind.KeyItem, result.Kind);
+        Assert.Equal(2000456u, result.ItemId);
+        Assert.Equal(1000789u, result.TargetNpcId);
+        Assert.Null(result.TargetPosition);
+        // Pins [JsonStringEnumMemberName("keyItem")]
+        Assert.Contains("\"kind\": \"keyItem\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"targetNpcId\": 1000789", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("targetPosition", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // UI13 — JSON round-trip with AoE position target
+    [Fact]
+    public void UseItemStep_AoEPosition_RoundTrips_UI13()
+    {
+        var step = new UseItemStep
+        {
+            Id = "smoke-bomb-camp",
+            Kind = ItemKind.KeyItem,
+            ItemId = 2000123u,
+            TargetNpcId = null,
+            TargetPosition = new Position3(123.4f, 0f, -45.6f),
+            Expect = new PredicateExpect { Predicate = "questSequence(65657) >= 4" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = Assert.IsType<UseItemStep>(
+            System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions));
+
+        Assert.Equal(ItemKind.KeyItem, result.Kind);
+        Assert.Equal(2000123u, result.ItemId);
+        Assert.Null(result.TargetNpcId);
+        Assert.NotNull(result.TargetPosition);
+        Assert.Equal(123.4f, result.TargetPosition!.X, precision: 3);
+        Assert.Equal(0f, result.TargetPosition!.Y, precision: 3);
+        Assert.Equal(-45.6f, result.TargetPosition!.Z, precision: 3);
+        Assert.Contains("targetPosition", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("targetNpcId", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // UI19 — ItemKind enum round-trips as the configured camelCase strings
+    // Pins [JsonStringEnumMemberName] choices (Decision UI2)
+    [Fact]
+    public void UseItemStep_ItemKind_RoundTripsAsCamelCaseStrings_UI19()
+    {
+        var keyItemStep = new UseItemStep
+        {
+            Id = "key-item-kind",
+            Kind = ItemKind.KeyItem,
+            ItemId = 1u,
+            Expect = new PredicateExpect { Predicate = "questFlag(65657, 1)" }
+        };
+        var inventoryItemStep = new UseItemStep
+        {
+            Id = "inventory-item-kind",
+            Kind = ItemKind.InventoryItem,
+            ItemId = 1u,
+            Expect = new PredicateExpect { Predicate = "questFlag(65657, 2)" }
+        };
+
+        var keyJson = System.Text.Json.JsonSerializer.Serialize<Step>(keyItemStep, QuestForgeJsonContext.QuestFileOptions);
+        var inventoryJson = System.Text.Json.JsonSerializer.Serialize<Step>(inventoryItemStep, QuestForgeJsonContext.QuestFileOptions);
+
+        // Exact string values — NOT "KeyItem" or "Key_Item"
+        Assert.Contains("\"kind\": \"keyItem\"", keyJson, StringComparison.Ordinal);
+        Assert.Contains("\"kind\": \"inventoryItem\"", inventoryJson, StringComparison.Ordinal);
+
+        // Round-trip preserves Kind value
+        var keyResult = Assert.IsType<UseItemStep>(
+            System.Text.Json.JsonSerializer.Deserialize<Step>(keyJson, QuestForgeJsonContext.QuestFileOptions));
+        var inventoryResult = Assert.IsType<UseItemStep>(
+            System.Text.Json.JsonSerializer.Deserialize<Step>(inventoryJson, QuestForgeJsonContext.QuestFileOptions));
+
+        Assert.Equal(ItemKind.KeyItem, keyResult.Kind);
+        Assert.Equal(ItemKind.InventoryItem, inventoryResult.Kind);
     }
 
     [Fact]
@@ -394,7 +487,7 @@ public class RoundTripTests
             ActionType = ActionType.GeneralAction,
             ActionId = 4,
             TargetNpcId = null,
-            Expect = new PredicateExpect { Predicate = "playerHasBuff(50)" }
+            Expect = new PredicateExpect { Predicate = "questFlag(84011, 3)" }
         };
 
         var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
