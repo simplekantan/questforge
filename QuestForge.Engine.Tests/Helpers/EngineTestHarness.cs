@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using QuestForge.Adapters;
 using QuestForge.Adapters.Fakes;
 using QuestForge.Adapters.Fakes.Actions;
+using QuestForge.Adapters.Fakes.Chat;
 using QuestForge.Adapters.Fakes.Emotes;
 using QuestForge.Adapters.Fakes.Combat;
 using QuestForge.Adapters.Fakes.Gear;
@@ -55,6 +56,7 @@ public sealed class EngineTestHarness
 
     public FakeActionExecutor ActionExecutor { get; } = new FakeActionExecutor();
     public FakeEmoteExecutor EmoteExecutor { get; } = new FakeEmoteExecutor();
+    public FakeChatSender ChatSender { get; } = new FakeChatSender();
 
     /// <summary>
     /// The FakeTraceWriter used for assertions in tests. In the default constructor,
@@ -126,7 +128,8 @@ public sealed class EngineTestHarness
             NullLogger<QuestEngine>.Instance,
             vendor: Vendor,
             actionExecutor: ActionExecutor,
-            emoteExecutor: EmoteExecutor);
+            emoteExecutor: EmoteExecutor,
+            chatSender: ChatSender);
         Engine = new HarnessEngine(inner, GameState, Mount, Navigator);
     }
 
@@ -225,6 +228,15 @@ public sealed class EngineTestHarness
                         _jsonOpts));
                     var ueResult = await EmoteExecutor.UseEmote(ue.EmoteId, ue.TargetNpcId, ue.Motion, ct);
                     EmitActionCompleted("UseEmote", ueResult.IsSuccess ? "Done" : "Failed");
+                    break;
+
+                case EngineAction.SayChatMessage sc:
+                    actions.Add(action);
+                    EmitActionSubmitted("SayChatMessage", JsonSerializer.SerializeToElement(
+                        new { message = sc.Message, targetNpcId = sc.TargetNpcId?.Value },
+                        _jsonOpts));
+                    var scResult = await ChatSender.Send(sc.Message, sc.TargetNpcId, ct);
+                    EmitActionCompleted("SayChatMessage", scResult.IsSuccess ? "Done" : "Failed");
                     break;
 
                 case EngineAction.Wait:

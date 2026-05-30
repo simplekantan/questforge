@@ -1,7 +1,10 @@
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Plugin.Services;
-using ECommons.Automation;
+// Aliased: the SayChatMessage slice introduced QuestForge.Adapters.Chat, which shadows
+// the bare `Chat` type via namespace-vs-type lookup precedence. Without the alias, the
+// `Chat.SendMessage(...)` calls below resolve to the new sibling namespace and break the build.
+using ECChat = ECommons.Automation.Chat;
 using QuestForge.Adapters.Emotes;
 using QuestForge.Adapters.Types;
 
@@ -75,7 +78,7 @@ public sealed class DalamudEmoteExecutor : IEmoteExecutor
         //    surface as Result.Fail rather than crashing the dispatch loop.
         try
         {
-            Chat.SendMessage(command);
+            ECChat.SendMessage(command);
         }
         catch (Exception ex)
         {

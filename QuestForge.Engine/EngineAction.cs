@@ -39,4 +39,9 @@ public abstract record EngineAction
         Adapters.Types.NpcId? TargetNpcId,
         bool Motion,
         Step? Origin = null) : EngineAction;
+
+    public sealed record SayChatMessage(
+        string Message,
+        Adapters.Types.NpcId? TargetNpcId,
+        Step? Origin = null) : EngineAction;
 }

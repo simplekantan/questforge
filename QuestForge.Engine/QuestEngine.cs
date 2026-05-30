@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using QuestForge.Adapters;
 using QuestForge.Adapters.Actions;
+using QuestForge.Adapters.Chat;
 using QuestForge.Adapters.Emotes;
 using QuestForge.Adapters.Combat;
 using QuestForge.Adapters.Gear;
@@ -38,6 +39,7 @@ public sealed class QuestEngine
     private readonly IVendor? _vendor;
     private readonly IActionExecutor? _actionExecutor;
     private readonly IEmoteExecutor? _emoteExecutor;
+    private readonly IChatSender? _chatSender;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly TimeProvider _clock;
@@ -81,11 +83,13 @@ public sealed class QuestEngine
         TimeProvider? clock = null,
         IVendor? vendor = null,
         IActionExecutor? actionExecutor = null,
-        IEmoteExecutor? emoteExecutor = null)
+        IEmoteExecutor? emoteExecutor = null,
+        IChatSender? chatSender = null)
     {
         _vendor = vendor;
         _actionExecutor = actionExecutor;
         _emoteExecutor = emoteExecutor;
+        _chatSender = chatSender;
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
         _clock = clock ?? TimeProvider.System;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
@@ -593,6 +597,14 @@ public sealed class QuestEngine
                 return (useEmote, step.Id);
             }
 
+            // 6a3. SayChatMessageStep async arm — step-gated so GetPlayerState is only read
+            //      when the cursor is on a SayChatMessageStep.
+            if (step is SayChatMessageStep sayChatMessageStep)
+            {
+                var sayChat = await ResolveSayChatMessage(sayChatMessageStep, ct);
+                return (sayChat, step.Id);
+            }
+
             // 6b. TeleportStep async arm — step-gated so IsPlayerInCombat is only read when the
             //     cursor is on a TeleportStep. Pre-flight guards (unknown aetheryte, in combat)
             //     run inside ResolveTeleportAction.
@@ -882,6 +894,20 @@ public sealed class QuestEngine
 
         var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
         return new EngineAction.UseEmote(step.EmoteId, target, step.Motion, Origin: step);
+    }
+
+    private async Task<EngineAction> ResolveSayChatMessage(SayChatMessageStep step, CancellationToken ct)
+    {
+        if (_chatSender is null)
+            return new EngineAction.AwaitUser(
+                "SayChatMessageStep dispatched but no IChatSender wired — host must supply one");
+
+        var stateResult = await _gameState.GetPlayerState(ct);
+        if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
+            return new EngineAction.Wait("player casting; deferring say-chat-message", Origin: step);
+
+        var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
+        return new EngineAction.SayChatMessage(step.Message, target, Origin: step);
     }
 
     private async Task<EngineAction> ResolveTeleportAction(TeleportStep step, CancellationToken ct)

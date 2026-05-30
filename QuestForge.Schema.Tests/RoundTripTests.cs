@@ -1,11 +1,11 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using QuestForge.Schema;
 
 namespace QuestForge.Schema.Tests;
 
 /// <summary>
 /// Mandatory gate: every Step subtype must survive a serialization round-trip.
-/// A missing [JsonSerializable] registration causes silent failure at runtime —
+/// A missing [JsonSerializable] registration causes silent failure at runtime â€”
 /// catching it here prevents discovering it mid-validator-development.
 /// </summary>
 public class RoundTripTests
@@ -194,7 +194,7 @@ public class RoundTripTests
     }
 
     /// <summary>
-    /// B7 — Schema round-trip: discriminator assertion.
+    /// B7 â€” Schema round-trip: discriminator assertion.
     /// Verifies that the JSON discriminator "type":"cutscene" is present in the serialized output.
     /// This locks the [JsonDerivedType(typeof(CutsceneStep), "cutscene")] registration.
     /// </summary>
@@ -223,7 +223,7 @@ public class RoundTripTests
         var json = System.Text.Json.JsonSerializer.Serialize<Step>(
             step, QuestForgeJsonContext.QuestFileOptions);
 
-        // Assert — discriminator must be present with the exact registered value.
+        // Assert â€” discriminator must be present with the exact registered value.
         // QuestFileOptions uses WriteIndented=true, so the JSON contains spaces around
         // the colon: `"type": "cutscene"`. Strip whitespace before checking to be
         // robust against indentation changes while still asserting the correct token.
@@ -232,23 +232,51 @@ public class RoundTripTests
             StringComparison.Ordinal);
     }
 
+    // SC10 â€” JSON round-trip with TargetNpcId set (replaces legacy SayChatMessageStep_RoundTrips)
+    //       The old Channel + Target: NpcLocation? fields are removed (Decision SC1).
     [Fact]
-    public void SayChatMessageStep_RoundTrips()
+    public void SayChatMessageStep_WithTarget_RoundTrips_SC10()
     {
         var step = new SayChatMessageStep
         {
-            Id = "shout-help",
-            Channel = "say",
-            Message = "TEXT_EXAMPLE_000_001",
-            Expect = new PredicateExpect { Predicate = "questFlag(65657, 2)" }
+            Id = "say-the-magic-word",
+            Message = "Open Sesame",           // TODO: new field shape (Channel removed)
+            TargetNpcId = 1000789u,            // TODO: new field shape (NpcLocation? â†’ uint?)
+            Expect = new PredicateExpect { Predicate = "questFlag(65657, 4)" }
         };
 
         var result = RoundTrip(step);
-        Assert.Equal("say", result.Channel);
+
+        Assert.Equal("say-the-magic-word", result.Id);
+        Assert.Equal("Open Sesame", result.Message);
+        Assert.Equal(1000789u, result.TargetNpcId);
     }
 
-    // UE10 — round-trip with TargetNpcId set and motion=true (default)
-    // TODO: UseEmoteStep must be rewritten to { EmoteId, TargetNpcId: uint?, Motion: bool = true }
+    // SC11 â€” JSON round-trip with no target (TargetNpcId omitted from JSON â†’ null on deserialize)
+    [Fact]
+    public void SayChatMessageStep_WithoutTarget_RoundTrips_SC11()
+    {
+        var step = new SayChatMessageStep
+        {
+            Id = "shout-into-void",
+            Message = "Hello",                 // TODO: new field shape
+            TargetNpcId = null,                // TODO: new field shape â€” must serialize as absent, not "targetNpcId": null
+            Expect = new PredicateExpect { Predicate = "questSequence(65657) >= 3" }
+        };
+
+        var json = JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = Assert.IsType<SayChatMessageStep>(
+            JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions));
+
+        Assert.Equal("Hello", result.Message);
+        Assert.Null(result.TargetNpcId);
+
+        // Verify [JsonIgnore(WhenWritingNull)] is honored â€” "targetNpcId" must not appear in JSON
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.DoesNotContain("\"targetNpcId\"", compactJson, StringComparison.Ordinal);
+    }
+
+    // UE10 â€” round-trip with TargetNpcId set and motion=true (default)
     //       The old Target: NpcLocation? field is removed (Decision UE3).
     [Fact]
     public void UseEmoteStep_MotionTrue_WithTarget_RoundTrips_UE10()
@@ -257,7 +285,7 @@ public class RoundTripTests
         {
             Id = "salute",
             EmoteId = 7,
-            TargetNpcId = 1000789u,  // TODO: new field — replaces Target: NpcLocation?
+            TargetNpcId = 1000789u,  // TODO: new field â€” replaces Target: NpcLocation?
             Motion = true,            // TODO: new field
             Expect = new PredicateExpect { Predicate = "questFlag(65657, 5)" }
         };
@@ -268,8 +296,7 @@ public class RoundTripTests
         Assert.True(result.Motion);
     }
 
-    // UE11 — round-trip with motion=false explicit and no target
-    // TODO: UseEmoteStep.Motion must round-trip as false when set explicitly.
+    // UE11 â€” round-trip with motion=false explicit and no target
     [Fact]
     public void UseEmoteStep_MotionFalse_NoTarget_RoundTrips_UE11()
     {
@@ -278,7 +305,7 @@ public class RoundTripTests
             Id = "yell",
             EmoteId = 17,
             TargetNpcId = null,  // TODO: new field
-            Motion = false,       // TODO: new field — explicit false
+            Motion = false,       // TODO: new field â€” explicit false
             Expect = new PredicateExpect { Predicate = "questSequence(65657) >= 3" }
         };
 
@@ -288,9 +315,8 @@ public class RoundTripTests
         Assert.False(result.Motion);
     }
 
-    // UE12 — Motion defaults to true when field absent from JSON
+    // UE12 â€” Motion defaults to true when field absent from JSON
     // Pins Decision UE2: authors omitting "motion" get motion=true (broadcast suppressed).
-    // TODO: UseEmoteStep.Motion must default to true on deserialization when absent.
     [Fact]
     public void UseEmoteStep_MotionAbsentInJson_DefaultsToTrue_UE12()
     {
@@ -485,7 +511,7 @@ public class RoundTripTests
     }
 
     // =========================================================================
-    // Phase 11B — AttunementStep schema tests (B1-B4 from PHASE_11B_PLAN.md §3.1)
+    // Phase 11B â€” AttunementStep schema tests (B1-B4 from PHASE_11B_PLAN.md Â§3.1)
     // =========================================================================
 
     [Fact]
@@ -539,7 +565,7 @@ public class RoundTripTests
          * CONTRACT: Given JSON with type "attune" and no location field,
          *           When deserialised, Then Location == null.
          *
-         * BUILDER GUIDANCE: Location is NpcLocation? — STJ treats omitted fields as null.
+         * BUILDER GUIDANCE: Location is NpcLocation? â€” STJ treats omitted fields as null.
          */
 
         // Arrange
@@ -570,7 +596,7 @@ public class RoundTripTests
          *           When round-tripped through STJ,
          *           Then SkipIf is a PredicateExpect whose Predicate == "isAttuned(53)".
          *
-         * BUILDER GUIDANCE: Step.SkipIf is ExpectValue? — the existing ExpectValue converter
+         * BUILDER GUIDANCE: Step.SkipIf is ExpectValue? â€” the existing ExpectValue converter
          *   handles deserialization. The predicate string is preserved verbatim.
          */
 
@@ -598,7 +624,7 @@ public class RoundTripTests
          *
          * CONTRACT: Given JSON missing the target field,
          *           When deserialised, Then Target == default (AetheryteId(0)).
-         *           No exception is expected — structural validation is the validator's job.
+         *           No exception is expected â€” structural validation is the validator's job.
          *
          * BUILDER GUIDANCE: Schema types use { get; init; } with no [JsonRequired].
          *   Missing fields default to the type's default value, not an exception.
@@ -622,11 +648,11 @@ public class RoundTripTests
     }
 
     // =========================================================================
-    // B9 — AcceptStep schema round-trip preserves "type" discriminator
+    // B9 â€” AcceptStep schema round-trip preserves "type" discriminator
     // =========================================================================
 
     /// <summary>
-    /// B9 — AcceptStep serialized JSON contains the type discriminator literal "accept".
+    /// B9 â€” AcceptStep serialized JSON contains the type discriminator literal "accept".
     /// The existing AcceptStep_RoundTrips test only verifies object field fidelity.
     /// This test additionally locks the [JsonDerivedType(typeof(AcceptStep), "accept")]
     /// registration by asserting the literal discriminator token is present in the JSON.
@@ -638,11 +664,11 @@ public class RoundTripTests
         /*
          * CONTRACT: Given an AcceptStep instance with Target.NpcId == 1003987,
          *           When serialized via QuestForgeJsonContext.QuestFileOptions,
-         *           Then the JSON contains "type": "accept" (with space — WriteIndented=true),
+         *           Then the JSON contains "type": "accept" (with space â€” WriteIndented=true),
          *           AND deserializing the JSON back produces a Step whose runtime type is AcceptStep,
          *           AND Target.NpcId is preserved.
          *
-         * BUILDER GUIDANCE: No implementation needed — schema registration already exists.
+         * BUILDER GUIDANCE: No implementation needed â€” schema registration already exists.
          *   This test is a regression lock on [JsonDerivedType(typeof(AcceptStep), "accept")].
          */
 
@@ -657,22 +683,22 @@ public class RoundTripTests
         // Act
         var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
 
-        // Assert — discriminator token present (compact to be robust against indentation)
+        // Assert â€” discriminator token present (compact to be robust against indentation)
         var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
         Assert.Contains("\"type\":\"accept\"", compactJson, StringComparison.Ordinal);
 
-        // Assert — round-trip fidelity: runtime type and NpcId preserved
+        // Assert â€” round-trip fidelity: runtime type and NpcId preserved
         var deserialized = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
         var acceptStep = Assert.IsType<AcceptStep>(deserialized);
         Assert.Equal(1003987u, acceptStep.Target.NpcId);
     }
 
     // =========================================================================
-    // B10 — TurnInStep schema round-trip preserves discriminator and DialogueChoices
+    // B10 â€” TurnInStep schema round-trip preserves discriminator and DialogueChoices
     // =========================================================================
 
     /// <summary>
-    /// B10 — TurnInStep serialized JSON contains the type discriminator "turn-in" and
+    /// B10 â€” TurnInStep serialized JSON contains the type discriminator "turn-in" and
     /// preserves the DialogueChoices array (count + first element fields).
     /// The existing TurnInStep_RoundTrips test only verifies Id round-trip.
     /// This test additionally locks [JsonDerivedType(typeof(TurnInStep), "turn-in")]
@@ -686,12 +712,12 @@ public class RoundTripTests
          * CONTRACT: Given a TurnInStep with Target.NpcId == 1000327
          *               AND DialogueChoices containing one entry (Type="yesno", Prompt="Accept?", Answer="yes"),
          *           When serialized via QuestForgeJsonContext.QuestFileOptions,
-         *           Then the JSON contains "type": "turn-in" (with space — WriteIndented=true),
+         *           Then the JSON contains "type": "turn-in" (with space â€” WriteIndented=true),
          *           AND deserializing the JSON back produces a Step whose runtime type is TurnInStep,
          *           AND Target.NpcId is preserved,
          *           AND DialogueChoices has count 1 and the first element's Type == "yesno".
          *
-         * BUILDER GUIDANCE: No implementation needed — schema registration already exists.
+         * BUILDER GUIDANCE: No implementation needed â€” schema registration already exists.
          *   This test is a regression lock on [JsonDerivedType(typeof(TurnInStep), "turn-in")]
          *   and verifies the DialogueChoice record survives STJ serialization.
          */
@@ -708,11 +734,11 @@ public class RoundTripTests
         // Act
         var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
 
-        // Assert — discriminator token present (compact to be robust against indentation)
+        // Assert â€” discriminator token present (compact to be robust against indentation)
         var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
         Assert.Contains("\"type\":\"turn-in\"", compactJson, StringComparison.Ordinal);
 
-        // Assert — round-trip fidelity: runtime type, NpcId, and DialogueChoices preserved
+        // Assert â€” round-trip fidelity: runtime type, NpcId, and DialogueChoices preserved
         var deserialized = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
         var turnInStep = Assert.IsType<TurnInStep>(deserialized);
         Assert.Equal(1000327u, turnInStep.Target.NpcId);
@@ -758,13 +784,13 @@ public class RoundTripTests
     }
 
     // =========================================================================
-    // B8 — HandOverItemStep schema round-trip tests (RED PHASE)
+    // B8 â€” HandOverItemStep schema round-trip tests (RED PHASE)
     // All tests in this group will fail to compile until Builder implements
     // HandOverItemStep in QuestForge.Schema (Step.cs + QuestForgeJsonContext.cs).
     // =========================================================================
 
     /// <summary>
-    /// B8 — HandOverItemStep round-trips through JSON with correct NpcId, Item, and Expect.
+    /// B8 â€” HandOverItemStep round-trips through JSON with correct NpcId, Item, and Expect.
     /// </summary>
     [Fact]
     public void HandOverItemStep_RoundTrips()
@@ -808,7 +834,7 @@ public class RoundTripTests
     }
 
     /// <summary>
-    /// B8b — serialized JSON contains the "hand-over-item" type discriminator.
+    /// B8b â€” serialized JSON contains the "hand-over-item" type discriminator.
     /// </summary>
     [Fact]
     public void HandOverItemStep_SerializedJson_ContainsDiscriminator()
@@ -834,13 +860,13 @@ public class RoundTripTests
         var json = System.Text.Json.JsonSerializer.Serialize<Step>(
             step, QuestForgeJsonContext.QuestFileOptions);
 
-        // Assert — discriminator token present
+        // Assert â€” discriminator token present
         var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
         Assert.Contains("\"type\":\"hand-over-item\"", compactJson, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// B8c — missing "items" field in JSON deserializes to Items == [] (no exception).
+    /// B8c â€” missing "items" field in JSON deserializes to Items == [] (no exception).
     /// </summary>
     [Fact]
     public void HandOverItemStep_MissingItemsField_DefaultsToEmpty()
@@ -874,13 +900,13 @@ public class RoundTripTests
         var step = System.Text.Json.JsonSerializer.Deserialize<Step>(
             json, QuestForgeJsonContext.QuestFileOptions);
 
-        // Assert — no exception; Items defaults to empty array
+        // Assert â€” no exception; Items defaults to empty array
         var handOver = Assert.IsType<HandOverItemStep>(step);   // RED: type does not exist yet
         Assert.Empty(handOver.Items);
     }
 
     /// <summary>
-    /// B8d — StopDistance round-trips: 7.5f survives serialize/deserialize.
+    /// B8d â€” StopDistance round-trips: 7.5f survives serialize/deserialize.
     /// </summary>
     [Fact]
     public void HandOverItemStep_StopDistance_RoundTrips()
@@ -914,7 +940,7 @@ public class RoundTripTests
     }
 
     // =========================================================================
-    // Group E — PurchaseItemStep schema round-trip tests (RED PHASE)
+    // Group E â€” PurchaseItemStep schema round-trip tests (RED PHASE)
     // All tests in this group will fail to compile until Builder implements
     // PurchaseItemStep + PurchaseCurrency in QuestForge.Schema (Step.cs +
     // QuestForgeJsonContext.cs). That compile failure IS the correct RED.
@@ -922,14 +948,13 @@ public class RoundTripTests
 
     // Test constants: vendor NpcId 1001234, Zone 128, Position (10.5, 0, -20.0), ItemId 1601.
 
-    /// <summary>E1 — PurchaseItemStep round-trips with the "purchase-item" discriminator.</summary>
+    /// <summary>E1 â€” PurchaseItemStep round-trips with the "purchase-item" discriminator.</summary>
     [Fact]
     public void PurchaseItemStep_RoundTrips_WithDiscriminator()
     {
         // CONTRACT: Given PurchaseItemStep with all fields set, serialized as Step,
         //           Then JSON contains "type":"purchase-item"; deserialized runtime type is
         //           PurchaseItemStep; ItemId, Quantity, and Target.NpcId are preserved.
-        // RED: Fails to compile — PurchaseItemStep does not exist yet.
 
         var step = new PurchaseItemStep   // RED: type does not exist yet
         {
@@ -951,7 +976,7 @@ public class RoundTripTests
         Assert.Equal(1001234u, result.Target.NpcId);
     }
 
-    /// <summary>E2 — Currency serializes camelCase and round-trips both members.</summary>
+    /// <summary>E2 â€” Currency serializes camelCase and round-trips both members.</summary>
     [Theory]
     [InlineData(PurchaseCurrency.GcSeals, "gcSeals")]   // RED: enum does not exist yet
     [InlineData(PurchaseCurrency.Gil,     "gil")]        // RED: enum does not exist yet
@@ -960,7 +985,6 @@ public class RoundTripTests
         // CONTRACT: Given PurchaseItemStep with the given Currency value,
         //           When serialized, Then JSON contains "currency":"<expectedToken>";
         //           deserialization yields the same PurchaseCurrency member.
-        // RED: Fails to compile — PurchaseCurrency does not exist yet.
 
         var step = new PurchaseItemStep   // RED: type does not exist yet
         {
@@ -979,13 +1003,12 @@ public class RoundTripTests
         Assert.Equal(currency, purchase.Currency);
     }
 
-    /// <summary>E3 — Quantity defaults to 1 when omitted from JSON.</summary>
+    /// <summary>E3 â€” Quantity defaults to 1 when omitted from JSON.</summary>
     [Fact]
     public void PurchaseItemStep_MissingQuantityField_DefaultsToOne()
     {
         // CONTRACT: Given JSON with type "purchase-item" and no "quantity" field,
         //           When deserialized, Then Quantity == 1 (no exception).
-        // RED: Fails to compile — PurchaseItemStep does not exist yet.
 
         var json = """
             {
@@ -1006,13 +1029,12 @@ public class RoundTripTests
         Assert.Equal(1, purchase.Quantity);
     }
 
-    /// <summary>E3b — Currency defaults to Gil when omitted from JSON.</summary>
+    /// <summary>E3b â€” Currency defaults to Gil when omitted from JSON.</summary>
     [Fact]
     public void PurchaseItemStep_MissingCurrencyField_DefaultsToGil()
     {
         // CONTRACT: Given JSON with type "purchase-item" and no "currency" field,
         //           When deserialized, Then Currency == PurchaseCurrency.Gil (no exception).
-        // RED: Fails to compile — PurchaseItemStep / PurchaseCurrency do not exist yet.
 
         var json = """
             {
@@ -1034,15 +1056,15 @@ public class RoundTripTests
     }
 
     // =========================================================================
-    // Group G-E — GcCategory / GcRankTier schema round-trip tests (RED PHASE)
+    // Group G-E â€” GcCategory / GcRankTier schema round-trip tests (RED PHASE)
     // All three tests will fail to COMPILE until Builder adds GcCategory and
     // GcRankTier to PurchaseItemStep in Step.cs. That compile failure is the
-    // intended RED — do NOT stub the production fields.
+    // intended RED â€” do NOT stub the production fields.
     // =========================================================================
 
     // Test constants: Vendor=1001234, Zone=128, Position=(10.5,0,-20.0), ItemId=1601.
 
-    /// <summary>G-E1 — GcCategory/GcRankTier round-trip when set.</summary>
+    /// <summary>G-E1 â€” GcCategory/GcRankTier round-trip when set.</summary>
     [Fact]
     public void PurchaseItemStep_GcFields_RoundTrip_WhenSet()
     {
@@ -1051,7 +1073,6 @@ public class RoundTripTests
         //           Then JSON contains "gcCategory":2 AND "gcRankTier":1;
         //           deserialized step is PurchaseItemStep with GcCategory==2, GcRankTier==1,
         //           ItemId and Target.NpcId also preserved.
-        // RED: Fails to compile — GcCategory/GcRankTier do not exist on PurchaseItemStep yet.
 
         var step = new PurchaseItemStep
         {
@@ -1077,13 +1098,12 @@ public class RoundTripTests
         Assert.Equal(1001234u, result.Target.NpcId);
     }
 
-    /// <summary>G-E2 — omitted gcCategory/gcRankTier fields default to null.</summary>
+    /// <summary>G-E2 â€” omitted gcCategory/gcRankTier fields default to null.</summary>
     [Fact]
     public void PurchaseItemStep_GcFields_MissingFields_DefaultToNull()
     {
         // CONTRACT: Given JSON with type "purchase-item" and no gcCategory/gcRankTier fields,
         //           When deserialized, Then GcCategory == null && GcRankTier == null.
-        // RED: Fails to compile — GcCategory/GcRankTier do not exist on PurchaseItemStep yet.
 
         var json = """
             {
@@ -1107,16 +1127,15 @@ public class RoundTripTests
         Assert.Null(purchase.GcRankTier);   // RED: property does not exist yet
     }
 
-    /// <summary>G-E3 — null C# side round-trips (omitted or explicit null — match existing nullable-int convention).</summary>
+    /// <summary>G-E3 â€” null C# side round-trips (omitted or explicit null â€” match existing nullable-int convention).</summary>
     [Fact]
     public void PurchaseItemStep_GcFields_NullCSharpSide_RoundTrips()
     {
         // CONTRACT: Given PurchaseItemStep with GcCategory=null, GcRankTier=null,
         //           When serialized then deserialized via QuestForgeJsonContext.QuestFileOptions,
         //           Then deserialized step has GcCategory==null AND GcRankTier==null.
-        //           The exact JSON shape (omitted keys vs explicit nulls) is NOT asserted —
+        //           The exact JSON shape (omitted keys vs explicit nulls) is NOT asserted â€”
         //           match whichever convention the existing nullable-int handling uses.
-        // RED: Fails to compile — GcCategory/GcRankTier do not exist on PurchaseItemStep yet.
 
         var step = new PurchaseItemStep
         {
