@@ -11,8 +11,10 @@ using QuestForge.Adapters.Dalamud.Gear;
 using QuestForge.Adapters.Dalamud.Interaction;
 using QuestForge.Adapters.Dalamud.Minigames;
 using QuestForge.Adapters.Dalamud.Actions;
+using QuestForge.Adapters.Dalamud.Chat;
 using QuestForge.Adapters.Dalamud.Emotes;
 using QuestForge.Adapters.Dalamud.Movement;
+using QuestForge.Adapters.Chat;
 using QuestForge.Adapters.Emotes;
 using QuestForge.Adapters.Dalamud.Timing;
 using QuestForge.Adapters.Recording;
@@ -45,6 +47,7 @@ public sealed class EngineHost : IDisposable
     private readonly DalamudMount _mount;
     private readonly DalamudActionExecutor _actionExecutor;
     private readonly DalamudEmoteExecutor _emoteExecutor;
+    private readonly DalamudChatSender _chatSender;
     private readonly WrathComboAdapter _combat;
     private readonly DalamudGearManager _gear;
     private readonly NullMinigameSkipper _minigames;
@@ -111,6 +114,7 @@ public sealed class EngineHost : IDisposable
         _mount           = new DalamudMount(services);
         _actionExecutor  = new DalamudActionExecutor(services);
         _emoteExecutor   = new DalamudEmoteExecutor(services);
+        _chatSender      = new DalamudChatSender(services);
         _combat          = new WrathComboAdapter(services);
         _gear            = new DalamudGearManager(services);
         _minigames       = new NullMinigameSkipper();
@@ -139,6 +143,7 @@ public sealed class EngineHost : IDisposable
     public IVendor            DebugVendor    => _vendor;
     public IMount             DebugMount     => _mount;
     public IEmoteExecutor     DebugEmoteExecutor => _emoteExecutor;
+    public IChatSender        DebugChatSender    => _chatSender;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
@@ -216,7 +221,8 @@ public sealed class EngineHost : IDisposable
             _traceSession, new DalamudLogger<QuestEngine>(_services.Log),
             vendor: _vendor,
             actionExecutor: _actionExecutor,
-            emoteExecutor: _emoteExecutor);
+            emoteExecutor: _emoteExecutor,
+            chatSender: _chatSender);
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
         _onRunStart?.Invoke();
@@ -471,6 +477,15 @@ public sealed class EngineHost : IDisposable
                     await _navigator.Stop(ct);
                 TryCutsceneSkipConfirm();
                 await _emoteExecutor.UseEmote(ue.EmoteId, ue.TargetNpcId, ue.Motion, ct);
+                break;
+
+            case EngineAction.SayChatMessage sc:
+                DebounceLog(
+                    $"saychat:{sc.Message.Length}:{sc.TargetNpcId?.Value}",
+                    $"[SayChatMessage] message=\"{sc.Message}\" target={sc.TargetNpcId?.Value.ToString() ?? "broadcast"}");
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
+                await _chatSender.Send(sc.Message, sc.TargetNpcId, ct);
                 break;
 
             case EngineAction.Wait:
