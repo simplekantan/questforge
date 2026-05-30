@@ -60,14 +60,6 @@ internal static class DraftValidatorTestData
                 Expect = new PredicateExpect { Predicate = "isQuestAccepted(2054)" }
             },
             notes: "accept"), T0);
-        draft.AddStep(MakeDraftStep("turn-in-quest", 1,
-            new TurnInStep
-            {
-                Id = "turn-in-quest",
-                Target = ValidNpcLoc,
-                Expect = new PredicateExpect { Predicate = "isQuestComplete(2054)" }
-            },
-            notes: "turn-in"), T0);
         return draft;
     }
 }

@@ -147,13 +147,6 @@ public record Preconditions(int? MinGearCondition = null);
 
 public record RewardOverride(string Strategy, uint? ItemId = null);
 
-public record GearItem(string Slot, uint ItemId);
-// Slot: "mainhand" | "offhand" | "head" | "body" | "hands" | "legs" | "feet" |
-//       "earrings" | "necklace" | "bracelets" | "ringR" | "ringL" | "soul"
-
-public record GearConstraints(int? MinItemLevel = null);
-
-
 /// <summary>Target for interact-object and pickup-item steps.</summary>
 public record InteractableTarget(uint InteractableId, int Zone, Position3 Position);
 
