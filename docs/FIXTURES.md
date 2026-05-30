@@ -106,7 +106,7 @@ Capabilities use a `namespace:name` format. Readers may filter by namespace pref
 | `step:combat` | `CombatStep` |
 | `step:duty` | `DutyStep` |
 | `step:spd` | `DutyStep` with `kind: spd` |
-| `step:use-item` | `UseItemStep` (schema-only; no engine dispatch yet) |
+| `step:use-item` | `UseItemStep` — key-item / inventory-item use with optional NPC or ground-position target |
 | `step:use-action` | `UseActionStep` |
 | `step:use-emote` | `UseEmoteStep` |
 | `step:teleport` | `TeleportStep` |
@@ -169,6 +169,7 @@ Example: if the engine emits Navigate 1,847 times followed by Interact 312 times
 | `"purchase"` | `EngineAction.Purchase` | `PurchaseItemStep` dispatch — buy item from vendor (gil or GC seals). |
 | `"useaction"` | `EngineAction.UseAction` | `UseActionStep` dispatch — execute a game action (combat ability, general action, key item) on an optional NPC target. |
 | `"useemote"` | `EngineAction.UseEmote` | `UseEmoteStep` dispatch — execute an emote via text command. |
+| `"useitem"` | `EngineAction.UseItem` | `UseItemStep` dispatch — use a key item or inventory item on an optional NPC or ground-position target. |
 | `"saychatmessage"` | `EngineAction.SayChatMessage` | `SayChatMessageStep` dispatch — send `/say <message>` via chat. |
 | `"engage"` | `EngineAction.Engage` | `CombatStep` dispatch AND global defense rule — engage an attacker before advancing. |
 | `"wait"` | `EngineAction.Wait` | Rarely appears in `expectedTransitions` — only when all steps in a sequence are satisfied but the game's sequence number has not yet advanced, or when an action is gated (casting, cooldown). |
