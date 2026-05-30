@@ -198,6 +198,14 @@ public sealed class FakeGameProbe : IGameProbe
         => _chatEntries.TryGetValue(index, out var e) ? e : null;
 
     public string? GetLocalPlayerName() => _localPlayerName;
+
+    // ── UO_EQ*: equipment slot scripting ────────────────────────────────────
+
+    private uint[]? _equippedItemIds;
+
+    public void SetEquippedItemIds(uint[] ids) => _equippedItemIds = ids;
+
+    public IReadOnlyList<uint>? GetEquippedItemIds() => _equippedItemIds;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4447,6 +4455,167 @@ public sealed class UIObserverTests
 
         Assert.NotNull(aggregator.Current.ItemUsed);
         Assert.Null(aggregator.Current.ItemUsed!.TargetPosition);
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // §EQ: Equipment snapshot delta polling (PollEquipmentChange)
+    //
+    // Covers spec EQUIP_GEAR_FOR_QUEST_STEP_PLAN.md Decision EG-10, UO_EQ1-EQ5.
+    //
+    // ALL tests in this group will fail to compile/runtime until Builder adds:
+    //   - EquipmentChangedSignal record in GameStateSnapshot.cs              (TODO)
+    //   - GameStateSnapshot.EquipmentChanged property                        (TODO)
+    //   - SnapshotAggregator.OnEquipmentChanged / OnEquipmentChangedConsumed (TODO)
+    //   - IGameProbe.GetEquippedItemIds()                                    (TODO)
+    //   - FakeGameProbe.SetEquippedItemIds(uint[])                           (TODO)
+    //   - UIObserver.PollEquipmentChange                                     (TODO)
+    //   - UIObserver.ResetWindowState calls OnEquipmentChangedConsumed       (TODO)
+    //
+    // NOTE: The spec uses prefix UO_M1-M5 but those are already taken by
+    // UseItem inference tests. Renamed to UO_EQ1-EQ5 per issue instructions.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // =========================================================================
+    // UO_EQ1 -- First equipment observation sets baseline, no fire
+    // =========================================================================
+
+    [Fact]
+    public void UO_EQ1_FirstEquipmentObservation_EstablishesBaseline_NoFire()
+    {
+        // CONTRACT: Given GetEquippedItemIds() returns [100, 200, 300, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        //           When OnFrameworkUpdate fires once,
+        //           Then agg.OnEquipmentChanged was NOT called (first observation is silent baseline).
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        gameProbe.SetEquippedItemIds([100u, 200u, 300u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u]);
+        framework.Tick();
+
+        // No EquipmentChanged signal should be set on first observation
+        Assert.Null(aggregator.Current.EquipmentChanged);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_EQ2 -- Subsequent observation with changed slot fires OnEquipmentChanged
+    // =========================================================================
+
+    [Fact]
+    public void UO_EQ2_SlotChanged_FiresOnEquipmentChanged_WithNewItemId()
+    {
+        // CONTRACT: Given baseline [100, 200, 0, ...],
+        //           When slot 2 changes from 0 to 500,
+        //           Then agg.OnEquipmentChanged called with newItemIds = [500].
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Tick 1: baseline
+        gameProbe.SetEquippedItemIds([100u, 200u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u]);
+        framework.Tick();
+        Assert.Null(aggregator.Current.EquipmentChanged); // baseline, no fire
+
+        // Tick 2: slot 2 changed from 0 to 500
+        gameProbe.SetEquippedItemIds([100u, 200u, 500u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u]);
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.EquipmentChanged);
+        Assert.Single(aggregator.Current.EquipmentChanged!.NewItemIds);
+        Assert.Contains(500u, aggregator.Current.EquipmentChanged.NewItemIds);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_EQ3 -- Multiple slots changed fires OnEquipmentChanged with all new IDs
+    // =========================================================================
+
+    [Fact]
+    public void UO_EQ3_MultipleSlotsChanged_FiresWithAllNewItemIds()
+    {
+        // CONTRACT: Given baseline [100, 200, 300, ...],
+        //           When slots 1 and 2 change to 999 and 888,
+        //           Then agg.OnEquipmentChanged called with newItemIds containing 999 and 888.
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Tick 1: baseline
+        gameProbe.SetEquippedItemIds([100u, 200u, 300u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u]);
+        framework.Tick();
+
+        // Tick 2: slots 1 and 2 changed
+        gameProbe.SetEquippedItemIds([100u, 999u, 888u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u]);
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.EquipmentChanged);
+        Assert.Contains(999u, aggregator.Current.EquipmentChanged!.NewItemIds);
+        Assert.Contains(888u, aggregator.Current.EquipmentChanged.NewItemIds);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_EQ4 -- Same equipment across ticks does not re-fire
+    // =========================================================================
+
+    [Fact]
+    public void UO_EQ4_SameEquipment_DoesNotReFire()
+    {
+        // CONTRACT: Given baseline established with [100, 200, 300, ...],
+        //           When same values returned on next poll,
+        //           Then agg.OnEquipmentChanged NOT called.
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Tick 1: baseline
+        gameProbe.SetEquippedItemIds([100u, 200u, 300u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u]);
+        framework.Tick();
+
+        // Tick 2: same values
+        framework.Tick();
+
+        Assert.Null(aggregator.Current.EquipmentChanged);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_EQ5 -- ResetWindowState calls OnEquipmentChangedConsumed but does NOT reset baseline
+    // =========================================================================
+
+    [Fact]
+    public void UO_EQ5_ResetWindowState_ConsumesSignal_PreservesBaseline()
+    {
+        // CONTRACT: Given equipment changed and OnEquipmentChanged fired,
+        //           When ResetWindowState() called, then another tick with same equipment,
+        //           Then agg.OnEquipmentChangedConsumed was called (signal consumed),
+        //                and agg.OnEquipmentChanged NOT called (baseline was NOT reset).
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Tick 1: baseline
+        gameProbe.SetEquippedItemIds([100u, 200u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u]);
+        framework.Tick();
+
+        // Tick 2: slot 2 changed
+        gameProbe.SetEquippedItemIds([100u, 200u, 500u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u]);
+        framework.Tick();
+        Assert.NotNull(aggregator.Current.EquipmentChanged); // sanity
+
+        // ResetWindowState: should consume EquipmentChanged
+        observer.ResetWindowState();
+        Assert.Null(aggregator.Current.EquipmentChanged); // consumed
+
+        // Tick 3: same equipment as after change -- no fire (baseline preserved)
+        framework.Tick();
+        Assert.Null(aggregator.Current.EquipmentChanged);
 
         observer.Dispose();
     }

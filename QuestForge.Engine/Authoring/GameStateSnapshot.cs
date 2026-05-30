@@ -85,6 +85,18 @@ public sealed record PurchaseDetection(
 /// </summary>
 public sealed record KillCorrelation(IReadOnlyList<uint> DataIds, int FinalValue);
 
+/// <summary>
+/// Records that the player's equipment changed during this recording window. Set by
+/// SnapshotAggregator.OnEquipmentChanged, which is driven by UIObserver.PollEquipmentChange
+/// comparing 14-slot snapshots of InventoryType.EquippedItems each frame. Cleared by
+/// OnEquipmentChangedConsumed (called from AuthoringHost.RecordStep) so it does not bleed
+/// into the next window.
+///
+/// NewItemIds contains the item IDs that appeared in equipment slots where they were absent
+/// (or zero) in the previous snapshot. For a single-item equip this is typically one item.
+/// </summary>
+public sealed record EquipmentChangedSignal(IReadOnlyList<uint> NewItemIds);
+
 public sealed record GameStateSnapshot(
     DateTimeOffset CapturedAt,
     ZoneId Zone,
@@ -211,4 +223,12 @@ public sealed record GameStateSnapshot(
     // Cleared by OnItemUsedConsumed (called from AuthoringHost.RecordStep and
     // UIObserver.ResetWindowState) so it does not bleed into the next window.
     public ItemUsedSignal? ItemUsed { get; init; }
+
+    // Non-positional. Set when UIObserver.PollEquipmentChange detects a delta in the 14 equipment
+    // slots (InventoryType.EquippedItems) during this recording window. NewItemIds contains the
+    // item IDs that appeared in slots where they were absent in the prior snapshot.
+    // Cleared by OnEquipmentChangedConsumed (called from AuthoringHost.RecordStep and
+    // UIObserver.ResetWindowState) so it does not bleed into the next window.
+    // Does NOT clear in ResetDeltas (equipment state persists across recording windows).
+    public EquipmentChangedSignal? EquipmentChanged { get; init; }
 }

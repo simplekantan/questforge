@@ -313,6 +313,28 @@ public sealed class StepInferenceEngine
                 Notes:           $"Author MUST write the Expect predicate (no universal item postcondition). Kind={itemSignal.Kind}, ItemId={itemSignal.ItemId}");
         }
 
+        // Rule 3.5g — EquipmentChanged
+        // Fires when UIObserver.PollEquipmentChange detected that the player's equipment changed
+        // (one or more slots in InventoryType.EquippedItems changed item IDs) during this recording
+        // window.
+        //
+        // PRIORITY: above Rule 3.5e (EmoteCompleted) — equipment changes are more deliberate and
+        // more specific than emotes. Below Rule 3.5i (ItemUsed) — when an item is used AND equipment
+        // changes (e.g. the item IS the equipment), ItemUsed is the more specific signal.
+        // PRIORITY: above Rule 3 (QuestSequence advanced) — equip-gear-for-quest is more specific.
+        // CONFIDENCE: High — the equipment state measurably changed.
+        // EXPECT: null — implicit postcondition (IsItemEquipped) handles self-confirmation.
+        if (after.EquipmentChanged is { } equipSignal)
+        {
+            return new InferenceResult(
+                StepType:        "equip-gear-for-quest",
+                SuggestedStepId: $"equip-gear-{string.Join("-", equipSignal.NewItemIds.Take(3))}",
+                SuggestedExpect: null,
+                Confidence:      Confidence.High,
+                InferredFrom:    InferredFrom.EquipmentChanged,
+                Notes:           $"Equipment changed: {equipSignal.NewItemIds.Count} item(s) equipped.");
+        }
+
         // Rule 3.5e — EmoteCompleted
         // Fires when UIObserver.PollPlayerEmote detected that the player started an emote during
         // this recording window (LocalPlayer.EmoteController.EmoteId transitioned to a new non-zero id).

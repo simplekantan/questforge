@@ -51,4 +51,6 @@ public abstract record EngineAction
         Adapters.Types.NpcId? TargetNpcId,
         Position3? TargetPosition,
         Step? Origin = null) : EngineAction;
+
+    public sealed record EquipGear(uint ItemId, Step? Origin = null) : EngineAction;
 }

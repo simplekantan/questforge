@@ -37,6 +37,7 @@ public sealed class SnapshotAggregator
     private EmoteCompletedSignal? _emoteCompleted;
     private SayChatMessageSentSignal? _sayChatMessageSent;
     private ItemUsedSignal? _itemUsed;
+    private EquipmentChangedSignal? _equipmentChanged;
 
     // ── purchase span state ────────────────────────────────────────────────
     private bool _shopOpen;
@@ -115,7 +116,8 @@ public sealed class SnapshotAggregator
         ActionCompleted              = _actionCompleted,
         EmoteCompleted               = _emoteCompleted,
         SayChatMessageSent           = _sayChatMessageSent,
-        ItemUsed                     = _itemUsed
+        ItemUsed                     = _itemUsed,
+        EquipmentChanged             = _equipmentChanged
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -574,6 +576,23 @@ public sealed class SnapshotAggregator
     /// Mirrors OnActionConsumed exactly.
     /// </summary>
     public void OnItemUsedConsumed() => _itemUsed = null;
+
+    /// <summary>
+    /// Called by UIObserver.PollEquipmentChange when a delta is detected in the 14 equipment slots
+    /// (InventoryType.EquippedItems). Records the set of item IDs that appeared in slots where they
+    /// were absent in the prior snapshot. Survives ResetDeltas; cleared by OnEquipmentChangedConsumed
+    /// (called from AuthoringHost.RecordStep and UIObserver.ResetWindowState).
+    /// Does NOT clear in ResetDeltas — equipment state persists across recording windows.
+    /// </summary>
+    public void OnEquipmentChanged(IReadOnlyList<uint> newItemIds)
+        => _equipmentChanged = new EquipmentChangedSignal(newItemIds);
+
+    /// <summary>
+    /// Called at the end of RecordStep (and from UIObserver.ResetWindowState) to consume
+    /// the equipment-changed signal so it does not bleed into the next recording window.
+    /// Mirrors OnItemUsedConsumed exactly.
+    /// </summary>
+    public void OnEquipmentChangedConsumed() => _equipmentChanged = null;
 
     // ── Private span-correlation helper ──────────────────────────────────────
 

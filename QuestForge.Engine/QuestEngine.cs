@@ -623,6 +623,19 @@ public sealed class QuestEngine
                 return (useItem, step.Id);
             }
 
+            // 6a5. EquipGearForQuestStep async arm — implicit postcondition: all ItemIds equipped.
+            if (step is EquipGearForQuestStep equipStep)
+            {
+                var equipAction = await ResolveEquipGear(equipStep, ct);
+                if (equipAction is null)
+                {
+                    // All items already equipped -- self-confirm.
+                    _confirmedStepIds.Add(step.Id);
+                    continue;
+                }
+                return (equipAction, step.Id);
+            }
+
             // 6b. TeleportStep async arm — step-gated so IsPlayerInCombat is only read when the
             //     cursor is on a TeleportStep. Pre-flight guards (unknown aetheryte, in combat)
             //     run inside ResolveTeleportAction.
@@ -940,6 +953,30 @@ public sealed class QuestEngine
 
         var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
         return new EngineAction.UseItem(step.Kind, step.ItemId, target, step.TargetPosition, Origin: step);
+    }
+
+    private async Task<EngineAction?> ResolveEquipGear(EquipGearForQuestStep step, CancellationToken ct)
+    {
+        if (_gearEquipper is null)
+            return new EngineAction.AwaitUser(
+                "EquipGearForQuestStep dispatched but no IGearEquipper wired — host must supply one");
+
+        var stateResult = await _gameState.GetPlayerState(ct);
+        if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
+            return new EngineAction.Wait("player casting; deferring equip-gear", Origin: step);
+
+        var inCombatResult = await _gameState.IsPlayerInCombat(ct);
+        if (inCombatResult is Result<bool>.Success { Value: true })
+            return new EngineAction.Wait("player in combat; deferring equip-gear", Origin: step);
+
+        foreach (var itemId in step.ItemIds)
+        {
+            var equipped = await _gearEquipper.IsItemEquipped(itemId, ct);
+            if (equipped is Result<bool>.Success { Value: false })
+                return new EngineAction.EquipGear(itemId, Origin: step);
+        }
+
+        return null;
     }
 
     private async Task<EngineAction> ResolveTeleportAction(TeleportStep step, CancellationToken ct)

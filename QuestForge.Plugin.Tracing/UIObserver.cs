@@ -96,6 +96,13 @@ public sealed class UIObserver : IDisposable
     // First observation sets baseline silently (matches PollPlayerActionEffect pattern, Decision SCI9).
     private int? _lastObservedChatLogCount;
 
+    // ── Equipment tracking ────────────────────────────────────────────────
+    // Snapshot of the 14 equipment slot item IDs from the previous frame.
+    // null = not yet baselined. First observation sets baseline silently (no fire).
+    // Subsequent observations diff against the baseline; changes fire OnEquipmentChanged.
+    // Baseline is NOT reset in ResetWindowState (equipment persists across recording windows).
+    private uint[]? _lastEquippedItemIds;
+
     // ── Target tracking ───────────────────────────────────────────────────
     // _lastTargetBaseId dedups the every-frame PollTargetNpc (aetheryte + interactable-NPC).
     // _lastBattleNpcBaseId dedups the heartbeat PollBattleNpcTarget (hostile combat target).
@@ -200,6 +207,9 @@ public sealed class UIObserver : IDisposable
         _aggregator?.OnEmoteConsumed();
         _aggregator?.OnSayChatMessageConsumed();
         _aggregator?.OnItemUsedConsumed();
+        _aggregator?.OnEquipmentChangedConsumed();
+        // NOTE: _lastEquippedItemIds (baseline) is intentionally NOT reset here.
+        // Equipment state persists across recording windows; only the signal is consumed.
     }
 
     /// <summary>
@@ -238,6 +248,7 @@ public sealed class UIObserver : IDisposable
         PollPlayerActionEffect();
         PollPlayerEmote();
         PollPlayerChatMessage();
+        PollEquipmentChange();
 
         // Heartbeat pollers (throttled to 250 ms)
         var now = _clock.UtcNow;
@@ -789,6 +800,38 @@ public sealed class UIObserver : IDisposable
                 runId, now);
             _aggregator?.OnSayChatMessageSent(entry.Message, targetBaseId);
         }
+    }
+
+    private void PollEquipmentChange()
+    {
+        if (_gameProbe is null) return;
+
+        var current = _gameProbe.GetEquippedItemIds();
+        if (current is null) return;
+
+        if (_lastEquippedItemIds is null)
+        {
+            // First observation: establish baseline silently (no fire).
+            _lastEquippedItemIds = new uint[current.Count];
+            for (var i = 0; i < current.Count; i++)
+                _lastEquippedItemIds[i] = current[i];
+            return;
+        }
+
+        var newItems = new List<uint>();
+        for (var i = 0; i < current.Count && i < _lastEquippedItemIds.Length; i++)
+        {
+            if (current[i] != _lastEquippedItemIds[i] && current[i] != 0u)
+                newItems.Add(current[i]);
+        }
+
+        // Update baseline regardless of whether anything changed.
+        for (var i = 0; i < current.Count && i < _lastEquippedItemIds.Length; i++)
+            _lastEquippedItemIds[i] = current[i];
+
+        if (newItems.Count == 0) return;
+
+        _aggregator?.OnEquipmentChanged(newItems);
     }
 
     private void PollDialogueOption()
