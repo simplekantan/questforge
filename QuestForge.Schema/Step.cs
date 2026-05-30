@@ -147,11 +147,11 @@ public class CutsceneStep : Step
     public string Skip { get; init; } = "ifAllowed";   // "never" | "ifAllowed"
 }
 
-public class SayChatMessageStep : Step
+public sealed class SayChatMessageStep : Step
 {
-    public string Channel { get; init; } = default!;  // "say" | "yell" | "shout"
     public string Message { get; init; } = default!;
-    public NpcLocation? Target { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public uint? TargetNpcId { get; init; }
 }
 
 public sealed class UseEmoteStep : Step
