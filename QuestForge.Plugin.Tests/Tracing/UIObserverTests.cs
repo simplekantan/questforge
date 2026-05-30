@@ -144,14 +144,16 @@ public sealed class FakeGameProbe : IGameProbe
     // Tests call SetLastActionEffect(seq, type, id) then fw.Tick() to simulate the player
     // pressing an action.
 
-    private (uint, uint, uint)? _nextActionEffect;
+    private (uint, uint, uint, float, float, float)? _nextActionEffect;
 
-    public void SetLastActionEffect(uint sequence, uint ffxivActionType, uint actionId)
-        => _nextActionEffect = (sequence, ffxivActionType, actionId);
+    public void SetLastActionEffect(uint sequence, uint ffxivActionType, uint actionId,
+        float targetLocationX = 0f, float targetLocationY = 0f, float targetLocationZ = 0f)
+        => _nextActionEffect = (sequence, ffxivActionType, actionId, targetLocationX, targetLocationY, targetLocationZ);
 
     public void ClearLastActionEffect() => _nextActionEffect = null;
 
-    public (uint Sequence, uint FfxivActionType, uint ActionId)? GetLastActionEffect()
+    public (uint Sequence, uint FfxivActionType, uint ActionId,
+            float TargetLocationX, float TargetLocationY, float TargetLocationZ)? GetLastActionEffect()
         => _nextActionEffect;
 
     // ── UEI-T7: GetPlayerEmoteId extension ──────────────────────────────────
@@ -4137,6 +4139,314 @@ public sealed class UIObserverTests
 
         Assert.NotNull(aggregator.Current.SayChatMessageSent);
         Assert.Equal("Second", aggregator.Current.SayChatMessageSent!.Message);
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UO_M: Item-use routing via PollPlayerActionEffect
+    //
+    // Covers spec UI-INF-6 / UI-INF-T9 UO_M1-10.
+    //
+    // ALL tests in this group will fail to compile/runtime until Builder adds:
+    //   - ItemKindMapper.FromFFXIVActionType in QuestForge.Adapters/Items/     (Task UI-INF-T1)
+    //   - ItemUsedSignal record + GameStateSnapshot.ItemUsed                   (Task UI-INF-T2)
+    //   - SnapshotAggregator.OnItemUsed / OnItemUsedConsumed                  (Task UI-INF-T4)
+    //   - FakeGameProbe.SetLastActionEffect extended with TargetLocation floats(Task UI-INF-T8)
+    //   - FakeGameProbe.GetLastActionEffect returns 6-tuple                    (Task UI-INF-T8)
+    //   - UIObserver.PollPlayerActionEffect item-first routing                 (Task UI-INF-T9)
+    //   - UIObserver.ResetWindowState clears ItemUsed                          (Task UI-INF-T9)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // =========================================================================
+    // UO_M1 -- Item ActionType (value 2) fires OnItemUsed, NOT OnActionCompleted
+    // =========================================================================
+
+    [Fact]
+    public void UO_M1_ItemActionType2_FiresItemUsed_NotActionCompleted()
+    {
+        // CONTRACT: Given baseline=100 (tick 1), then seq=101 with type=2 (Item) (tick 2),
+        //           Then agg.Current.ItemUsed is non-null with Kind=InventoryItem, ItemId=4554,
+        //                TargetPosition=null (default 0,0,0 target location).
+        //                agg.Current.ActionCompleted is null (NOT routed to ActionCompleted).
+        //                Exactly one ObservationEvent with Method="ItemUsed" and Argument=4554.
+        //                Zero ObservationEvents with Method="ActionCompleted" from this tick.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u);  framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 2u, 4554u); framework.Tick(); // Item use
+
+        Assert.NotNull(aggregator.Current.ItemUsed);
+        Assert.Equal(QuestForge.Schema.ItemKind.InventoryItem, aggregator.Current.ItemUsed!.Kind);
+        Assert.Equal(4554u, aggregator.Current.ItemUsed.ItemId);
+        Assert.Null(aggregator.Current.ItemUsed.TargetPosition);
+        Assert.Null(aggregator.Current.ActionCompleted);
+
+        var itemObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ItemUsed")
+            .ToList();
+        Assert.Single(itemObs);
+        Assert.True(itemObs[0].Argument?.GetRawText() == "4554",
+            $"Expected Argument=4554, got {itemObs[0].Argument?.GetRawText()}");
+
+        var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ActionCompleted")
+            .ToList();
+        Assert.Empty(actionObs);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M2 -- EventItem ActionType (value 3) fires OnItemUsed, NOT OnActionCompleted
+    //          This is the critical rerouting test: EventItem=3 now routes to ItemUsed.
+    // =========================================================================
+
+    [Fact]
+    public void UO_M2_EventItemActionType3_FiresItemUsed_NotActionCompleted()
+    {
+        // CONTRACT: Given baseline=100 (tick 1), then seq=101 with type=3 (EventItem) (tick 2),
+        //           Then agg.Current.ItemUsed.Kind == KeyItem, ItemId == 2000456.
+        //                agg.Current.ActionCompleted is null (NOT routed to ActionCompleted).
+        //                Exactly one ObservationEvent with Method="ItemUsed".
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u);      framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 3u, 2000456u); framework.Tick(); // EventItem use
+
+        Assert.NotNull(aggregator.Current.ItemUsed);
+        Assert.Equal(QuestForge.Schema.ItemKind.KeyItem, aggregator.Current.ItemUsed!.Kind);
+        Assert.Equal(2000456u, aggregator.Current.ItemUsed.ItemId);
+        Assert.Null(aggregator.Current.ActionCompleted);
+
+        var itemObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ItemUsed")
+            .ToList();
+        Assert.Single(itemObs);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M3 -- Regular Action (value 1) still fires OnActionCompleted, NOT OnItemUsed
+    //          Pins that existing ActionCompleted path is unaffected.
+    // =========================================================================
+
+    [Fact]
+    public void UO_M3_RegularAction_StillFiresActionCompleted_NotItemUsed()
+    {
+        // CONTRACT: Given baseline=100 (tick 1), then seq=101 with type=1 (Action) (tick 2),
+        //           Then agg.Current.ActionCompleted is non-null with ActionId=35.
+        //                agg.Current.ItemUsed is null (NOT routed to ItemUsed).
+        //                Exactly one ObservationEvent with Method="ActionCompleted".
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u); framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 1u, 35u); framework.Tick(); // Action
+
+        Assert.NotNull(aggregator.Current.ActionCompleted);
+        Assert.Equal(35u, aggregator.Current.ActionCompleted!.ActionId);
+        Assert.Null(aggregator.Current.ItemUsed);
+
+        var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ActionCompleted")
+            .ToList();
+        Assert.Single(actionObs);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M4 -- GeneralAction (value 5) still fires OnActionCompleted, NOT OnItemUsed
+    // =========================================================================
+
+    [Fact]
+    public void UO_M4_GeneralAction_StillFiresActionCompleted_NotItemUsed()
+    {
+        // CONTRACT: Given baseline=100 (tick 1), then seq=101 with type=5 (GeneralAction) (tick 2),
+        //           Then agg.Current.ActionCompleted.ActionType == GeneralAction.
+        //                agg.Current.ItemUsed is null.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u); framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 5u, 4u);  framework.Tick(); // Sprint
+
+        Assert.NotNull(aggregator.Current.ActionCompleted);
+        Assert.Equal(QuestForge.Schema.ActionType.GeneralAction, aggregator.Current.ActionCompleted!.ActionType);
+        Assert.Null(aggregator.Current.ItemUsed);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M5 -- Item followed by Action: both signals set correctly (different windows)
+    //          Pins that ItemUsed and ActionCompleted are independent.
+    // =========================================================================
+
+    [Fact]
+    public void UO_M5_ItemThenAction_BothSignalsIndependent()
+    {
+        // CONTRACT: Given baseline (tick 1), item use (tick 2), action use (tick 3),
+        //           After tick 2: ItemUsed.ItemId==4554, ActionCompleted is null.
+        //           After tick 3: ItemUsed.ItemId==4554 (not consumed), ActionCompleted.ActionId==35.
+        //           Pins that item and action signals are independent and do not clear each other.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u);  framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 2u, 4554u); framework.Tick(); // item use
+
+        Assert.NotNull(aggregator.Current.ItemUsed);
+        Assert.Equal(4554u, aggregator.Current.ItemUsed!.ItemId);
+        Assert.Null(aggregator.Current.ActionCompleted);
+
+        gameProbe.SetLastActionEffect(102u, 1u, 35u);  framework.Tick(); // action use
+
+        Assert.NotNull(aggregator.Current.ItemUsed);
+        Assert.Equal(4554u, aggregator.Current.ItemUsed!.ItemId); // not consumed
+        Assert.NotNull(aggregator.Current.ActionCompleted);
+        Assert.Equal(35u, aggregator.Current.ActionCompleted!.ActionId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M6 -- ResetWindowState clears ItemUsed
+    // =========================================================================
+
+    [Fact]
+    public void UO_M6_ResetWindowState_ClearsItemUsed()
+    {
+        // CONTRACT: Given an item was used (ItemUsed is non-null),
+        //           When ResetWindowState is called,
+        //           Then agg.Current.ItemUsed is null (consumed by ResetWindowState).
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u);  framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 2u, 4554u); framework.Tick(); // item use
+        Assert.NotNull(aggregator.Current.ItemUsed); // sanity
+
+        observer.ResetWindowState();
+
+        Assert.Null(aggregator.Current.ItemUsed);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M7 -- Item use with interactable NPC target: TargetBaseId captured
+    // =========================================================================
+
+    [Fact]
+    public void UO_M7_ItemUseWithInteractableTarget_TargetBaseIdCaptured()
+    {
+        // CONTRACT: Given FakeTargetProbe has an interactable NPC target (BaseId=1000789),
+        //           When an EventItem (type=3) is used,
+        //           Then agg.Current.ItemUsed.TargetBaseId == 1000789.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        targetProbe.SetInteractableNpcTarget((BaseId: 1000789u, X: 0f, Y: 0f, Z: 0f, Zone: 132));
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u);      framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 3u, 2000456u); framework.Tick(); // EventItem
+
+        Assert.NotNull(aggregator.Current.ItemUsed);
+        Assert.Equal(1000789u, aggregator.Current.ItemUsed!.TargetBaseId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M8 -- Item use with no target: TargetBaseId is null
+    // =========================================================================
+
+    [Fact]
+    public void UO_M8_ItemUseNoTarget_TargetBaseIdIsNull()
+    {
+        // CONTRACT: Given FakeTargetProbe returns null for all queries,
+        //           When an Item (type=2) is used,
+        //           Then agg.Current.ItemUsed.TargetBaseId is null.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        // targetProbe has no targets set (all null by default)
+        gameProbe.SetLastActionEffect(100u, 1u, 31u);  framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 2u, 4554u); framework.Tick(); // Item
+
+        Assert.NotNull(aggregator.Current.ItemUsed);
+        Assert.Null(aggregator.Current.ItemUsed!.TargetBaseId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M9 -- Ground-targeted item use: non-zero TargetLocation -> TargetPosition populated
+    // =========================================================================
+
+    [Fact]
+    public void UO_M9_GroundTargetedItem_NonZeroTargetLocation_TargetPositionPopulated()
+    {
+        // CONTRACT: Given FakeTargetProbe returns null (no NPC -- ground target),
+        //           When an EventItem (type=3) is used with TargetLocation=(150.0, 10.0, -50.0),
+        //           Then agg.Current.ItemUsed.TargetPosition is not null with correct X/Y/Z.
+        //                agg.Current.ItemUsed.TargetBaseId is null (no NPC target).
+        //
+        // Pins that CastInfo.TargetLocation is captured for ground-targeted item use.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u); framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 3u, 2000456u,
+            targetLocationX: 150.0f, targetLocationY: 10.0f, targetLocationZ: -50.0f);
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.ItemUsed);
+        Assert.NotNull(aggregator.Current.ItemUsed!.TargetPosition);
+        Assert.Equal(150.0f,  aggregator.Current.ItemUsed.TargetPosition!.X);
+        Assert.Equal(10.0f,   aggregator.Current.ItemUsed.TargetPosition.Y);
+        Assert.Equal(-50.0f,  aggregator.Current.ItemUsed.TargetPosition.Z);
+        Assert.Null(aggregator.Current.ItemUsed.TargetBaseId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M10 -- Non-ground item use: zero TargetLocation -> TargetPosition is null
+    //           Pins the disambiguation rule: (0,0,0) is the "no ground target" sentinel.
+    // =========================================================================
+
+    [Fact]
+    public void UO_M10_NonGroundItem_ZeroTargetLocation_TargetPositionIsNull()
+    {
+        // CONTRACT: Given TargetLocation=(0, 0, 0) (all-zeros sentinel),
+        //           When an EventItem (type=3) is used,
+        //           Then agg.Current.ItemUsed.TargetPosition is null.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLastActionEffect(100u, 1u, 31u); framework.Tick(); // baseline
+        gameProbe.SetLastActionEffect(101u, 3u, 2000456u,
+            targetLocationX: 0f, targetLocationY: 0f, targetLocationZ: 0f);
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.ItemUsed);
+        Assert.Null(aggregator.Current.ItemUsed!.TargetPosition);
 
         observer.Dispose();
     }

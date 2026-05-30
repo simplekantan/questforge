@@ -199,6 +199,7 @@ public sealed class UIObserver : IDisposable
         _aggregator?.OnActionConsumed();
         _aggregator?.OnEmoteConsumed();
         _aggregator?.OnSayChatMessageConsumed();
+        _aggregator?.OnItemUsedConsumed();
     }
 
     /// <summary>
@@ -639,7 +640,7 @@ public sealed class UIObserver : IDisposable
 
         var probe = _gameProbe.GetLastActionEffect();
         if (probe is null) return;
-        var (sequence, ffxivActionType, actionId) = probe.Value;
+        var (sequence, ffxivActionType, actionId, tlX, tlY, tlZ) = probe.Value;
 
         if (_lastObservedActionSequence is null)
         {
@@ -651,9 +652,44 @@ public sealed class UIObserver : IDisposable
 
         _lastObservedActionSequence = sequence;
 
+        // Item-first routing: check ItemKindMapper BEFORE ActionTypeMapper.
+        // EventItem=3 is mapped by BOTH mappers; item-first ensures key item use
+        // infers as "use-item" (via Rule 3.5i), not "use-action" (via Rule 3.5).
+        var itemKind = QuestForge.Adapters.Items.ItemKindMapper.FromFFXIVActionType(ffxivActionType);
+        if (itemKind is not null)
+        {
+            var targetBaseId = CaptureTargetBaseId();
+            QuestForge.Schema.Position3? targetPosition =
+                (tlX != 0f || tlY != 0f || tlZ != 0f)
+                    ? new QuestForge.Schema.Position3(tlX, tlY, tlZ)
+                    : null;
+            var now   = _clock.UtcNow;
+            var runId = CurrentRunId;
+            WriteObservation("ItemUsed",
+                actionId,
+                new { kind = (int)itemKind.Value, targetBaseId = targetBaseId ?? 0u },
+                runId, now);
+            _aggregator?.OnItemUsed(itemKind.Value, actionId, targetBaseId, targetPosition);
+            return;
+        }
+
         var schemaType = QuestForge.Adapters.Actions.ActionTypeMapper.FromFFXIVActionType(ffxivActionType);
         if (schemaType is null) return;
 
+        {
+            var targetBaseId = CaptureTargetBaseId();
+            var now   = _clock.UtcNow;
+            var runId = CurrentRunId;
+            WriteObservation("ActionCompleted",
+                actionId,
+                new { actionType = (int)schemaType.Value, targetBaseId = targetBaseId ?? 0u },
+                runId, now);
+            _aggregator?.OnActionCompleted(schemaType.Value, actionId, targetBaseId);
+        }
+    }
+
+    private uint? CaptureTargetBaseId()
+    {
         uint? targetBaseId = null;
         var hostile      = _targetProbe?.GetBattleNpcTarget();
         var interactable = _targetProbe?.GetInteractableNpcTarget();
@@ -661,14 +697,7 @@ public sealed class UIObserver : IDisposable
             targetBaseId = h.BaseId;
         else if (interactable is { } i)
             targetBaseId = i.BaseId;
-
-        var now   = _clock.UtcNow;
-        var runId = CurrentRunId;
-        WriteObservation("ActionCompleted",
-            actionId,
-            new { actionType = (int)schemaType.Value, targetBaseId = targetBaseId ?? 0u },
-            runId, now);
-        _aggregator?.OnActionCompleted(schemaType.Value, actionId, targetBaseId);
+        return targetBaseId;
     }
 
     private void PollPlayerEmote()

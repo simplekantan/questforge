@@ -36,6 +36,7 @@ public sealed class SnapshotAggregator
     private ActionCompletedSignal? _actionCompleted;
     private EmoteCompletedSignal? _emoteCompleted;
     private SayChatMessageSentSignal? _sayChatMessageSent;
+    private ItemUsedSignal? _itemUsed;
 
     // ── purchase span state ────────────────────────────────────────────────
     private bool _shopOpen;
@@ -113,7 +114,8 @@ public sealed class SnapshotAggregator
         TeleportCompleted            = _teleportCompleted,
         ActionCompleted              = _actionCompleted,
         EmoteCompleted               = _emoteCompleted,
-        SayChatMessageSent           = _sayChatMessageSent
+        SayChatMessageSent           = _sayChatMessageSent,
+        ItemUsed                     = _itemUsed
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -552,6 +554,26 @@ public sealed class SnapshotAggregator
     /// Mirrors OnEmoteConsumed exactly.
     /// </summary>
     public void OnSayChatMessageConsumed() => _sayChatMessageSent = null;
+
+    /// <summary>
+    /// Called by UIObserver.PollPlayerActionEffect when a new ResponseGlobalSequence is observed
+    /// AND the ResponseActionType is Item (2) or EventItem (3). Records the item kind, id,
+    /// optional target, and optional ground-target position. Survives ResetDeltas; cleared by
+    /// OnItemUsedConsumed. Does NOT update LastNpcInteracted or any other unrelated field.
+    /// </summary>
+    public void OnItemUsed(
+        QuestForge.Schema.ItemKind kind,
+        uint itemId,
+        uint? targetBaseId,
+        QuestForge.Schema.Position3? targetPosition)
+        => _itemUsed = new ItemUsedSignal(kind, itemId, targetBaseId, targetPosition);
+
+    /// <summary>
+    /// Called at the end of RecordStep (and from UIObserver.ResetWindowState) to consume
+    /// the item-used signal so it does not bleed into the next recording window.
+    /// Mirrors OnActionConsumed exactly.
+    /// </summary>
+    public void OnItemUsedConsumed() => _itemUsed = null;
 
     // ── Private span-correlation helper ──────────────────────────────────────
 

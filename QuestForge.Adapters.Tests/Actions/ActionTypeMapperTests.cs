@@ -52,19 +52,17 @@ public sealed class ActionTypeMapperTests
     // =========================================================================
 
     [Fact]
-    public void FromFFXIVActionType_EventItemValue3_MapsToKeyItem()
+    public void FromFFXIVActionType_EventItemValue3_ReturnsNull_NowRoutedByItemKindMapper()
     {
-        // Given: uint 3, which is "EventItem" in FFXIVClientStructs naming but
-        //        "KeyItem" in the QuestForge schema (Decision DAD-4 rename).
-        // When:  the mapper converts it
-        // Then:  Schema.ActionType.KeyItem is returned — the rename is visible here.
-        //
-        // CRITICAL: This test pins the round-trip through the rename. If someone changes
-        //   the mapping to 3u → ActionType.Action (or any other value), this test catches it.
+        // Given: uint 3 (FFXIVClientStructs "EventItem" — quest key items).
+        // When:  ActionTypeMapper.FromFFXIVActionType(3u)
+        // Then:  null — EventItem routing is handled by ItemKindMapper (Decision UI-INF-13).
+        //        Previously returned ActionType.KeyItem; removed so key item use infers
+        //        as "use-item" (via ItemKindMapper + Rule 3.5i), not "use-action".
 
         var result = ActionTypeMapper.FromFFXIVActionType(3u);
 
-        Assert.Equal(QuestForge.Schema.ActionType.KeyItem, result);
+        Assert.Null(result);
     }
 
     // =========================================================================
