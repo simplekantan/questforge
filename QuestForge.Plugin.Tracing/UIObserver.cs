@@ -91,6 +91,11 @@ public sealed class UIObserver : IDisposable
     // no silent-baseline: a non-zero value on the first read fires immediately (Decision UEI9).
     private uint _lastObservedEmoteId;
 
+    // ── Chat log tracking ─────────────────────────────────────────────────
+    // Tracks the most recently seen MsgSourceArrayLength. null = not yet baselined.
+    // First observation sets baseline silently (matches PollPlayerActionEffect pattern, Decision SCI9).
+    private int? _lastObservedChatLogCount;
+
     // ── Target tracking ───────────────────────────────────────────────────
     // _lastTargetBaseId dedups the every-frame PollTargetNpc (aetheryte + interactable-NPC).
     // _lastBattleNpcBaseId dedups the heartbeat PollBattleNpcTarget (hostile combat target).
@@ -186,12 +191,14 @@ public sealed class UIObserver : IDisposable
 
         _lastObservedActionSequence = null;
         _lastObservedEmoteId = 0u;
+        _lastObservedChatLogCount = null;
 
         _aggregator?.OnAethernetTeleportConsumed();
         _aggregator?.OnDialogueOptionConsumed();
         _aggregator?.OnTeleportConsumed();
         _aggregator?.OnActionConsumed();
         _aggregator?.OnEmoteConsumed();
+        _aggregator?.OnSayChatMessageConsumed();
     }
 
     /// <summary>
@@ -229,6 +236,7 @@ public sealed class UIObserver : IDisposable
         PollTargetNpc();
         PollPlayerActionEffect();
         PollPlayerEmote();
+        PollPlayerChatMessage();
 
         // Heartbeat pollers (throttled to 250 ms)
         var now = _clock.UtcNow;
@@ -699,6 +707,59 @@ public sealed class UIObserver : IDisposable
             new { targetBaseId = targetBaseId ?? 0u },
             runId, now);
         _aggregator?.OnEmoteCompleted(currentId, targetBaseId);
+    }
+
+    private void PollPlayerChatMessage()
+    {
+        if (_gameProbe is null) return;
+
+        var current = _gameProbe.GetChatLogMessageCount();
+        if (current is null) return;
+        var currentCount = current.Value;
+
+        if (_lastObservedChatLogCount is null)
+        {
+            _lastObservedChatLogCount = currentCount;
+            return;
+        }
+
+        if (currentCount == _lastObservedChatLogCount) return;
+
+        if (currentCount < _lastObservedChatLogCount)
+        {
+            _lastObservedChatLogCount = currentCount;
+            return;
+        }
+
+        var localContentId = _gameProbe.GetLocalContentId();
+
+        var firstNewIndex = _lastObservedChatLogCount.Value;
+        _lastObservedChatLogCount = currentCount;
+        for (var idx = firstNewIndex; idx < currentCount; idx++)
+        {
+            var entry = _gameProbe.GetChatLogEntry(idx);
+            if (entry is null) continue;
+
+            if (!QuestForge.Adapters.Chat.ChatLogEntryFilter.IsPlayerSayMessage(
+                    entry.SourceKind, entry.ChatType, entry.ContentId, localContentId))
+                continue;
+
+            uint? targetBaseId = null;
+            var hostile      = _targetProbe?.GetBattleNpcTarget();
+            var interactable = _targetProbe?.GetInteractableNpcTarget();
+            if (hostile is { } h)
+                targetBaseId = h.BaseId;
+            else if (interactable is { } i)
+                targetBaseId = i.BaseId;
+
+            var now   = _clock.UtcNow;
+            var runId = CurrentRunId;
+            WriteObservation("SayChatMessageSent",
+                (uint)idx,
+                new { message = entry.Message, targetBaseId = targetBaseId ?? 0u },
+                runId, now);
+            _aggregator?.OnSayChatMessageSent(entry.Message, targetBaseId);
+        }
     }
 
     private void PollDialogueOption()

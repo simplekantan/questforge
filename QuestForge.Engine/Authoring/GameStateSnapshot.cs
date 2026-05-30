@@ -34,6 +34,21 @@ public sealed record EmoteCompletedSignal(
     uint? TargetBaseId);
 
 /// <summary>
+/// Records that the player typed /say &lt;message&gt; during this recording window. Set by
+/// SnapshotAggregator.OnSayChatMessageSent, driven by UIObserver.PollPlayerChatMessage reading
+/// RaptureLogModule.MsgSourceArrayLength + GetLogMessageDetail for matching entries.
+/// Cleared by OnSayChatMessageConsumed (called from AuthoringHost.RecordStep) so it does not
+/// bleed into the next recording window.
+///
+/// Message is the literal text the player typed (no "/say " prefix).
+/// TargetBaseId is the BNpcBase / ENpcBase row id of the currently-targeted NPC at the moment
+/// the chat-log entry was observed (null = no hard target / self-cast).
+/// </summary>
+public sealed record SayChatMessageSentSignal(
+    string Message,
+    uint? TargetBaseId);
+
+/// <summary>
 /// Signals that a vendor shop was opened and purchases were detected during an authoring window.
 /// </summary>
 public sealed record PurchaseDetection(
@@ -164,4 +179,10 @@ public sealed record GameStateSnapshot(
     // new non-zero value). Cleared by OnEmoteConsumed in RecordStep so it does not bleed into
     // the next window.
     public EmoteCompletedSignal? EmoteCompleted { get; init; }
+
+    // Non-positional. Set when UIObserver.PollPlayerChatMessage observes that the player typed
+    // /say <message> during this recording window (RaptureLogModule observed a new log entry
+    // matching ChatLogEntryFilter.IsPlayerSayMessage). Cleared by OnSayChatMessageConsumed
+    // in RecordStep so it does not bleed into the next window.
+    public SayChatMessageSentSignal? SayChatMessageSent { get; init; }
 }

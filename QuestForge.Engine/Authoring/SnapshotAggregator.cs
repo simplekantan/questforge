@@ -35,6 +35,7 @@ public sealed class SnapshotAggregator
     private AetheryteId? _teleportCompleted;
     private ActionCompletedSignal? _actionCompleted;
     private EmoteCompletedSignal? _emoteCompleted;
+    private SayChatMessageSentSignal? _sayChatMessageSent;
 
     // ── purchase span state ────────────────────────────────────────────────
     private bool _shopOpen;
@@ -111,7 +112,8 @@ public sealed class SnapshotAggregator
         PurchaseDetected             = BuildPurchaseDetected(),
         TeleportCompleted            = _teleportCompleted,
         ActionCompleted              = _actionCompleted,
-        EmoteCompleted               = _emoteCompleted
+        EmoteCompleted               = _emoteCompleted,
+        SayChatMessageSent           = _sayChatMessageSent
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -532,6 +534,24 @@ public sealed class SnapshotAggregator
     /// Mirrors OnActionConsumed exactly.
     /// </summary>
     public void OnEmoteConsumed() => _emoteCompleted = null;
+
+    /// <summary>
+    /// Called by UIObserver.PollPlayerChatMessage when a new chat-log entry matching
+    /// ChatLogEntryFilter.IsPlayerSayMessage is observed. Records the message text and optional
+    /// target (from TargetManager.Target at the time of the read). Survives ResetDeltas;
+    /// cleared by OnSayChatMessageConsumed (called from AuthoringHost.RecordStep).
+    /// Last-write-wins on multiple calls within the same window.
+    /// Does NOT update LastNpcInteracted or any other unrelated field (Decision SCI3).
+    /// </summary>
+    public void OnSayChatMessageSent(string message, uint? targetBaseId)
+        => _sayChatMessageSent = new SayChatMessageSentSignal(message, targetBaseId);
+
+    /// <summary>
+    /// Called at the end of RecordStep (and from UIObserver.ResetWindowState for symmetry) to
+    /// consume the say-chat-message signal so it does not bleed into the next recording window.
+    /// Mirrors OnEmoteConsumed exactly.
+    /// </summary>
+    public void OnSayChatMessageConsumed() => _sayChatMessageSent = null;
 
     // ── Private span-correlation helper ──────────────────────────────────────
 

@@ -150,6 +150,13 @@ public static class StepFactory
                 TargetNpcId = after?.EmoteCompleted?.TargetBaseId,
                 Motion = true
             },
+            "say-chat-message" => new QuestForge.Schema.SayChatMessageStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                Message = after?.SayChatMessageSent?.Message ?? string.Empty,
+                TargetNpcId = after?.SayChatMessageSent?.TargetBaseId
+            },
             "attune" => new AttunementStep
             {
                 Id = stepId,

@@ -2,6 +2,9 @@ using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using FFXIVClientStructs.FFXIV.Client.UI.Info;
+using FFXIVClientStructs.FFXIV.Client.UI.Misc;
+using FFXIVClientStructs.FFXIV.Component.Log;
 using Lumina.Excel.Sheets;
 using QuestForge.Plugin.Tracing;
 
@@ -90,5 +93,45 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
         var ch = (FFXIVClientStructs.FFXIV.Client.Game.Character.Character*)player.Address;
         if (ch is null) return null;
         return ch->EmoteController.EmoteId;
+    }
+
+    public int? GetChatLogMessageCount()
+    {
+        var mod = RaptureLogModule.Instance();
+        if (mod == null) return null;
+        return mod->MsgSourceArrayLength;
+    }
+
+    public ulong GetLocalContentId()
+    {
+        var info = InfoModule.Instance();
+        if (info == null) return 0UL;
+        return info->LocalContentId;
+    }
+
+    public ChatLogEntry? GetChatLogEntry(int index)
+    {
+        var mod = RaptureLogModule.Instance();
+        if (mod == null) return null;
+        if (index < 0 || index >= mod->MsgSourceArrayLength) return null;
+
+        ref var src = ref mod->MsgSourceArray[index];
+        var logMessageIndex = src.LogMessageIndex;
+        var entryContentId  = src.ContentId;
+        var chatType        = (int)src.ChatType;
+
+        using var pSender  = new FFXIVClientStructs.FFXIV.Client.System.String.Utf8String();
+        using var pMessage = new FFXIVClientStructs.FFXIV.Client.System.String.Utf8String();
+        LogInfo info;
+        int timestamp;
+
+        var ok = mod->GetLogMessageDetail(logMessageIndex, &info, &pSender, &pMessage, &timestamp);
+        if (!ok) return null;
+
+        return new ChatLogEntry(
+            SourceKind: (int)info.SourceKind,
+            ChatType:   chatType,
+            ContentId:  entryContentId,
+            Message:    pMessage.ToString());
     }
 }

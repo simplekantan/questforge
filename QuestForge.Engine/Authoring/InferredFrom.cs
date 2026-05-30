@@ -18,4 +18,5 @@ public enum InferredFrom
     TeleportCompleted,
     ActionCompleted,
     EmoteCompleted,
+    SayChatMessageSent,
 }
