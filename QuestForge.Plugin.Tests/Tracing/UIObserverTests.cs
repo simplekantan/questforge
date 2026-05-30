@@ -166,6 +166,36 @@ public sealed class FakeGameProbe : IGameProbe
     public void ClearPlayerEmoteId() => _nextEmoteId = null;
 
     public ushort? GetPlayerEmoteId() => _nextEmoteId;
+
+    // ── UO_M*: chat log scripting ────────────────────────────────────────────
+
+    private readonly Dictionary<int, ChatLogEntry> _chatEntries = new();
+    private int _chatLogCount = 0;
+    private string? _localPlayerName = "TestPlayer";
+    private bool _chatLogProbeAvailable = true;
+
+    public void SetLocalPlayerName(string? name) => _localPlayerName = name;
+    public void SetChatLogProbeAvailable(bool available) => _chatLogProbeAvailable = available;
+    public void SetChatLogMessageCount(int count) => _chatLogCount = count;
+
+    public void AppendChatEntry(ChatLogEntry entry)
+    {
+        _chatEntries[_chatLogCount] = entry;
+        _chatLogCount++;
+    }
+
+    public void ClearChatLog()
+    {
+        _chatEntries.Clear();
+        _chatLogCount = 0;
+    }
+
+    public int? GetChatLogMessageCount() => _chatLogProbeAvailable ? _chatLogCount : null;
+
+    public ChatLogEntry? GetChatLogEntry(int index)
+        => _chatEntries.TryGetValue(index, out var e) ? e : null;
+
+    public string? GetLocalPlayerName() => _localPlayerName;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3673,6 +3703,440 @@ public sealed class UIObserverTests
             $"Expected Argument=50 but got {emoteObs[0].Argument?.GetRawText()}");
         Assert.NotNull(aggregator.Current.EmoteCompleted);
         Assert.Equal(50u, aggregator.Current.EmoteCompleted!.EmoteId);
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UO-M: PollPlayerChatMessage — monotonic-counter chat-log poller
+    //
+    // Covers spec SCI9 / Decision SCI15 / §I UO_M1-M9.
+    //
+    // ALL tests in this group will fail to compile/runtime until Builder adds:
+    //   - IGameProbe.GetChatLogMessageCount() / GetChatLogEntry(int) / GetLocalContentId()  (Task SCI-T-PROBE)
+    //   - ChatLogEntry record in IGameProbe.cs                                               (Task SCI-T-PROBE)
+    //   - FakeGameProbe.SetLocalContentId / AppendChatEntry / SetChatLogMessageCount
+    //     / SetChatLogProbeAvailable / ClearChatLog                                          (Task SCI-T-FAKE)
+    //   - UIObserver._lastObservedChatLogCount field + PollPlayerChatMessage method          (Task SCI-T-POLLER)
+    //   - UIObserver.ResetWindowState: _lastObservedChatLogCount=null + OnSayChatMessageConsumed (Task SCI-T-POLLER)
+    //   - SnapshotAggregator.OnSayChatMessageSent / OnSayChatMessageConsumed                (Task SCI-T3)
+    //   - GameStateSnapshot.SayChatMessageSent                                               (Task SCI-T1)
+    //   - ChatLogEntryFilter.IsPlayerSayMessage (used by PollPlayerChatMessage)              (Task SCI-T-FILTER)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // =========================================================================
+    // UO_M1 — First observation establishes baseline silently; no event fires
+    // =========================================================================
+
+    [Fact]
+    public void UO_M1_FirstObservation_EstablishesBaseline_NoEventFired()
+    {
+        // CONTRACT: Given the chat log already contains a pre-session entry (count=1)
+        //           before the first tick,
+        //           When the first tick fires,
+        //           Then NO "SayChatMessageSent" observation is written (silent baseline).
+        //           agg.Current.SayChatMessageSent is null.
+        //
+        // WHY: Pre-session /say lines are not authoring intent. Matches PollPlayerActionEffect
+        //      UO_K1 precedent (Decision SCI9 / UAI8).
+
+        // TODO: FakeGameProbe.AppendChatEntry / SetLocalContentId / GetChatLogMessageCount not yet added.
+        // TODO: UIObserver.PollPlayerChatMessage not yet added.
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLocalPlayerName("TestPlayer");
+        gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
+            LogKind: 10, SenderName: "TestPlayer", Message: "pre-session"));
+
+        // Act — first tick
+        framework.Tick();
+
+        // Assert
+        var chatObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "SayChatMessageSent")
+            .ToList();
+        Assert.Empty(chatObs);
+        Assert.Null(aggregator.Current.SayChatMessageSent);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M2 — Count unchanged on second tick: no event
+    // =========================================================================
+
+    [Fact]
+    public void UO_M2_CountUnchanged_SecondTick_NoEvent()
+    {
+        // CONTRACT: Given baseline established at count=1 on tick 1,
+        //           When count is still 1 on tick 2 (no new /say),
+        //           Then NO "SayChatMessageSent" observation is written.
+
+        // TODO: FakeGameProbe.AppendChatEntry / SetLocalContentId not yet added.
+        // TODO: UIObserver.PollPlayerChatMessage not yet added.
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLocalPlayerName("TestPlayer");
+        gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
+            LogKind: 10, SenderName: "TestPlayer", Message: "pre-session"));
+        framework.Tick(); // baseline established at count=1
+
+        // Act — second tick, count still 1
+        framework.Tick();
+
+        var chatObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "SayChatMessageSent")
+            .ToList();
+        Assert.Empty(chatObs);
+        Assert.Null(aggregator.Current.SayChatMessageSent);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M3 — Count increases by 1 with matching entry: fires once
+    // =========================================================================
+
+    [Fact]
+    public void UO_M3_CountIncreasesWithMatch_FiresOnce()
+    {
+        // CONTRACT: Given baseline established at count=0 on tick 1,
+        //           When a matching entry (sourceKind=1, chatType=10, correct contentId) is
+        //           appended (count→1) and tick 2 fires,
+        //           Then exactly ONE "SayChatMessageSent" observation is written:
+        //             - Argument == 0u (log index)
+        //             - serialized value contains message="Open Sesame" and targetBaseId=0
+        //           agg.Current.SayChatMessageSent.Message == "Open Sesame".
+        //           agg.Current.SayChatMessageSent.TargetBaseId is null.
+
+        // TODO: FakeGameProbe.AppendChatEntry / SetLocalContentId not yet added.
+        // TODO: UIObserver.PollPlayerChatMessage not yet added.
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLocalPlayerName("TestPlayer");
+        framework.Tick(); // baseline established at count=0
+
+        gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
+            LogKind: 10, SenderName: "TestPlayer", Message: "Open Sesame"));
+
+        // Act
+        framework.Tick();
+
+        var chatObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "SayChatMessageSent")
+            .ToList();
+        Assert.Single(chatObs);
+        Assert.True(
+            chatObs[0].Argument?.GetRawText() == "0",
+            $"Expected Argument=0 but got {chatObs[0].Argument?.GetRawText()}");
+
+        // Verify value object contains expected fields
+        var valueJson = chatObs[0].Value?.GetRawText() ?? "";
+        Assert.Contains("\"message\"", valueJson, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Open Sesame", valueJson, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"targetBaseId\"", valueJson, StringComparison.OrdinalIgnoreCase);
+
+        Assert.NotNull(aggregator.Current.SayChatMessageSent);
+        Assert.Equal("Open Sesame", aggregator.Current.SayChatMessageSent!.Message);
+        Assert.Null(aggregator.Current.SayChatMessageSent.TargetBaseId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M4 — Non-matching entry (other player's /say): no fire, baseline advances
+    // =========================================================================
+
+    [Fact]
+    public void UO_M4_NonMatchingEntry_NoFire_BaselineAdvances()
+    {
+        // CONTRACT:
+        //   Phase 1: Append another player's /say (ContentId=99999), tick — no event fires.
+        //   Phase 2: Append local player's /say (ContentId=12345), tick — fires at idx=1.
+        //
+        // Pins: baseline advances past non-matching entries so subsequent matching entries fire
+        //       with the correct index.
+
+        // TODO: FakeGameProbe.AppendChatEntry / SetLocalContentId not yet added.
+        // TODO: UIObserver.PollPlayerChatMessage not yet added.
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLocalPlayerName("TestPlayer");
+        framework.Tick(); // baseline=0
+
+        // Other player's /say
+        gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
+            LogKind: 10, SenderName: "OtherPlayer", Message: "another player"));
+        framework.Tick(); // count=1, non-matching → no fire
+
+        var chatObsAfterPhase1 = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "SayChatMessageSent")
+            .ToList();
+        Assert.Empty(chatObsAfterPhase1);
+        Assert.Null(aggregator.Current.SayChatMessageSent);
+
+        // Local player's /say after
+        gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
+            LogKind: 10, SenderName: "TestPlayer", Message: "Open Sesame"));
+        framework.Tick(); // count=2, idx=1 matches → fires
+
+        var chatObsAfterPhase2 = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "SayChatMessageSent")
+            .ToList();
+        Assert.Single(chatObsAfterPhase2);
+        Assert.True(
+            chatObsAfterPhase2[0].Argument?.GetRawText() == "1",
+            $"Expected Argument=1 (index into log) but got {chatObsAfterPhase2[0].Argument?.GetRawText()}");
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M5 — Shrinking counter (circular buffer wrap): silent re-baseline, no exception
+    // =========================================================================
+
+    [Fact]
+    public void UO_M5_ShrinkingCounter_SilentRebaseline_NoException()
+    {
+        // CONTRACT: Given baseline=100 established (simulated via SetChatLogMessageCount),
+        //           When counter shrinks to 2 (circular-buffer wrap or log-clear),
+        //           Then NO event fires and NO exception is thrown.
+        //           Post-shrink genuine events fire correctly (fire when count>re-baseline).
+        //
+        // Pins Decision SCI10 defensive shrink-detection.
+
+        // TODO: FakeGameProbe.SetChatLogMessageCount / AppendChatEntry not yet added.
+        // TODO: UIObserver shrink-detection branch not yet added.
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLocalPlayerName("TestPlayer");
+        gameProbe.SetChatLogMessageCount(100); // simulate many pre-existing lines
+        framework.Tick();                      // baseline=100
+
+        // Simulate circular-buffer wrap: count drops to 2
+        gameProbe.SetChatLogMessageCount(2);
+        var ex = Record.Exception(() => framework.Tick()); // re-baseline silently
+        Assert.Null(ex);
+
+        // After re-baseline, no shrink-triggered events
+        var chatObsAfterShrink = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "SayChatMessageSent")
+            .ToList();
+        Assert.Empty(chatObsAfterShrink);
+
+        // A genuine new event should fire correctly after re-baseline
+        gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
+            LogKind: 10, SenderName: "TestPlayer", Message: "After Wrap"));
+        framework.Tick();
+
+        var chatObsAfterWrap = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "SayChatMessageSent")
+            .ToList();
+        Assert.Single(chatObsAfterWrap);
+        var valueJson = chatObsAfterWrap[0].Value?.GetRawText() ?? "";
+        Assert.Contains("After Wrap", valueJson, StringComparison.OrdinalIgnoreCase);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M6 — Multiple entries in one tick: fires per matching entry (last-write-wins in aggregator)
+    // =========================================================================
+
+    [Fact]
+    public void UO_M6_MultipleEntriesPerTick_FiresPerMatch_LastWriteWins()
+    {
+        // CONTRACT: Given three entries appended between ticks:
+        //             idx=0: player A (matches)
+        //             idx=1: other player (no match)
+        //             idx=2: player A (matches)
+        //           When tick fires,
+        //           Then exactly TWO "SayChatMessageSent" observations:
+        //             first Argument=0, value.message="A"
+        //             second Argument=2, value.message="C"
+        //           agg.Current.SayChatMessageSent.Message == "C" (last-write-wins).
+        //
+        // Pins Decision SCI3 last-write-wins + per-index iteration.
+
+        // TODO: FakeGameProbe.AppendChatEntry / SetLocalContentId not yet added.
+        // TODO: UIObserver per-index iteration not yet added.
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLocalPlayerName("TestPlayer");
+        framework.Tick(); // baseline=0
+
+        gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
+            LogKind: 10, SenderName: "TestPlayer", Message: "A"));  // idx=0, match
+        gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
+            LogKind: 10, SenderName: "OtherPlayer", Message: "B"));  // idx=1, no match
+        gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
+            LogKind: 10, SenderName: "TestPlayer", Message: "C"));  // idx=2, match
+
+        framework.Tick();
+
+        var chatObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "SayChatMessageSent")
+            .ToList();
+        Assert.Equal(2, chatObs.Count);
+        Assert.True(
+            chatObs[0].Argument?.GetRawText() == "0",
+            $"First obs Argument should be 0, got {chatObs[0].Argument?.GetRawText()}");
+        Assert.True(
+            chatObs[1].Argument?.GetRawText() == "2",
+            $"Second obs Argument should be 2, got {chatObs[1].Argument?.GetRawText()}");
+
+        // Value payloads contain the correct messages
+        Assert.Contains("\"A\"", chatObs[0].Value?.GetRawText() ?? "", StringComparison.Ordinal);
+        Assert.Contains("\"C\"", chatObs[1].Value?.GetRawText() ?? "", StringComparison.Ordinal);
+
+        // Last-write-wins in the aggregator
+        Assert.NotNull(aggregator.Current.SayChatMessageSent);
+        Assert.Equal("C", aggregator.Current.SayChatMessageSent!.Message);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M7 — Probe unavailable (GetChatLogMessageCount returns null): silent no-op
+    // =========================================================================
+
+    [Fact]
+    public void UO_M7_ProbeUnavailable_SilentNoOp()
+    {
+        // CONTRACT: Given SetChatLogProbeAvailable(false) (simulates null RaptureLogModule),
+        //           When multiple ticks fire,
+        //           Then NO "SayChatMessageSent" observation written, no exception.
+        //           agg.Current.SayChatMessageSent is null.
+        //
+        // Pins the `if (current is null) return;` early-out in PollPlayerChatMessage.
+
+        // TODO: FakeGameProbe.SetChatLogProbeAvailable not yet added.
+        // TODO: UIObserver early-out not yet added.
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetChatLogProbeAvailable(false); // GetChatLogMessageCount → null
+
+        var ex = Record.Exception(() =>
+        {
+            framework.Tick();
+            framework.Tick();
+            framework.Tick();
+        });
+        Assert.Null(ex);
+
+        var chatObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "SayChatMessageSent")
+            .ToList();
+        Assert.Empty(chatObs);
+        Assert.Null(aggregator.Current.SayChatMessageSent);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M8 — Target capture via TargetManager.Target (interactable NPC)
+    // =========================================================================
+
+    [Fact]
+    public void UO_M8_InteractableNpcTarget_CapturedInSignal()
+    {
+        // CONTRACT: Given an interactable NPC target (BaseId=1000789u) is set,
+        //           When the player's /say is observed,
+        //           Then the ObservationEvent value.targetBaseId == 1000789u
+        //           AND agg.Current.SayChatMessageSent.TargetBaseId == 1000789u.
+        //
+        // Pins Decision SCI13: target is captured from TargetManager.Target at read time.
+
+        // TODO: FakeGameProbe.AppendChatEntry / SetLocalContentId not yet added.
+        // TODO: UIObserver target-capture logic not yet added.
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        targetProbe.SetInteractableNpcTarget((BaseId: 1000789u, X: 0f, Y: 0f, Z: 0f, Zone: 132));
+        gameProbe.SetLocalPlayerName("TestPlayer");
+        framework.Tick(); // baseline=0
+
+        gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
+            LogKind: 10, SenderName: "TestPlayer", Message: "Open Sesame"));
+        framework.Tick();
+
+        var chatObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "SayChatMessageSent")
+            .ToList();
+        Assert.Single(chatObs);
+
+        var valueJson = chatObs[0].Value?.GetRawText() ?? "";
+        Assert.Contains("1000789", valueJson, StringComparison.OrdinalIgnoreCase);
+
+        Assert.NotNull(aggregator.Current.SayChatMessageSent);
+        Assert.Equal(1000789u, aggregator.Current.SayChatMessageSent!.TargetBaseId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_M9 — ResetWindowState re-baselines + calls OnSayChatMessageConsumed
+    // =========================================================================
+
+    [Fact]
+    public void UO_M9_ResetWindowState_Rebaselines_Consumes()
+    {
+        // CONTRACT:
+        //   Phase 1: baseline=0, tick → no event. Append match, tick → event fires (total=1).
+        //   Phase 2: ResetWindowState() → agg.SayChatMessageSent becomes null.
+        //   Phase 3: Next tick with same count=1 → silent re-baseline (no new event, total still 1).
+        //   Phase 4: Append new match (count=2), tick → new event fires (total=2), Argument=1.
+        //
+        // Pins Decision SCI7: ResetWindowState calls OnSayChatMessageConsumed + nulls baseline.
+
+        // TODO: FakeGameProbe.AppendChatEntry / SetLocalContentId not yet added.
+        // TODO: UIObserver.ResetWindowState chat wiring not yet added.
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetLocalPlayerName("TestPlayer");
+        framework.Tick(); // baseline=0
+
+        gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
+            LogKind: 10, SenderName: "TestPlayer", Message: "First"));
+        framework.Tick(); // fires; total=1; aggregator has signal
+
+        // Phase 2: Reset
+        observer.ResetWindowState();
+        Assert.Null(aggregator.Current.SayChatMessageSent); // consumed
+
+        // Phase 3: tick with count still=1 → silent re-baseline (no new event)
+        framework.Tick();
+        var chatObsAfterReset = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "SayChatMessageSent")
+            .ToList();
+        Assert.Single(chatObsAfterReset); // still only 1 total
+
+        // Phase 4: genuine new event post-reset
+        gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
+            LogKind: 10, SenderName: "TestPlayer", Message: "Second"));
+        framework.Tick();
+
+        var chatObsFinal = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "SayChatMessageSent")
+            .ToList();
+        Assert.Equal(2, chatObsFinal.Count);
+        Assert.True(
+            chatObsFinal[1].Argument?.GetRawText() == "1",
+            $"Second event Argument should be 1, got {chatObsFinal[1].Argument?.GetRawText()}");
+
+        var valueJson = chatObsFinal[1].Value?.GetRawText() ?? "";
+        Assert.Contains("Second", valueJson, StringComparison.OrdinalIgnoreCase);
+
+        Assert.NotNull(aggregator.Current.SayChatMessageSent);
+        Assert.Equal("Second", aggregator.Current.SayChatMessageSent!.Message);
 
         observer.Dispose();
     }

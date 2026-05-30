@@ -261,6 +261,31 @@ public sealed class StepInferenceEngine
             }
         }
 
+        // Rule 3.5s — SayChatMessageSent
+        // Fires when UIObserver.PollPlayerChatMessage detected that the player typed /say <message>
+        // during this recording window (RaptureLogModule observed a new log entry matching
+        // ChatLogEntryFilter.IsPlayerSayMessage).
+        //
+        // PRIORITY: above Rule 3.5e (EmoteCompleted) and Rule 3.5 (ActionCompleted). Chat input is
+        // always intentional; emotes and actions can be incidental. Defensive ordering: chat > emote > action.
+        // PRIORITY: above Rule 3 (QuestSequence advanced) — say-chat-message is more specific.
+        // PRIORITY: below Rules 1, 2, 2.1, 2.2, 2.2b, 2.3, 2.4, 2.5, 2.6.
+        //
+        // CONFIDENCE: High. EXPECT: null — author MUST write the postcondition (Decision SC7).
+        if (after.SayChatMessageSent is { } saySignal)
+        {
+            var stepIdSuffix = saySignal.TargetBaseId is { } tid
+                ? $"on-{tid}"
+                : "broadcast";
+            return new InferenceResult(
+                StepType:        "say-chat-message",
+                SuggestedStepId: $"say-chat-message-{stepIdSuffix}",
+                SuggestedExpect: null,
+                Confidence:      Confidence.High,
+                InferredFrom:    InferredFrom.SayChatMessageSent,
+                Notes:           $"Author MUST write the Expect predicate (no universal say-chat-message postcondition). Message=\"{Truncate(saySignal.Message, 40)}\"");
+        }
+
         // Rule 3.5e — EmoteCompleted
         // Fires when UIObserver.PollPlayerEmote detected that the player started an emote during
         // this recording window (LocalPlayer.EmoteController.EmoteId transitioned to a new non-zero id).
@@ -524,4 +549,7 @@ public sealed class StepInferenceEngine
         // Rule 9: Nothing matched
         return InferenceResult.Empty;
     }
+
+    private static string Truncate(string s, int n)
+        => s.Length <= n ? s : s.Substring(0, n) + "...";
 }
