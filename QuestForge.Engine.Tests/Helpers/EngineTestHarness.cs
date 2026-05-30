@@ -43,7 +43,9 @@ public sealed class EngineTestHarness
     public FakeTeleporter Teleporter { get; }
     public FakeInteractor Interactor { get; }
     public FakeCombat Combat { get; } = new FakeCombat();
-    public FakeGearManager GearManager { get; } = new FakeGearManager();
+    public FakeGearEquipper GearEquipper { get; } = new FakeGearEquipper();
+    public FakeBestGearEquipper BestGearEquipper { get; } = new FakeBestGearEquipper();
+    public FakeJobChanger JobChanger { get; } = new FakeJobChanger();
     public FakeMinigameSkipper MinigameSkipper { get; } = new FakeMinigameSkipper();
     public FakeDialogueResolver DialogueResolver { get; }
     public FakeTimingProfile TimingProfile { get; } = new FakeTimingProfile();
@@ -122,7 +124,6 @@ public sealed class EngineTestHarness
             Teleporter,
             Interactor,
             Combat,
-            GearManager,
             MinigameSkipper,
             DialogueResolver,
             TimingProfile,
@@ -132,7 +133,10 @@ public sealed class EngineTestHarness
             actionExecutor: ActionExecutor,
             emoteExecutor: EmoteExecutor,
             chatSender: ChatSender,
-            itemUser: ItemUser);
+            itemUser: ItemUser,
+            gearEquipper: GearEquipper,
+            bestGearEquipper: BestGearEquipper,
+            jobChanger: JobChanger);
         Engine = new HarnessEngine(inner, GameState, Mount, Navigator);
     }
 

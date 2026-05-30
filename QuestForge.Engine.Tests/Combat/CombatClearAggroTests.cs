@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using QuestForge.Adapters;
 using QuestForge.Adapters.Fakes;
 using QuestForge.Adapters.Fakes.Combat;
-using QuestForge.Adapters.Fakes.Gear;
 using QuestForge.Adapters.Fakes.Interaction;
 using QuestForge.Adapters.Fakes.Minigames;
 using QuestForge.Adapters.Fakes.Movement;
@@ -158,7 +157,6 @@ public sealed class CombatClearAggroTests
         var teleporter  = new FakeTeleporter(gameState);
         var interactor  = new FakeInteractor(gameState, questState);
         var combat      = new FakeCombat();
-        var gear        = new FakeGearManager();
         var minigames   = new FakeMinigameSkipper();
         var dialogue    = new FakeDialogueResolver();
         var timing      = new FakeTimingProfile();
@@ -167,7 +165,7 @@ public sealed class CombatClearAggroTests
 
         var engine = new QuestEngine(
             gameState, questState, navigator, teleporter, interactor,
-            combat, gear, minigames, dialogue, timing, trace, logger,
+            combat, minigames, dialogue, timing, trace, logger,
             clock);
 
         return (engine, gameState, questState, combat, navigator);

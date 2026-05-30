@@ -33,7 +33,6 @@ public sealed class QuestEngine
     private readonly ITeleporter _teleporter;
     private readonly IInteractor _interactor;
     private readonly ICombat _combat;
-    private readonly IGearManager _gear;
     private readonly IMinigameSkipper _minigames;
     private readonly IDialogueResolver _dialogue;
     private readonly ITimingProfile _timing;
@@ -42,6 +41,9 @@ public sealed class QuestEngine
     private readonly IEmoteExecutor? _emoteExecutor;
     private readonly IChatSender? _chatSender;
     private readonly IItemUser? _itemUser;
+    private readonly IGearEquipper? _gearEquipper;
+    private readonly IBestGearEquipper? _bestGearEquipper;
+    private readonly IJobChanger? _jobChanger;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly TimeProvider _clock;
@@ -76,7 +78,6 @@ public sealed class QuestEngine
         ITeleporter teleporter,
         IInteractor interactor,
         ICombat combat,
-        IGearManager gear,
         IMinigameSkipper minigames,
         IDialogueResolver dialogue,
         ITimingProfile timing,
@@ -87,13 +88,19 @@ public sealed class QuestEngine
         IActionExecutor? actionExecutor = null,
         IEmoteExecutor? emoteExecutor = null,
         IChatSender? chatSender = null,
-        IItemUser? itemUser = null)
+        IItemUser? itemUser = null,
+        IGearEquipper? gearEquipper = null,
+        IBestGearEquipper? bestGearEquipper = null,
+        IJobChanger? jobChanger = null)
     {
         _vendor = vendor;
         _actionExecutor = actionExecutor;
         _emoteExecutor = emoteExecutor;
         _chatSender = chatSender;
         _itemUser = itemUser;
+        _gearEquipper = gearEquipper;
+        _bestGearEquipper = bestGearEquipper;
+        _jobChanger = jobChanger;
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
         _clock = clock ?? TimeProvider.System;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
@@ -101,7 +108,6 @@ public sealed class QuestEngine
         _teleporter = teleporter ?? throw new ArgumentNullException(nameof(teleporter));
         _interactor = interactor ?? throw new ArgumentNullException(nameof(interactor));
         _combat = combat ?? throw new ArgumentNullException(nameof(combat));
-        _gear = gear ?? throw new ArgumentNullException(nameof(gear));
         _minigames = minigames ?? throw new ArgumentNullException(nameof(minigames));
         _dialogue = dialogue ?? throw new ArgumentNullException(nameof(dialogue));
         _timing = timing ?? throw new ArgumentNullException(nameof(timing));

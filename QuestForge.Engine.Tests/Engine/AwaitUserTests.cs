@@ -2,7 +2,6 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using QuestForge.Adapters;
 using QuestForge.Adapters.Fakes.Combat;
-using QuestForge.Adapters.Fakes.Gear;
 using QuestForge.Adapters.Fakes.Interaction;
 using QuestForge.Adapters.Fakes.Minigames;
 using QuestForge.Adapters.Fakes.Movement;
@@ -124,7 +123,6 @@ public sealed class AwaitUserTests
             teleporter,
             interactor,
             new FakeCombat(),
-            new FakeGearManager(),
             new FakeMinigameSkipper(),
             new FakeDialogueResolver(),
             new FakeTimingProfile(),

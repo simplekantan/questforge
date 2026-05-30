@@ -129,7 +129,7 @@ public sealed class EngineFixtureTests
             state.GameState, state.QuestState,
             state.Navigator, state.Teleporter,
             state.Interactor,
-            state.Combat, state.Gear,
+            state.Combat,
             state.Minigames, state.Dialogue,
             state.Timing,
             capturingTrace, NullLogger<QuestEngine>.Instance);

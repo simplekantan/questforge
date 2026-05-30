@@ -3,7 +3,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using QuestForge.Adapters;
 using QuestForge.Adapters.Fakes;
 using QuestForge.Adapters.Fakes.Combat;
-using QuestForge.Adapters.Fakes.Gear;
 using QuestForge.Adapters.Fakes.Interaction;
 using QuestForge.Adapters.Fakes.Minigames;
 using QuestForge.Adapters.Fakes.Movement;
@@ -95,19 +94,16 @@ public sealed class WaitStepTests
         var teleporter = new FakeTeleporter(gameState);
         var interactor = new FakeInteractor(gameState, questState);
         var combat = new FakeCombat();
-        var gear = new FakeGearManager();
         var minigames = new FakeMinigameSkipper();
         var dialogue = new FakeDialogueResolver();
         var timing = new FakeTimingProfile();
         var trace = new NullTraceWriter();
         var logger = NullLogger<QuestEngine>.Instance;
 
-        // RED: QuestEngine does not yet accept a TimeProvider parameter.
-        // Builder adds: `TimeProvider? clock = null` as the 13th (optional) constructor param.
         var engine = new QuestEngine(
             gameState, questState, navigator, teleporter, interactor,
-            combat, gear, minigames, dialogue, timing, trace, logger,
-            clock); // <-- compile error until Builder adds this param
+            combat, minigames, dialogue, timing, trace, logger,
+            clock);
 
         return (engine, gameState, questState);
     }

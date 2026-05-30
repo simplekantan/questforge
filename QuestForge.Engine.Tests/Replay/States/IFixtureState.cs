@@ -15,16 +15,18 @@ namespace QuestForge.Engine.Tests.Replay;
 /// </summary>
 internal interface IFixtureState
 {
-    IGameStateProvider GameState  { get; }
-    IQuestState        QuestState { get; }
-    INavigator         Navigator  { get; }
-    ITeleporter        Teleporter { get; }
-    IInteractor        Interactor { get; }
-    ICombat            Combat     { get; }
-    IGearManager       Gear       { get; }
-    IMinigameSkipper   Minigames  { get; }
-    IDialogueResolver  Dialogue   { get; }
-    ITimingProfile     Timing     { get; }
+    IGameStateProvider  GameState       { get; }
+    IQuestState         QuestState      { get; }
+    INavigator          Navigator       { get; }
+    ITeleporter         Teleporter      { get; }
+    IInteractor         Interactor      { get; }
+    ICombat             Combat          { get; }
+    IGearEquipper       GearEquipper    { get; }
+    IBestGearEquipper   BestGearEquipper{ get; }
+    IJobChanger         JobChanger      { get; }
+    IMinigameSkipper    Minigames       { get; }
+    IDialogueResolver   Dialogue        { get; }
+    ITimingProfile      Timing          { get; }
 
     /// <summary>
     /// Called after the engine produces <paramref name="action"/> on tick <paramref name="tick"/>.
