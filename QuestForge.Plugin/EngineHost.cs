@@ -13,9 +13,11 @@ using QuestForge.Adapters.Dalamud.Minigames;
 using QuestForge.Adapters.Dalamud.Actions;
 using QuestForge.Adapters.Dalamud.Chat;
 using QuestForge.Adapters.Dalamud.Emotes;
+using QuestForge.Adapters.Dalamud.Items;
 using QuestForge.Adapters.Dalamud.Movement;
 using QuestForge.Adapters.Chat;
 using QuestForge.Adapters.Emotes;
+using QuestForge.Adapters.Items;
 using QuestForge.Adapters.Dalamud.Timing;
 using QuestForge.Adapters.Recording;
 using QuestForge.Adapters.Gear;
@@ -48,6 +50,7 @@ public sealed class EngineHost : IDisposable
     private readonly DalamudActionExecutor _actionExecutor;
     private readonly DalamudEmoteExecutor _emoteExecutor;
     private readonly DalamudChatSender _chatSender;
+    private readonly DalamudItemUser _itemUser;
     private readonly WrathComboAdapter _combat;
     private readonly DalamudGearManager _gear;
     private readonly NullMinigameSkipper _minigames;
@@ -115,6 +118,7 @@ public sealed class EngineHost : IDisposable
         _actionExecutor  = new DalamudActionExecutor(services);
         _emoteExecutor   = new DalamudEmoteExecutor(services);
         _chatSender      = new DalamudChatSender(services);
+        _itemUser        = new DalamudItemUser(services);
         _combat          = new WrathComboAdapter(services);
         _gear            = new DalamudGearManager(services);
         _minigames       = new NullMinigameSkipper();
@@ -144,6 +148,7 @@ public sealed class EngineHost : IDisposable
     public IMount             DebugMount     => _mount;
     public IEmoteExecutor     DebugEmoteExecutor => _emoteExecutor;
     public IChatSender        DebugChatSender    => _chatSender;
+    public IItemUser          DebugItemUser      => _itemUser;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
@@ -222,7 +227,8 @@ public sealed class EngineHost : IDisposable
             vendor: _vendor,
             actionExecutor: _actionExecutor,
             emoteExecutor: _emoteExecutor,
-            chatSender: _chatSender);
+            chatSender: _chatSender,
+            itemUser: _itemUser);
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
         _onRunStart?.Invoke();
@@ -486,6 +492,18 @@ public sealed class EngineHost : IDisposable
                 if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
                     await _navigator.Stop(ct);
                 await _chatSender.Send(sc.Message, sc.TargetNpcId, ct);
+                break;
+
+            case EngineAction.UseItem ui:
+                DebounceLog(
+                    $"useitem:{ui.Kind}:{ui.ItemId}:{ui.TargetNpcId?.Value}",
+                    $"[UseItem] kind={ui.Kind} id={ui.ItemId}" +
+                    (ui.TargetNpcId is { } uiNpcId ? $" target={uiNpcId.Value}" : "") +
+                    (ui.TargetPosition is { } uiPos ? $" pos=({uiPos.X},{uiPos.Y},{uiPos.Z})" : ""));
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
+                TryCutsceneSkipConfirm();
+                await _itemUser.UseItem(ui.Kind, ui.ItemId, ui.TargetNpcId, ui.TargetPosition, ct);
                 break;
 
             case EngineAction.Wait:
