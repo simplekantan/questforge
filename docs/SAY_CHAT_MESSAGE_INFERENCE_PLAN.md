@@ -1,5 +1,46 @@
 # SayChatMessageStep Authoring Inference Plan
 
+> ## ⚠️ Errata — in-game smoke revealed wrong field
+>
+> The implementation initially landed using the assumptions in this plan
+> (`MsgSourceArrayLength` counter + `MsgSourceArray[i]` + `LogInfo.SourceKind == 1` +
+> `InfoModule.LocalContentId` match). **All three of those assumptions were wrong:**
+>
+> 1. **`MsgSourceArray` is INBOUND-ONLY.** Other characters' chat messages get entries
+>    there, but the player's own outbound `/say` does not. Polling its length never
+>    increments for the player's own messages.
+> 2. **`LogInfo.SourceKind` is uniformly `0`** for every chat entry observed in-game
+>    (verified across system, other-player, and would-be-own-player rows). Not useful for
+>    local-player identification.
+> 3. **`ContentId` in source-array entries is from the other character**, not from
+>    `InfoModule.LocalContentId` — so even when an outbound message did appear, the match
+>    would never fire.
+>
+> **What actually works** (verified via `/qf debug chatlog` diagnostic during smoke):
+> - **Counter**: `RaptureLogModule.LogModule.LogMessageCount` (the inherited LogModule base
+>   counter at offset `0x14`) — increments on every chat line including the player's own
+>   outbound `/say`.
+> - **Entry data**: call `GetLogMessageDetail(absoluteLogIndex, ...)` directly with the
+>   index in the range `[0, LogMessageCount)`. No `MsgSourceArray` detour required.
+> - **Filter**: `LogInfo.LogKind == 10` (Say channel) AND `senderName == LocalPlayer.Name`.
+>   The sender field returned by `GetLogMessageDetail` is the display name as it appears
+>   in chat ("Gabriel Deleon"); system messages have empty sender.
+> - **Local player name**: `_objectTable.LocalPlayer.Name.TextValue` (the existing
+>   `DalamudGameProbe` convention; matches `GetLastActionEffect` / `GetPlayerEmoteId`).
+>
+> The body of this plan still references the original (wrong) approach. The actual
+> shipped implementation:
+> - `ChatLogEntry(int LogKind, string SenderName, string Message)` — three fields, no
+>   `SourceKind` / `ChatType` / `ContentId`
+> - `ChatLogEntryFilter.IsPlayerSayMessage(int logKind, string? senderName, string? localPlayerName)`
+> - `IGameProbe.GetChatLogMessageCount()` / `GetChatLogEntry(int)` / `GetLocalPlayerName()`
+>   (the latter replaces `GetLocalContentId()`)
+> - All UO_M tests + ChatLogEntryFilter tests updated to match
+>
+> See PR #111 for the rewrite. The Open Question §F O1 (verify field layout under live
+> conditions) is now answered: the layout assumptions in this plan were wrong; the
+> corrected design uses the LogModule base counter + name-match filter.
+
 **Status:** ready for test creation (with open questions §F O1–O4 — none blocking Phases A–D)
 
 **Slice:** 5 of the SayChatMessageStep slice plan (Slices 1–4 shipped — schema, engine, validator, Dalamud shell, in-game smoke). This slice adds Author-mode inference: when the player types `/say <message>` during a recording session, the snapshot field `SayChatMessageSent` becomes non-null, `StepInferenceEngine.Infer` returns a `say-chat-message`-typed `InferenceResult`, the Record-Step modal previews a draft `SayChatMessageStep`, and confirming the modal appends it to the draft.

@@ -171,10 +171,10 @@ public sealed class FakeGameProbe : IGameProbe
 
     private readonly Dictionary<int, ChatLogEntry> _chatEntries = new();
     private int _chatLogCount = 0;
-    private ulong _localContentId = 1234UL;
+    private string? _localPlayerName = "TestPlayer";
     private bool _chatLogProbeAvailable = true;
 
-    public void SetLocalContentId(ulong contentId) => _localContentId = contentId;
+    public void SetLocalPlayerName(string? name) => _localPlayerName = name;
     public void SetChatLogProbeAvailable(bool available) => _chatLogProbeAvailable = available;
     public void SetChatLogMessageCount(int count) => _chatLogCount = count;
 
@@ -195,7 +195,7 @@ public sealed class FakeGameProbe : IGameProbe
     public ChatLogEntry? GetChatLogEntry(int index)
         => _chatEntries.TryGetValue(index, out var e) ? e : null;
 
-    public ulong GetLocalContentId() => _localContentId;
+    public string? GetLocalPlayerName() => _localPlayerName;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3745,9 +3745,9 @@ public sealed class UIObserverTests
         var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
             BuildFixtureWithAggregatorAndTarget();
 
-        gameProbe.SetLocalContentId(12345UL);
+        gameProbe.SetLocalPlayerName("TestPlayer");
         gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
-            SourceKind: 1, ChatType: 10, ContentId: 12345UL, Message: "pre-session"));
+            LogKind: 10, SenderName: "TestPlayer", Message: "pre-session"));
 
         // Act — first tick
         framework.Tick();
@@ -3778,9 +3778,9 @@ public sealed class UIObserverTests
         var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
             BuildFixtureWithAggregatorAndTarget();
 
-        gameProbe.SetLocalContentId(12345UL);
+        gameProbe.SetLocalPlayerName("TestPlayer");
         gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
-            SourceKind: 1, ChatType: 10, ContentId: 12345UL, Message: "pre-session"));
+            LogKind: 10, SenderName: "TestPlayer", Message: "pre-session"));
         framework.Tick(); // baseline established at count=1
 
         // Act — second tick, count still 1
@@ -3816,11 +3816,11 @@ public sealed class UIObserverTests
         var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
             BuildFixtureWithAggregatorAndTarget();
 
-        gameProbe.SetLocalContentId(12345UL);
+        gameProbe.SetLocalPlayerName("TestPlayer");
         framework.Tick(); // baseline established at count=0
 
         gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
-            SourceKind: 1, ChatType: 10, ContentId: 12345UL, Message: "Open Sesame"));
+            LogKind: 10, SenderName: "TestPlayer", Message: "Open Sesame"));
 
         // Act
         framework.Tick();
@@ -3865,12 +3865,12 @@ public sealed class UIObserverTests
         var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
             BuildFixtureWithAggregatorAndTarget();
 
-        gameProbe.SetLocalContentId(12345UL);
+        gameProbe.SetLocalPlayerName("TestPlayer");
         framework.Tick(); // baseline=0
 
         // Other player's /say
         gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
-            SourceKind: 1, ChatType: 10, ContentId: 99999UL, Message: "another player"));
+            LogKind: 10, SenderName: "OtherPlayer", Message: "another player"));
         framework.Tick(); // count=1, non-matching → no fire
 
         var chatObsAfterPhase1 = writer.RecordedEvents.OfType<ObservationEvent>()
@@ -3881,7 +3881,7 @@ public sealed class UIObserverTests
 
         // Local player's /say after
         gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
-            SourceKind: 1, ChatType: 10, ContentId: 12345UL, Message: "Open Sesame"));
+            LogKind: 10, SenderName: "TestPlayer", Message: "Open Sesame"));
         framework.Tick(); // count=2, idx=1 matches → fires
 
         var chatObsAfterPhase2 = writer.RecordedEvents.OfType<ObservationEvent>()
@@ -3914,7 +3914,7 @@ public sealed class UIObserverTests
         var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
             BuildFixtureWithAggregatorAndTarget();
 
-        gameProbe.SetLocalContentId(12345UL);
+        gameProbe.SetLocalPlayerName("TestPlayer");
         gameProbe.SetChatLogMessageCount(100); // simulate many pre-existing lines
         framework.Tick();                      // baseline=100
 
@@ -3931,7 +3931,7 @@ public sealed class UIObserverTests
 
         // A genuine new event should fire correctly after re-baseline
         gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
-            SourceKind: 1, ChatType: 10, ContentId: 12345UL, Message: "After Wrap"));
+            LogKind: 10, SenderName: "TestPlayer", Message: "After Wrap"));
         framework.Tick();
 
         var chatObsAfterWrap = writer.RecordedEvents.OfType<ObservationEvent>()
@@ -3968,15 +3968,15 @@ public sealed class UIObserverTests
         var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
             BuildFixtureWithAggregatorAndTarget();
 
-        gameProbe.SetLocalContentId(12345UL);
+        gameProbe.SetLocalPlayerName("TestPlayer");
         framework.Tick(); // baseline=0
 
         gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
-            SourceKind: 1, ChatType: 10, ContentId: 12345UL, Message: "A"));  // idx=0, match
+            LogKind: 10, SenderName: "TestPlayer", Message: "A"));  // idx=0, match
         gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
-            SourceKind: 1, ChatType: 10, ContentId: 99999UL, Message: "B"));  // idx=1, no match
+            LogKind: 10, SenderName: "OtherPlayer", Message: "B"));  // idx=1, no match
         gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
-            SourceKind: 1, ChatType: 10, ContentId: 12345UL, Message: "C"));  // idx=2, match
+            LogKind: 10, SenderName: "TestPlayer", Message: "C"));  // idx=2, match
 
         framework.Tick();
 
@@ -4060,11 +4060,11 @@ public sealed class UIObserverTests
             BuildFixtureWithAggregatorAndTarget();
 
         targetProbe.SetInteractableNpcTarget((BaseId: 1000789u, X: 0f, Y: 0f, Z: 0f, Zone: 132));
-        gameProbe.SetLocalContentId(12345UL);
+        gameProbe.SetLocalPlayerName("TestPlayer");
         framework.Tick(); // baseline=0
 
         gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
-            SourceKind: 1, ChatType: 10, ContentId: 12345UL, Message: "Open Sesame"));
+            LogKind: 10, SenderName: "TestPlayer", Message: "Open Sesame"));
         framework.Tick();
 
         var chatObs = writer.RecordedEvents.OfType<ObservationEvent>()
@@ -4101,11 +4101,11 @@ public sealed class UIObserverTests
         var (observer, framework, _, gameProbe, _, writer, _, aggregator, _) =
             BuildFixtureWithAggregatorAndTarget();
 
-        gameProbe.SetLocalContentId(12345UL);
+        gameProbe.SetLocalPlayerName("TestPlayer");
         framework.Tick(); // baseline=0
 
         gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
-            SourceKind: 1, ChatType: 10, ContentId: 12345UL, Message: "First"));
+            LogKind: 10, SenderName: "TestPlayer", Message: "First"));
         framework.Tick(); // fires; total=1; aggregator has signal
 
         // Phase 2: Reset
@@ -4121,7 +4121,7 @@ public sealed class UIObserverTests
 
         // Phase 4: genuine new event post-reset
         gameProbe.AppendChatEntry(new QuestForge.Plugin.Tracing.ChatLogEntry(
-            SourceKind: 1, ChatType: 10, ContentId: 12345UL, Message: "Second"));
+            LogKind: 10, SenderName: "TestPlayer", Message: "Second"));
         framework.Tick();
 
         var chatObsFinal = writer.RecordedEvents.OfType<ObservationEvent>()

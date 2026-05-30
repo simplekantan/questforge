@@ -731,7 +731,7 @@ public sealed class UIObserver : IDisposable
             return;
         }
 
-        var localContentId = _gameProbe.GetLocalContentId();
+        var localPlayerName = _gameProbe.GetLocalPlayerName();
 
         var firstNewIndex = _lastObservedChatLogCount.Value;
         _lastObservedChatLogCount = currentCount;
@@ -741,7 +741,7 @@ public sealed class UIObserver : IDisposable
             if (entry is null) continue;
 
             if (!QuestForge.Adapters.Chat.ChatLogEntryFilter.IsPlayerSayMessage(
-                    entry.SourceKind, entry.ChatType, entry.ContentId, localContentId))
+                    entry.LogKind, entry.SenderName, localPlayerName))
                 continue;
 
             uint? targetBaseId = null;

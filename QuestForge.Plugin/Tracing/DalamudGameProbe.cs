@@ -99,39 +99,33 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
     {
         var mod = RaptureLogModule.Instance();
         if (mod == null) return null;
-        return mod->MsgSourceArrayLength;
+        return mod->LogModule.LogMessageCount;
     }
 
-    public ulong GetLocalContentId()
+    public string? GetLocalPlayerName()
     {
-        var info = InfoModule.Instance();
-        if (info == null) return 0UL;
-        return info->LocalContentId;
+        var player = _objectTable.LocalPlayer;
+        return player?.Name.TextValue;
     }
 
     public ChatLogEntry? GetChatLogEntry(int index)
     {
         var mod = RaptureLogModule.Instance();
         if (mod == null) return null;
-        if (index < 0 || index >= mod->MsgSourceArrayLength) return null;
-
-        ref var src = ref mod->MsgSourceArray[index];
-        var logMessageIndex = src.LogMessageIndex;
-        var entryContentId  = src.ContentId;
-        var chatType        = (int)src.ChatType;
+        var count = mod->LogModule.LogMessageCount;
+        if (index < 0 || index >= count) return null;
 
         using var pSender  = new FFXIVClientStructs.FFXIV.Client.System.String.Utf8String();
         using var pMessage = new FFXIVClientStructs.FFXIV.Client.System.String.Utf8String();
         LogInfo info;
         int timestamp;
 
-        var ok = mod->GetLogMessageDetail(logMessageIndex, &info, &pSender, &pMessage, &timestamp);
+        var ok = mod->GetLogMessageDetail(index, &info, &pSender, &pMessage, &timestamp);
         if (!ok) return null;
 
         return new ChatLogEntry(
-            SourceKind: (int)info.SourceKind,
-            ChatType:   chatType,
-            ContentId:  entryContentId,
+            LogKind:    (int)info.LogKind,
+            SenderName: pSender.ToString(),
             Message:    pMessage.ToString());
     }
 }
