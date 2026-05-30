@@ -150,6 +150,15 @@ public static class StepFactory
                 TargetNpcId = after?.EmoteCompleted?.TargetBaseId,
                 Motion = true
             },
+            "use-item" => new QuestForge.Schema.UseItemStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                Kind = after?.ItemUsed?.Kind ?? QuestForge.Schema.ItemKind.KeyItem,
+                ItemId = after?.ItemUsed?.ItemId ?? 0u,
+                TargetNpcId = after?.ItemUsed?.TargetBaseId,
+                TargetPosition = after?.ItemUsed?.TargetPosition,
+            },
             "say-chat-message" => new QuestForge.Schema.SayChatMessageStep
             {
                 Id = stepId,

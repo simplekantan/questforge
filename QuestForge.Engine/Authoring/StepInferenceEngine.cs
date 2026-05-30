@@ -286,6 +286,33 @@ public sealed class StepInferenceEngine
                 Notes:           $"Author MUST write the Expect predicate (no universal say-chat-message postcondition). Message=\"{Truncate(saySignal.Message, 40)}\"");
         }
 
+        // Rule 3.5i — ItemUsed
+        // Fires when UIObserver.PollPlayerActionEffect detected that the player used an item
+        // (ActionType.Item=2 or ActionType.EventItem=3) during this recording window.
+        //
+        // PRIORITY: above Rule 3.5e (EmoteCompleted) and Rule 3.5 (ActionCompleted).
+        // Item use is more specific than emote/action when both fire in the same window.
+        // PRIORITY: above Rule 3 (QuestSequence advanced) — use-item is more specific than
+        // the catch-all sequence-advance which defaults to "talk".
+        // PRIORITY: below Rule 2.4 (KeyItemsRemoved) — when a key item is used AND consumed,
+        // the removal signal fires hand-over-item instead (natural disambiguation).
+        // PRIORITY: below Rule 3.5s (SayChatMessageSent) — chat is always intentional.
+        // CONFIDENCE: High — the player demonstrably used the item (ActionEffect received).
+        // EXPECT: null — author MUST write the postcondition (no universal item postcondition).
+        if (after.ItemUsed is { } itemSignal)
+        {
+            var stepIdSuffix = itemSignal.TargetBaseId is { } tid
+                ? $"{itemSignal.ItemId}-on-{tid}"
+                : $"{itemSignal.ItemId}";
+            return new InferenceResult(
+                StepType:        "use-item",
+                SuggestedStepId: $"use-item-{stepIdSuffix}",
+                SuggestedExpect: null,
+                Confidence:      Confidence.High,
+                InferredFrom:    InferredFrom.ItemUsed,
+                Notes:           $"Author MUST write the Expect predicate (no universal item postcondition). Kind={itemSignal.Kind}, ItemId={itemSignal.ItemId}");
+        }
+
         // Rule 3.5e — EmoteCompleted
         // Fires when UIObserver.PollPlayerEmote detected that the player started an emote during
         // this recording window (LocalPlayer.EmoteController.EmoteId transitioned to a new non-zero id).

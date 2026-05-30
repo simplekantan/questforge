@@ -197,7 +197,7 @@ public sealed class AuthoringHost : IDisposable
     public InferenceResult PreviewInference(GameStateSnapshot before)
     {
         var after = _aggregator.Current;
-        _services.Log.Debug($"[QF-DIAG] PreviewInference: zone {before.Zone.Value}→{after.Zone.Value} AethernetTeleportCompleted={after.AethernetTeleportCompleted?.To.Value} TeleportCompleted={after.TeleportCompleted?.Value} ActionCompleted={after.ActionCompleted?.ActionId} EmoteCompleted={after.EmoteCompleted?.EmoteId} SayChatMessageSent={TruncateForLog(after.SayChatMessageSent?.Message, 30)} DialogueOptionSelected={after.DialogueOptionSelected} DialogueNpcSource={after.DialogueNpcSource?.NpcId} isAethernet_before_shard={before.LastAethernetShardInteracted?.Value} isAethernet_before_npc={before.LastNpcInteracted?.Value}");
+        _services.Log.Debug($"[QF-DIAG] PreviewInference: zone {before.Zone.Value}→{after.Zone.Value} AethernetTeleportCompleted={after.AethernetTeleportCompleted?.To.Value} TeleportCompleted={after.TeleportCompleted?.Value} ActionCompleted={after.ActionCompleted?.ActionId} EmoteCompleted={after.EmoteCompleted?.EmoteId} SayChatMessageSent={TruncateForLog(after.SayChatMessageSent?.Message, 30)} ItemUsed={after.ItemUsed?.ItemId} DialogueOptionSelected={after.DialogueOptionSelected} DialogueNpcSource={after.DialogueNpcSource?.NpcId} isAethernet_before_shard={before.LastAethernetShardInteracted?.Value} isAethernet_before_npc={before.LastNpcInteracted?.Value}");
         return _inferenceEngine.Infer(before, after);
     }
 
@@ -273,6 +273,7 @@ public sealed class AuthoringHost : IDisposable
         _aggregator.OnActionConsumed();
         _aggregator.OnEmoteConsumed();
         _aggregator.OnSayChatMessageConsumed();
+        _aggregator.OnItemUsedConsumed();
 
         return Task.CompletedTask;
     }

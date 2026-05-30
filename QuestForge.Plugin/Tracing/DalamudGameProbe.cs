@@ -76,14 +76,20 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
         return (p.X, p.Y, p.Z, (int)_clientState.TerritoryType);
     }
 
-    public (uint Sequence, uint FfxivActionType, uint ActionId)? GetLastActionEffect()
+    public (uint Sequence, uint FfxivActionType, uint ActionId,
+            float TargetLocationX, float TargetLocationY, float TargetLocationZ)? GetLastActionEffect()
     {
         var player = _objectTable.LocalPlayer;
         if (player is null) return null;
         var bc = (BattleChara*)player.Address;
         if (bc is null) return null;
         ref var castInfo = ref bc->CastInfo;
-        return (castInfo.ResponseGlobalSequence, (uint)castInfo.ResponseActionType, castInfo.ResponseActionId);
+        return (castInfo.ResponseGlobalSequence,
+                (uint)castInfo.ResponseActionType,
+                castInfo.ResponseActionId,
+                castInfo.TargetLocation.X,
+                castInfo.TargetLocation.Y,
+                castInfo.TargetLocation.Z);
     }
 
     public ushort? GetPlayerEmoteId()

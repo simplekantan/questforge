@@ -12,7 +12,8 @@ public interface IGameProbe
     IEnumerable<uint> GetAllAetheryteRowIds();
     IReadOnlyList<(uint ItemId, int Qty)> GetKeyItemSlots();
     (float X, float Y, float Z, int Zone)? GetPlayerPosition();
-    (uint Sequence, uint FfxivActionType, uint ActionId)? GetLastActionEffect();
+    (uint Sequence, uint FfxivActionType, uint ActionId,
+     float TargetLocationX, float TargetLocationY, float TargetLocationZ)? GetLastActionEffect();
     ushort? GetPlayerEmoteId();
 
     /// <summary>

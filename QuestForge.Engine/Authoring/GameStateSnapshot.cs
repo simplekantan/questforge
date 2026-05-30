@@ -49,6 +49,26 @@ public sealed record SayChatMessageSentSignal(
     uint? TargetBaseId);
 
 /// <summary>
+/// Records that the player used an item (key item or inventory item) during this recording
+/// window. Set by SnapshotAggregator.OnItemUsed, which is driven by
+/// UIObserver.PollPlayerActionEffect reading CastInfo.Response* fields and routing
+/// ActionType.Item (2) and ActionType.EventItem (3) to this signal. Cleared by
+/// OnItemUsedConsumed (called from RecordStep) so it does not bleed into the next window.
+///
+/// Kind discriminates KeyItem vs InventoryItem.
+/// ItemId is the EventItem or Item row id (Lumina sheet row).
+/// TargetBaseId is the BNpcBase / ENpcBase row id of the item's target
+/// (null = self-cast / no target / target not in ObjectTable).
+/// TargetPosition is the ground-target world position for AoE-targeted item use
+/// (null = non-ground-targeted / all CastInfo.TargetLocation components are zero).
+/// </summary>
+public sealed record ItemUsedSignal(
+    QuestForge.Schema.ItemKind Kind,
+    uint ItemId,
+    uint? TargetBaseId,
+    QuestForge.Schema.Position3? TargetPosition);
+
+/// <summary>
 /// Signals that a vendor shop was opened and purchases were detected during an authoring window.
 /// </summary>
 public sealed record PurchaseDetection(
@@ -185,4 +205,10 @@ public sealed record GameStateSnapshot(
     // matching ChatLogEntryFilter.IsPlayerSayMessage). Cleared by OnSayChatMessageConsumed
     // in RecordStep so it does not bleed into the next window.
     public SayChatMessageSentSignal? SayChatMessageSent { get; init; }
+
+    // Non-positional. Set when UIObserver.PollPlayerActionEffect observes that the player used an
+    // item (ActionType.Item=2 or ActionType.EventItem=3) during this recording window.
+    // Cleared by OnItemUsedConsumed (called from AuthoringHost.RecordStep and
+    // UIObserver.ResetWindowState) so it does not bleed into the next window.
+    public ItemUsedSignal? ItemUsed { get; init; }
 }

@@ -20,8 +20,7 @@ public static class ActionTypeMapper
     public static ActionType? FromFFXIVActionType(uint ffxivActionType) => ffxivActionType switch
     {
         1u => ActionType.Action,
-        3u => ActionType.KeyItem,
         5u => ActionType.GeneralAction,
-        _  => null,
+        _  => null,   // EventItem (3) is now routed by ItemKindMapper (Decision UI-INF-13)
     };
 }
