@@ -20,6 +20,7 @@ namespace QuestForge.Schema;
 [JsonSerializable(typeof(SayChatMessageStep))]
 [JsonSerializable(typeof(UseEmoteStep))]
 [JsonSerializable(typeof(UseItemStep))]
+[JsonSerializable(typeof(ItemKind))]
 [JsonSerializable(typeof(UseActionStep))]
 [JsonSerializable(typeof(ActionType))]
 [JsonSerializable(typeof(EquipGearForQuestStep))]

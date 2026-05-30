@@ -162,10 +162,14 @@ public sealed class UseEmoteStep : Step
     public bool Motion { get; init; } = true;
 }
 
-public class UseItemStep : Step
+public sealed class UseItemStep : Step
 {
+    public ItemKind Kind { get; init; }
     public uint ItemId { get; init; }
-    public UseItemTarget? Target { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public uint? TargetNpcId { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Position3? TargetPosition { get; init; }
 }
 
 public class UseActionStep : Step
