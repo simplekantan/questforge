@@ -643,6 +643,19 @@ public sealed class QuestEngine
                 return (bestGearAction, step.Id);
             }
 
+            // 6a7. ChangeJobStep async arm — implicit postcondition: GetCurrentJob == targetJobId.
+            if (step is ChangeJobStep changeJobStep)
+            {
+                var changeJobAction = await ResolveChangeJob(changeJobStep, ct);
+                if (changeJobAction is null)
+                {
+                    // Already on the right job -- self-confirm.
+                    _confirmedStepIds.Add(step.Id);
+                    continue;
+                }
+                return (changeJobAction, step.Id);
+            }
+
             // 6b. TeleportStep async arm — step-gated so IsPlayerInCombat is only read when the
             //     cursor is on a TeleportStep. Pre-flight guards (unknown aetheryte, in combat)
             //     run inside ResolveTeleportAction.
@@ -1001,6 +1014,34 @@ public sealed class QuestEngine
             return new EngineAction.Wait("player in combat; deferring equip-best-gear", Origin: step);
 
         return new EngineAction.EquipBestGear(Origin: step);
+    }
+
+    private async Task<EngineAction?> ResolveChangeJob(ChangeJobStep step, CancellationToken ct)
+    {
+        if (_jobChanger is null)
+            return new EngineAction.AwaitUser(
+                "ChangeJobStep dispatched but no IJobChanger wired — host must supply one");
+
+        var stateResult = await _gameState.GetPlayerState(ct);
+        if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
+            return new EngineAction.Wait("player casting; deferring change-job", Origin: step);
+
+        var inCombatResult = await _gameState.IsPlayerInCombat(ct);
+        if (inCombatResult is Result<bool>.Success { Value: true })
+            return new EngineAction.Wait("player in combat; deferring change-job", Origin: step);
+
+        // Implicit postcondition: already on the right job?
+        var jobResult = await _gameState.GetCurrentJob(ct);
+        if (jobResult is Result<JobId>.Success { Value: var currentJob } && currentJob.Value == step.JobId)
+            return null; // Self-confirm.
+
+        // Pre-flight: gearset must exist.
+        var gearsetResult = await _jobChanger.GearsetExistsForJob(new JobId(step.JobId), ct);
+        if (gearsetResult is Result<bool>.Success { Value: false })
+            return new EngineAction.AwaitUser(
+                $"no gearset found for job {step.JobId} — create one via /gearset before running this quest");
+
+        return new EngineAction.ChangeJob(new JobId(step.JobId), Origin: step);
     }
 
     private async Task<EngineAction> ResolveTeleportAction(TeleportStep step, CancellationToken ct)

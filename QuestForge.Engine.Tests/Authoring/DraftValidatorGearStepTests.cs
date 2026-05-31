@@ -286,30 +286,32 @@ public sealed class DraftValidatorGearStepTests
     }
 
     // =========================================================================
-    // GS-V10: W1 fires for ChangeJobStep without Expect
+    // GS-V10: W1 suppressed for ChangeJobStep without Expect (updated per CJ-9)
     // =========================================================================
 
     /// <summary>
     /// Given the baseline plus a ChangeJobStep with Expect = null,
     /// When Validate() is called,
-    /// Then exactly one warning with Code == "W1" for that step.
-    /// (Gear steps do NOT suppress W1 -- they are not spin-loop-prone.)
+    /// Then W1 is NOT emitted for that step.
+    /// Per Decision CJ-9: ChangeJobStep has an implicit postcondition (GetCurrentJob == targetJobId)
+    /// that prevents spin-looping, so W1 is suppressed (mirrors EquipGearForQuestStep).
+    /// Updated from "W1 fires" to "W1 suppressed" when CJ-9 landed in issue #119.
     /// </summary>
     [Fact]
-    public void Validate_ChangeJob_NoExpect_RaisesW1_GS_V10()
+    public void Validate_ChangeJob_NoExpect_W1Suppressed_GS_V10()
     {
         var draft = DraftValidatorTestData.ValidBaseline();
         draft.AddStep(DraftValidatorTestData.MakeDraftStep("change-job-no-expect", 2,
             new ChangeJobStep
             {
                 Id = "change-job-no-expect",
-                JobId = 19,  // RED: property does not exist yet
-                Expect = null  // missing Expect -- W1 fires
+                JobId = 19,
+                Expect = null  // missing Expect -- W1 is suppressed per CJ-9
             },
             notes: "x"), DraftValidatorTestData.T0);
 
         var result = new DraftValidator().Validate(draft);
 
-        DraftValidatorAssertions.AssertSingleWarning(result, "W1");
+        Assert.DoesNotContain(result.Warnings, w => w.Code == "W1");
     }
 }

@@ -155,6 +155,7 @@ public sealed class EngineHost : IDisposable
     public IItemUser          DebugItemUser      => _itemUser;
     public IGearEquipper      DebugGearEquipper  => _gearEquipper;
     public IBestGearEquipper  DebugBestGearEquipper => _bestGearEquipper;
+    public IJobChanger        DebugJobChanger    => _jobChanger;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
@@ -533,6 +534,16 @@ public sealed class EngineHost : IDisposable
                     await _navigator.Stop(ct);
                 TryCutsceneSkipConfirm();
                 await _bestGearEquipper.EquipBestGear(ct);
+                break;
+
+            case EngineAction.ChangeJob cj:
+                DebounceLog(
+                    $"changejob:{cj.Job.Value}",
+                    $"[ChangeJob] jobId={cj.Job.Value}");
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
+                TryCutsceneSkipConfirm();
+                await _jobChanger.ChangeToJob(cj.Job, ct);
                 break;
 
             case EngineAction.Wait:

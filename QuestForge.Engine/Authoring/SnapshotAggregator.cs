@@ -38,6 +38,7 @@ public sealed class SnapshotAggregator
     private SayChatMessageSentSignal? _sayChatMessageSent;
     private ItemUsedSignal? _itemUsed;
     private EquipmentChangedSignal? _equipmentChanged;
+    private JobChangedSignal? _jobChanged;
 
     // ── purchase span state ────────────────────────────────────────────────
     private bool _shopOpen;
@@ -117,7 +118,8 @@ public sealed class SnapshotAggregator
         EmoteCompleted               = _emoteCompleted,
         SayChatMessageSent           = _sayChatMessageSent,
         ItemUsed                     = _itemUsed,
-        EquipmentChanged             = _equipmentChanged
+        EquipmentChanged             = _equipmentChanged,
+        JobChanged                   = _jobChanged
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -593,6 +595,21 @@ public sealed class SnapshotAggregator
     /// Mirrors OnItemUsedConsumed exactly.
     /// </summary>
     public void OnEquipmentChangedConsumed() => _equipmentChanged = null;
+
+    /// <summary>
+    /// Called by UIObserver.PollJobChange when a ClassJob change is detected.
+    /// Survives ResetDeltas; cleared by OnJobChangedConsumed (called from
+    /// AuthoringHost.RecordStep and UIObserver.ResetWindowState).
+    /// Does NOT clear in ResetDeltas — job state persists across recording windows.
+    /// </summary>
+    public void OnJobChanged(uint oldJobId, uint newJobId)
+        => _jobChanged = new JobChangedSignal(oldJobId, newJobId);
+
+    /// <summary>
+    /// Called at the end of RecordStep (and from UIObserver.ResetWindowState) to consume
+    /// the job-changed signal so it does not bleed into the next recording window.
+    /// </summary>
+    public void OnJobChangedConsumed() => _jobChanged = null;
 
     // ── Private span-correlation helper ──────────────────────────────────────
 
