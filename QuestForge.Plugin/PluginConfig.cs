@@ -36,6 +36,12 @@ public sealed class PluginConfig
     /// </summary>
     public TraceMode TraceMode { get; set; } = TraceMode.Off;
 
+    /// <summary>
+    /// When true, EquipBestGearStep prefers Stylist over the native Recommended Gear module.
+    /// Falls back to native if Stylist is not installed. Default: true.
+    /// </summary>
+    public bool PreferStylist { get; set; } = true;
+
     public static PluginConfig Load(IDalamudPluginInterface pi)
     {
         try

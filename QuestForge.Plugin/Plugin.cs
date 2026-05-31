@@ -72,7 +72,7 @@ public sealed class Plugin : IDalamudPlugin
 
         PopulateAetheryteZoneMap(dataManager, log);
 
-        _host = new EngineHost(services, _traceSession);
+        _host = new EngineHost(services, _traceSession, config);
         _responder = new SelectYesnoResponder(_host, addonLifecycle, gameGui, log);
         _host.SetRunStartCallback(_responder.TryAnswerOpenPopup);
 
