@@ -98,6 +98,9 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     public void SetGearsetExistsForJob(uint jobId, bool exists)
         { lock (_lock) _gearsetExistsForJob[jobId] = exists; }
 
+    private bool _hasCoffers;
+    public void SetHasCoffers(bool value) { lock (_lock) _hasCoffers = value; }
+
     public void AddNpc(NpcReference npc)    { lock (_lock) _npcs.Add(npc); }
     public void RemoveNpc(NpcId id)         { lock (_lock) _npcs.RemoveAll(n => n.Id == id); }
     public void ClearNpcs()                 { lock (_lock) _npcs.Clear(); }
@@ -440,5 +443,13 @@ public sealed class FakeGameStateProvider : IGameStateProvider
             var exists = _gearsetExistsForJob.TryGetValue(jobId, out var v) && v;
             return Task.FromResult<Result<bool>>(Result.Ok(exists));
         }
+    }
+
+    public Task<Result<bool>> HasCoffers(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        Record(nameof(HasCoffers));
+        lock (_lock)
+            return Task.FromResult<Result<bool>>(Result.Ok(_hasCoffers));
     }
 }

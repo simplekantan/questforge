@@ -49,6 +49,9 @@ public interface IGameStateProvider
     // Gearset state
     Task<Result<bool>> GearsetExistsForJob(uint jobId, CancellationToken ct);
 
+    // Coffer inventory
+    Task<Result<bool>> HasCoffers(CancellationToken ct);
+
     // Aethernet
     Task<Result<AethernetId?>> GetLastAethernetDestination(CancellationToken ct);
 }

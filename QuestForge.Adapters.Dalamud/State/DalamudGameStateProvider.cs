@@ -7,6 +7,8 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
+using Lumina.Excel.Sheets;
+using QuestForge.Adapters.Items;
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Types;
 
@@ -553,6 +555,44 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
             if (entry == null) continue;
             if (entry->ClassJob == (byte)jobId)
                 return Task.FromResult<Result<bool>>(Result.Ok(true));
+        }
+
+        return Task.FromResult<Result<bool>>(Result.Ok(false));
+    }
+
+    private static readonly InventoryType[] PlayerBags =
+    [
+        InventoryType.Inventory1,
+        InventoryType.Inventory2,
+        InventoryType.Inventory3,
+        InventoryType.Inventory4,
+    ];
+
+    public unsafe Task<Result<bool>> HasCoffers(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var im = InventoryManager.Instance();
+        if (im is null)
+            return Task.FromResult<Result<bool>>(
+                Result.Fail<bool>("inventoryManagerUnavailable", "InventoryManager.Instance() returned null"));
+
+        var itemSheet = _svc.DataManager.GetExcelSheet<Item>();
+        if (itemSheet is null)
+            return Task.FromResult<Result<bool>>(Result.Ok(false));
+
+        foreach (var bagType in PlayerBags)
+        {
+            var container = im->GetInventoryContainer(bagType);
+            if (container is null) continue;
+            for (var i = 0; i < container->Size; i++)
+            {
+                var slot = container->GetInventorySlot(i);
+                if (slot is null || slot->ItemId == 0) continue;
+                if (!itemSheet.TryGetRow(slot->ItemId, out var row)) continue;
+                if (CofferIdentifier.IsCoffer(row.ItemAction.RowId, row.ItemUICategory.RowId))
+                    return Task.FromResult<Result<bool>>(Result.Ok(true));
+            }
         }
 
         return Task.FromResult<Result<bool>>(Result.Ok(false));

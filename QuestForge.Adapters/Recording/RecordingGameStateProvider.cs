@@ -291,4 +291,11 @@ public sealed class RecordingGameStateProvider : IGameStateProvider
         Record(nameof(GearsetExistsForJob), jobId, result);
         return result;
     }
+
+    public async Task<Result<bool>> HasCoffers(CancellationToken ct)
+    {
+        var result = await _inner.HasCoffers(ct);
+        Record(nameof(HasCoffers), null, result);
+        return result;
+    }
 }

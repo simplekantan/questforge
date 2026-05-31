@@ -118,6 +118,7 @@ Capabilities use a `namespace:name` format. Readers may filter by namespace pref
 | `step:equip-best-gear` | `EquipBestGearStep` |
 | `step:change-job` | `ChangeJobStep` |
 | `step:register-gearset` | `RegisterGearsetStep` |
+| `step:open-coffers` | `OpenCoffersStep` — open gear coffers from player inventory (post-dungeon) |
 | `step:minigame` | `MinigameStep` |
 | `step:await-user` | `AwaitUserStep` |
 | `step:wait` | `WaitStep` |
@@ -177,6 +178,7 @@ Example: if the engine emits Navigate 1,847 times followed by Interact 312 times
 | `"equipbestgear"` | `EngineAction.EquipBestGear` | `EquipBestGearStep` dispatch — equip recommended gear via Stylist/RecommendEquip. |
 | `"changejob"` | `EngineAction.ChangeJob` | `ChangeJobStep` dispatch — switch active job/class. |
 | `"registergearset"` | `EngineAction.RegisterGearset` | `RegisterGearsetStep` dispatch — save current gear as a new gearset. |
+| `"opencoffer"` | `EngineAction.OpenCoffer` | `OpenCoffersStep` dispatch — open one gear coffer via ActionManager.UseAction(Item). |
 | `"wait"` | `EngineAction.Wait` | Rarely appears in `expectedTransitions` — only when all steps in a sequence are satisfied but the game's sequence number has not yet advanced, or when an action is gated (casting, cooldown). |
 | `"awaituser"` | `EngineAction.AwaitUser` | Terminal action. Lowercased per the extractor's `ToLowerInvariant()` normalization. Never appears in `expectedTransitions` (filtered as terminal); appears in `terminalOutcome` as `"awaitUser"` with original casing. |
 | `"done"` | `EngineAction.Done` | Never appears in `expectedTransitions`; appears in `terminalOutcome` only. |
@@ -219,6 +221,7 @@ with-equip-gear-for-quest.json  # quest with EquipGearForQuestStep (equip a spec
 with-equip-best-gear.json       # quest with EquipBestGearStep (equip recommended gear via Stylist/RecommendEquip)
 with-change-job.json            # quest with ChangeJobStep (switch active job/class)
 with-register-gearset.json      # quest with RegisterGearsetStep (save current gear as gearset)
+with-open-coffers.json          # quest with OpenCoffersStep (open gear coffers from inventory)
 with-dialogue-choices.json      # quest with SelectString branch (Phase 11+ TBD)
 with-escort.json                # quest with escort NPC (Phase 11+ TBD)
 with-spd.json                   # single-player duty

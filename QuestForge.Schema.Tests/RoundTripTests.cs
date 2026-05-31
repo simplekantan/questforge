@@ -1479,4 +1479,52 @@ public class RoundTripTests
         Assert.Null(result.Expect);
     }
 
+    // =========================================================================
+    // OC_RT1 -- OpenCoffersStep round-trip serialization
+    // =========================================================================
+
+    /// <summary>
+    /// OC_RT1 -- OpenCoffersStep round-trips through JSON with correct Id, Expect, and discriminator.
+    /// RED: Will fail to compile until Builder implements OpenCoffersStep in Step.cs
+    /// with [JsonDerivedType(typeof(OpenCoffersStep), "open-coffers")] and
+    /// [JsonSerializable(typeof(OpenCoffersStep))] in QuestForgeJsonContext.cs.
+    /// </summary>
+    [Fact]
+    public void OpenCoffersStep_RoundTrips_OC_RT1()
+    {
+        /*
+         * CONTRACT: Given OpenCoffersStep { Id = "open-coffers",
+         *                Expect = PredicateExpect { Predicate = "not inventoryHasCoffers()" } },
+         *           When serialized as Step then deserialized,
+         *           Then result is OpenCoffersStep with Id "open-coffers"
+         *                and Expect is PredicateExpect with Predicate "not inventoryHasCoffers()".
+         *           AND the serialized JSON contains "type":"open-coffers" discriminator.
+         *
+         * BUILDER GUIDANCE:
+         *   1. Add sealed class OpenCoffersStep : Step { } to Step.cs.
+         *   2. Add [JsonDerivedType(typeof(OpenCoffersStep), "open-coffers")] to Step.
+         *   3. Add [JsonSerializable(typeof(OpenCoffersStep))] to QuestForgeJsonContext.
+         */
+
+        // Arrange
+        var step = new OpenCoffersStep
+        {
+            Id = "open-coffers",
+            Expect = new PredicateExpect { Predicate = "not inventoryHasCoffers()" }
+        };
+
+        // Act
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        // Assert -- discriminator present
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"type\":\"open-coffers\"", compactJson, StringComparison.Ordinal);
+
+        // Assert -- round-trip fidelity
+        Assert.Equal("open-coffers", result.Id);
+        var expect = Assert.IsType<PredicateExpect>(result.Expect);
+        Assert.Equal("not inventoryHasCoffers()", expect.Predicate);
+    }
+
 }

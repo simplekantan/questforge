@@ -63,6 +63,7 @@ public sealed class EngineTestHarness
     public FakeChatSender ChatSender { get; } = new FakeChatSender();
     public FakeItemUser ItemUser { get; } = new FakeItemUser();
     public FakeGearsetManager GearsetManager { get; } = new FakeGearsetManager();
+    public FakeCofferOpener CofferOpener { get; } = new FakeCofferOpener();
 
     /// <summary>
     /// The FakeTraceWriter used for assertions in tests. In the default constructor,
@@ -139,7 +140,8 @@ public sealed class EngineTestHarness
             gearEquipper: GearEquipper,
             bestGearEquipper: BestGearEquipper,
             jobChanger: JobChanger,
-            gearsetManager: GearsetManager);
+            gearsetManager: GearsetManager,
+            cofferOpener: CofferOpener);
         Engine = new HarnessEngine(inner, GameState, Mount, Navigator);
     }
 
@@ -284,6 +286,29 @@ public sealed class EngineTestHarness
                     var rgResult = await GearsetManager.RegisterGearset(ct);
                     EmitActionCompleted("RegisterGearset",
                         rgResult.IsSuccess ? rgResult.ValueOrThrow.ToString() : "Failed");
+                    break;
+
+                case EngineAction.OpenCoffer oc:
+                    actions.Add(action);
+                    EmitActionSubmitted("OpenCoffer",
+                        JsonSerializer.SerializeToElement(new { itemId = oc.ItemId }, _jsonOpts));
+                    var ocResult = await CofferOpener.OpenCoffer(oc.ItemId, ct);
+                    EmitActionCompleted("OpenCoffer",
+                        ocResult.IsSuccess ? "Done" : "Failed");
+                    // After opening, remove one instance of this item from the list.
+                    // After the list empties, clear hasCoffers so the predicate advances.
+                    if (ocResult.IsSuccess)
+                    {
+                        var listResult = await CofferOpener.GetCofferItemIds(ct);
+                        if (listResult is Result<IReadOnlyList<uint>>.Success { Value: var current })
+                        {
+                            var updated = current.ToList();
+                            updated.Remove(oc.ItemId);
+                            CofferOpener.SetCofferItemIds(updated.ToArray());
+                            if (updated.Count == 0)
+                                GameState.SetHasCoffers(false);
+                        }
+                    }
                     break;
 
                 case EngineAction.UseItem ui:
