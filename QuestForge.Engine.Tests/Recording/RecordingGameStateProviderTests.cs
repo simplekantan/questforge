@@ -477,6 +477,9 @@ file sealed class FailureGameStateProvider : IGameStateProvider
 
     public Task<Result<int>> GetGrandCompanySeals(CancellationToken ct) =>
         Task.FromResult<Result<int>>(Result.Fail<int>(_reason));
+
+    public Task<Result<bool>> GearsetExistsForJob(uint jobId, CancellationToken ct) =>
+        Task.FromResult<Result<bool>>(Result.Fail<bool>(_reason));
 }
 
 /// <summary>

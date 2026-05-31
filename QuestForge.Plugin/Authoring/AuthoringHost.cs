@@ -197,7 +197,7 @@ public sealed class AuthoringHost : IDisposable
     public InferenceResult PreviewInference(GameStateSnapshot before)
     {
         var after = _aggregator.Current;
-        _services.Log.Debug($"[QF-DIAG] PreviewInference: zone {before.Zone.Value}→{after.Zone.Value} AethernetTeleportCompleted={after.AethernetTeleportCompleted?.To.Value} TeleportCompleted={after.TeleportCompleted?.Value} ActionCompleted={after.ActionCompleted?.ActionId} EmoteCompleted={after.EmoteCompleted?.EmoteId} SayChatMessageSent={TruncateForLog(after.SayChatMessageSent?.Message, 30)} ItemUsed={after.ItemUsed?.ItemId} EquipmentChanged={after.EquipmentChanged?.NewItemIds.Count} DialogueOptionSelected={after.DialogueOptionSelected} DialogueNpcSource={after.DialogueNpcSource?.NpcId} isAethernet_before_shard={before.LastAethernetShardInteracted?.Value} isAethernet_before_npc={before.LastNpcInteracted?.Value}");
+        _services.Log.Debug($"[QF-DIAG] PreviewInference: zone {before.Zone.Value}→{after.Zone.Value} AethernetTeleportCompleted={after.AethernetTeleportCompleted?.To.Value} TeleportCompleted={after.TeleportCompleted?.Value} ActionCompleted={after.ActionCompleted?.ActionId} EmoteCompleted={after.EmoteCompleted?.EmoteId} SayChatMessageSent={TruncateForLog(after.SayChatMessageSent?.Message, 30)} ItemUsed={after.ItemUsed?.ItemId} EquipmentChanged={after.EquipmentChanged?.NewItemIds.Count} JobChanged={after.JobChanged?.NewJobId} GearsetRegistered={after.GearsetRegistered?.NewCount} DialogueOptionSelected={after.DialogueOptionSelected} DialogueNpcSource={after.DialogueNpcSource?.NpcId} isAethernet_before_shard={before.LastAethernetShardInteracted?.Value} isAethernet_before_npc={before.LastNpcInteracted?.Value}");
         return _inferenceEngine.Infer(before, after);
     }
 
@@ -275,6 +275,7 @@ public sealed class AuthoringHost : IDisposable
         _aggregator.OnSayChatMessageConsumed();
         _aggregator.OnItemUsedConsumed();
         _aggregator.OnEquipmentChangedConsumed();
+        _aggregator.OnGearsetRegisteredConsumed();
 
         return Task.CompletedTask;
     }

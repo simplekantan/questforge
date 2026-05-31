@@ -284,4 +284,11 @@ public sealed class RecordingGameStateProvider : IGameStateProvider
         Record(nameof(GetLastAethernetDestination), null, result);
         return result;
     }
+
+    public async Task<Result<bool>> GearsetExistsForJob(uint jobId, CancellationToken ct)
+    {
+        var result = await _inner.GearsetExistsForJob(jobId, ct);
+        Record(nameof(GearsetExistsForJob), jobId, result);
+        return result;
+    }
 }

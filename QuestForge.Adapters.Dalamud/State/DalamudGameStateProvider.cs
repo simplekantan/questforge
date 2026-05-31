@@ -6,6 +6,7 @@ using Dalamud.Game.ClientState.Objects.Types;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
+using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Types;
 
@@ -537,5 +538,23 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
                     CanDive:               false,
                     EstimatedGilCost:      0)));
         }
+    }
+
+    public unsafe Task<Result<bool>> GearsetExistsForJob(uint jobId, CancellationToken ct)
+    {
+        var gsm = RaptureGearsetModule.Instance();
+        if (gsm == null)
+            return Task.FromResult<Result<bool>>(Result.Ok(false));
+
+        for (var i = 0; i < 100; i++)
+        {
+            if (!gsm->IsValidGearset(i)) continue;
+            var entry = gsm->GetGearset(i);
+            if (entry == null) continue;
+            if (entry->ClassJob == (byte)jobId)
+                return Task.FromResult<Result<bool>>(Result.Ok(true));
+        }
+
+        return Task.FromResult<Result<bool>>(Result.Ok(false));
     }
 }

@@ -156,4 +156,11 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
         if (ps == null) return null;
         return ps->CurrentClassJobId;
     }
+
+    public byte? GetGearsetCount()
+    {
+        var gsm = RaptureGearsetModule.Instance();
+        if (gsm == null) return null;
+        return gsm->NumGearsets;
+    }
 }

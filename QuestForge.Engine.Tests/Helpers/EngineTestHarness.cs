@@ -62,6 +62,7 @@ public sealed class EngineTestHarness
     public FakeEmoteExecutor EmoteExecutor { get; } = new FakeEmoteExecutor();
     public FakeChatSender ChatSender { get; } = new FakeChatSender();
     public FakeItemUser ItemUser { get; } = new FakeItemUser();
+    public FakeGearsetManager GearsetManager { get; } = new FakeGearsetManager();
 
     /// <summary>
     /// The FakeTraceWriter used for assertions in tests. In the default constructor,
@@ -137,7 +138,8 @@ public sealed class EngineTestHarness
             itemUser: ItemUser,
             gearEquipper: GearEquipper,
             bestGearEquipper: BestGearEquipper,
-            jobChanger: JobChanger);
+            jobChanger: JobChanger,
+            gearsetManager: GearsetManager);
         Engine = new HarnessEngine(inner, GameState, Mount, Navigator);
     }
 
@@ -276,6 +278,14 @@ public sealed class EngineTestHarness
                         cjResult.IsSuccess ? cjResult.ValueOrThrow.ToString() : "Failed");
                     break;
 
+                case EngineAction.RegisterGearset:
+                    actions.Add(action);
+                    EmitActionSubmitted("RegisterGearset", default);
+                    var rgResult = await GearsetManager.RegisterGearset(ct);
+                    EmitActionCompleted("RegisterGearset",
+                        rgResult.IsSuccess ? rgResult.ValueOrThrow.ToString() : "Failed");
+                    break;
+
                 case EngineAction.UseItem ui:
                     actions.Add(action);
                     EmitActionSubmitted("UseItem", JsonSerializer.SerializeToElement(
@@ -394,7 +404,7 @@ public sealed class HarnessEngine
         // BEFORE the action is returned to the caller. Flying-dismount may cause fall damage
         // (v1 limitation); vnavmesh usually grounds at stop-distance.
         // Teleport is exempt: the game dismounts on arrival if the destination prohibits mounts.
-        if (_lastDispatchedWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport and not EngineAction.EquipGear and not EngineAction.EquipBestGear)
+        if (_lastDispatchedWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport and not EngineAction.EquipGear and not EngineAction.EquipBestGear and not EngineAction.RegisterGearset)
         {
             // Mirror EngineHost: only consider dismount when vnavmesh has actually stopped.
             // The engine emits Engage early (target in scan range) while the CombatController

@@ -39,6 +39,7 @@ public sealed class SnapshotAggregator
     private ItemUsedSignal? _itemUsed;
     private EquipmentChangedSignal? _equipmentChanged;
     private JobChangedSignal? _jobChanged;
+    private GearsetRegisteredSignal? _gearsetRegistered;
 
     // ── purchase span state ────────────────────────────────────────────────
     private bool _shopOpen;
@@ -119,7 +120,8 @@ public sealed class SnapshotAggregator
         SayChatMessageSent           = _sayChatMessageSent,
         ItemUsed                     = _itemUsed,
         EquipmentChanged             = _equipmentChanged,
-        JobChanged                   = _jobChanged
+        JobChanged                   = _jobChanged,
+        GearsetRegistered            = _gearsetRegistered
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -610,6 +612,21 @@ public sealed class SnapshotAggregator
     /// the job-changed signal so it does not bleed into the next recording window.
     /// </summary>
     public void OnJobChangedConsumed() => _jobChanged = null;
+
+    /// <summary>
+    /// Called by UIObserver.PollGearsetCount when RaptureGearsetModule.NumGearsets increases.
+    /// Survives ResetDeltas; cleared by OnGearsetRegisteredConsumed (called from
+    /// AuthoringHost.RecordStep and UIObserver.ResetWindowState).
+    /// Does NOT clear in ResetDeltas — gearset count persists across recording windows.
+    /// </summary>
+    public void OnGearsetRegistered(byte oldCount, byte newCount)
+        => _gearsetRegistered = new GearsetRegisteredSignal(oldCount, newCount);
+
+    /// <summary>
+    /// Called at the end of RecordStep (and from UIObserver.ResetWindowState) to consume
+    /// the gearset-registered signal so it does not bleed into the next recording window.
+    /// </summary>
+    public void OnGearsetRegisteredConsumed() => _gearsetRegistered = null;
 
     // ── Private span-correlation helper ──────────────────────────────────────
 

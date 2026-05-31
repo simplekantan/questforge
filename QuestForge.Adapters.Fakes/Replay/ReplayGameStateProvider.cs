@@ -229,6 +229,12 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
         // Phase 7 placeholder: not recorded in trace observations, return null
         => Task.FromResult<Result<AethernetId?>>(Result.Ok((AethernetId?)null));
 
+    public Task<Result<bool>> GearsetExistsForJob(uint jobId, CancellationToken ct)
+    {
+        var obs = ScanNext(nameof(GearsetExistsForJob), jobId);
+        return Task.FromResult(Materialize<bool>(obs.Value));
+    }
+
     private static Result<T> Materialize<T>(JsonElement? value)
         => ObservationMaterializer.Materialize<T>(value);
 }

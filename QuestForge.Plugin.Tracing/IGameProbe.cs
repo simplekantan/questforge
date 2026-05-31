@@ -56,6 +56,11 @@ public interface IGameProbe
     /// Returns PlayerState.CurrentClassJobId (byte), or null when PlayerState is unavailable.
     /// </summary>
     byte? GetCurrentClassJobId();
+
+    /// <summary>
+    /// Returns RaptureGearsetModule.NumGearsets (byte), or null when RaptureGearsetModule is unavailable.
+    /// </summary>
+    byte? GetGearsetCount();
 }
 
 /// <summary>
