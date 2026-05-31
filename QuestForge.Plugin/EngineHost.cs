@@ -106,7 +106,7 @@ public sealed class EngineHost : IDisposable
     private DateTimeOffset _lastDebounceAt = DateTimeOffset.MinValue;
     private static readonly TimeSpan DebounceInterval = TimeSpan.FromSeconds(10);
 
-    public EngineHost(PluginServices services, TraceSession traceSession)
+    public EngineHost(PluginServices services, TraceSession traceSession, PluginConfig config)
     {
         _services = services;
         _traceSession = traceSession;
@@ -123,7 +123,7 @@ public sealed class EngineHost : IDisposable
         _itemUser        = new DalamudItemUser(services);
         _combat          = new WrathComboAdapter(services);
         _gearEquipper    = new DalamudGearEquipper(services);
-        _bestGearEquipper = new DalamudBestGearEquipper(services);
+        _bestGearEquipper = new DalamudBestGearEquipper(services, () => config.PreferStylist);
         _jobChanger      = new DalamudJobChanger(services);
         _minigames       = new NullMinigameSkipper();
         _dialogue        = new LuminaDialogueResolver(services);
