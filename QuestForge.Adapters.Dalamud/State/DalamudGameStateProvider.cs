@@ -386,6 +386,23 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         return Task.FromResult<Result<int>>(Result.Ok(count));
     }
 
+    public unsafe Task<Result<bool>> IsItemEquipped(ItemId item, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var im = InventoryManager.Instance();
+        if (im is null)
+            return Task.FromResult<Result<bool>>(
+                Result.Fail<bool>("noInventoryManager", "InventoryManager.Instance() returned null"));
+
+        for (var i = 0; i < 14; i++)
+        {
+            var slot = im->GetInventorySlot(InventoryType.EquippedItems, i);
+            if (slot is not null && slot->ItemId == item.Value)
+                return Task.FromResult<Result<bool>>(Result.Ok(true));
+        }
+        return Task.FromResult<Result<bool>>(Result.Ok(false));
+    }
+
     public unsafe Task<Result<long>> GetGil(CancellationToken ct)
     {
         var mgr = InventoryManager.Instance();

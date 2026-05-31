@@ -1000,6 +1000,226 @@ public sealed class PredicateEvaluatorTests
         Assert.False(await evaluator.Evaluate(ast, CancellationToken.None));
     }
 
+    // =========================================================================
+    // playerHasEquipped predicate tests (T1-T8 from IS_ITEM_EQUIPPED_PREDICATE_PLAN.md)
+    // =========================================================================
+
+    [Fact]
+    public async Task PlayerHasEquipped_ItemEquipped_ReturnsTrue()
+    {
+        /*
+         * T1: Happy path — item IS equipped, predicate returns true.
+         *
+         * CONTRACT: Given FakeGameStateProvider has item 4567 equipped,
+         *           When evaluating "playerHasEquipped(4567)",
+         *           Then result is true.
+         *
+         * BUILDER GUIDANCE: Add "playerHasEquipped" arm to EvaluateFunction:
+         *   "playerHasEquipped" when args.Length == 1 =>
+         *       (await _gameState.IsItemEquipped(new ItemId((uint)(long)args[0]), ct)).ValueOrThrow,
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        gameState.SetItemEquipped(new ItemId(4567), true);
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("playerHasEquipped(4567)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.True(result, "Item 4567 is equipped — playerHasEquipped(4567) should be true");
+    }
+
+    [Fact]
+    public async Task PlayerHasEquipped_ItemNotEquipped_ReturnsFalse()
+    {
+        /*
+         * T2: Happy path — item is NOT equipped, predicate returns false.
+         *
+         * CONTRACT: Given FakeGameStateProvider has NO items equipped,
+         *           When evaluating "playerHasEquipped(4567)",
+         *           Then result is false.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        // No SetItemEquipped call — default is false
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("playerHasEquipped(4567)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.False(result, "Item 4567 is not equipped — playerHasEquipped(4567) should be false");
+    }
+
+    [Fact]
+    public async Task PlayerHasEquipped_Negation_ReturnsFalse()
+    {
+        /*
+         * T3: Negation works — not playerHasEquipped(4567) when item IS equipped returns false.
+         *
+         * CONTRACT: Given item 4567 is equipped,
+         *           When evaluating "not playerHasEquipped(4567)",
+         *           Then result is false.
+         *
+         * BUILDER GUIDANCE: The Not node delegates to EvaluateInternal(inner) — no extra work
+         *   needed once the playerHasEquipped arm returns a bool.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        gameState.SetItemEquipped(new ItemId(4567), true);
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("not playerHasEquipped(4567)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.False(result, "not playerHasEquipped(4567) where item is equipped — should be false");
+    }
+
+    [Fact]
+    public async Task PlayerHasEquipped_ComposedWithPlayerHasItem_BothTrue()
+    {
+        /*
+         * T4: Composition — playerHasItem(4567) and playerHasEquipped(4567) both true.
+         *
+         * CONTRACT: Given item 4567 is in inventory (count 1) AND equipped,
+         *           When evaluating "playerHasItem(4567) and playerHasEquipped(4567)",
+         *           Then result is true.
+         *
+         * BUILDER GUIDANCE: Tests that playerHasEquipped integrates with the And node
+         *   and co-exists with playerHasItem in the same expression.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        gameState.SetItemCount(new ItemId(4567), 1);
+        gameState.SetItemEquipped(new ItemId(4567), true);
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("playerHasItem(4567) and playerHasEquipped(4567)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.True(result, "playerHasItem(4567) (true) AND playerHasEquipped(4567) (true) = true");
+    }
+
+    [Fact]
+    public async Task PlayerHasEquipped_TwoArgForm_ThrowsNotSupportedException()
+    {
+        /*
+         * T5: Two-arg form throws NotSupportedException.
+         *
+         * CONTRACT: Given any state,
+         *           When evaluating "playerHasEquipped(4567, "mainhand")",
+         *           Then throws NotSupportedException with message containing
+         *           "slot filter is not yet implemented".
+         *
+         * BUILDER GUIDANCE: Add a second switch arm:
+         *   "playerHasEquipped" when args.Length == 2 =>
+         *       throw new NotSupportedException(
+         *           "playerHasEquipped(itemId, slotName) slot filter is not yet implemented. Use playerHasEquipped(itemId)."),
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+
+        // The parser allows the 2-arg form (OptionalTail(1,1)). Construct via AST to be safe.
+        var ast = new PredicateAst.FunctionCall(
+            "playerHasEquipped",
+            new PredicateAst[] { new PredicateAst.IntLiteral(4567), new PredicateAst.StringLiteral("mainhand") });
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => evaluator.Evaluate(ast, CancellationToken.None));
+
+        Assert.Contains("slot filter is not yet implemented", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PlayerHasEquipped_InExpectPostcondition_PassesWhenEquipped()
+    {
+        /*
+         * T6: Used in Expect postcondition — step completes when item is equipped.
+         *
+         * CONTRACT: Given a PredicateExpect with "playerHasEquipped(1234)" and item 1234 IS equipped,
+         *           When ExpectEvaluator evaluates the postcondition,
+         *           Then result is true (postcondition passes).
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        gameState.SetItemEquipped(new ItemId(1234), true);
+        var expectEval = CreateExpectEvaluator(gameState, new FakeQuestState());
+        var expect = new PredicateExpect { Predicate = "playerHasEquipped(1234)" };
+
+        // Act
+        var result = await expectEval.Evaluate(expect, CancellationToken.None);
+
+        // Assert
+        Assert.True(result, "Postcondition playerHasEquipped(1234) should pass when item is equipped");
+    }
+
+    [Fact]
+    public async Task PlayerHasEquipped_InExpectPostcondition_FailsWhenNotEquipped()
+    {
+        /*
+         * T7: Postcondition fails when item is NOT equipped.
+         *
+         * CONTRACT: Given a PredicateExpect with "playerHasEquipped(1234)" and item 1234 is NOT equipped,
+         *           When ExpectEvaluator evaluates the postcondition,
+         *           Then result is false (postcondition fails, engine retries).
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        // No SetItemEquipped — item not equipped
+        var expectEval = CreateExpectEvaluator(gameState, new FakeQuestState());
+        var expect = new PredicateExpect { Predicate = "playerHasEquipped(1234)" };
+
+        // Act
+        var result = await expectEval.Evaluate(expect, CancellationToken.None);
+
+        // Assert
+        Assert.False(result, "Postcondition playerHasEquipped(1234) should fail when item is not equipped");
+    }
+
+    [Fact]
+    public async Task PlayerHasEquipped_SetItemEquippedToggle_ReflectsLatestState()
+    {
+        /*
+         * T8: FakeGameStateProvider.SetItemEquipped toggle — set true then false, returns false.
+         *
+         * CONTRACT: Given SetItemEquipped(item, true) then SetItemEquipped(item, false),
+         *           When IsItemEquipped(item) is called via the predicate,
+         *           Then returns false.
+         *           (Validates no internal caching and that the toggle removes the item.)
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("playerHasEquipped(4567)").Ast!;
+
+        // Set equipped, verify true
+        gameState.SetItemEquipped(new ItemId(4567), true);
+        var equippedResult = await evaluator.Evaluate(ast, CancellationToken.None);
+        Assert.True(equippedResult, "After SetItemEquipped(true) — should be true");
+
+        // Unequip, verify false
+        gameState.SetItemEquipped(new ItemId(4567), false);
+        var unequippedResult = await evaluator.Evaluate(ast, CancellationToken.None);
+        Assert.False(unequippedResult, "After SetItemEquipped(false) — should be false");
+    }
+
     // -------------------------------------------------------------------------
     // Factory helpers
     // -------------------------------------------------------------------------

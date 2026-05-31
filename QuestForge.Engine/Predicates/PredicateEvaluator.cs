@@ -118,6 +118,11 @@ public sealed class PredicateEvaluator
                 (await _gameState.GetItemCount(new ItemId((uint)(long)args[0]), ct)).ValueOrThrow >= 1,
             "playerHasItem" when args.Length == 2 =>
                 (await _gameState.GetItemCount(new ItemId((uint)(long)args[0]), ct)).ValueOrThrow >= (long)args[1],
+            "playerHasEquipped" when args.Length == 1 =>
+                (await _gameState.IsItemEquipped(new ItemId((uint)(long)args[0]), ct)).ValueOrThrow,
+            "playerHasEquipped" when args.Length == 2 =>
+                throw new NotSupportedException(
+                    "playerHasEquipped(itemId, slotName) slot filter is not yet implemented. Use playerHasEquipped(itemId)."),
             // job predicates
             "playerJobId" => (long)(await _gameState.GetCurrentJob(ct)).ValueOrThrow.Value,
             "isDiscipleOfWar" => JobRangeTable.Classify((await _gameState.GetCurrentJob(ct)).ValueOrThrow)

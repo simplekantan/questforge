@@ -34,6 +34,7 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     private UiState _uiState = new(false, false, false, false, false, false, false, false, null);
     private int _freeInventorySlots;
     private readonly Dictionary<ItemId, int> _itemCounts = new();
+    private readonly HashSet<ItemId> _equippedItems = [];
     private long _gil;
     private (string Reason, string? Detail)? _gilFailure;
     private int _gcSeals;
@@ -74,6 +75,15 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     public void SetUiState(UiState v)                { lock (_lock) _uiState = v; }
     public void SetFreeInventorySlots(int v)         { lock (_lock) _freeInventorySlots = v; }
     public void SetItemCount(ItemId item, int count) { lock (_lock) _itemCounts[item] = count; }
+
+    public void SetItemEquipped(ItemId item, bool equipped)
+    {
+        lock (_lock)
+        {
+            if (equipped) _equippedItems.Add(item);
+            else _equippedItems.Remove(item);
+        }
+    }
     public void SetGil(long v)                       { lock (_lock) { _gil = v; _gilFailure = null; } }
     public void SetGilFailure(string reason, string? detail = null) { lock (_lock) _gilFailure = (reason, detail); }
     public void ClearGilFailure()                    { lock (_lock) _gilFailure = null; }
@@ -367,6 +377,13 @@ public sealed class FakeGameStateProvider : IGameStateProvider
             _itemCounts.TryGetValue(item, out var count);
             return Task.FromResult<Result<int>>(Result.Ok(count));
         }
+    }
+
+    public Task<Result<bool>> IsItemEquipped(ItemId item, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        Record(nameof(IsItemEquipped));
+        lock (_lock) return Task.FromResult<Result<bool>>(Result.Ok(_equippedItems.Contains(item)));
     }
 
     public Task<Result<long>> GetGil(CancellationToken ct)

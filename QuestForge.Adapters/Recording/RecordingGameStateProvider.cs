@@ -250,6 +250,13 @@ public sealed class RecordingGameStateProvider : IGameStateProvider
         return result;
     }
 
+    public async Task<Result<bool>> IsItemEquipped(ItemId item, CancellationToken ct)
+    {
+        var result = await _inner.IsItemEquipped(item, ct);
+        Record(nameof(IsItemEquipped), item, result);
+        return result;
+    }
+
     public async Task<Result<long>> GetGil(CancellationToken ct)
     {
         var result = await _inner.GetGil(ct);

@@ -183,6 +183,12 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
         return Task.FromResult(Materialize<int>(obs.Value));
     }
 
+    public Task<Result<bool>> IsItemEquipped(ItemId item, CancellationToken ct)
+    {
+        var obs = ScanNext(nameof(IsItemEquipped), item);
+        return Task.FromResult(Materialize<bool>(obs.Value));
+    }
+
     public Task<Result<long>> GetGil(CancellationToken ct)
     {
         var obs = ScanNext(nameof(GetGil), null);
