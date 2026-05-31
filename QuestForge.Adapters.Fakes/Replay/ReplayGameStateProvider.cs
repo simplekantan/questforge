@@ -235,6 +235,12 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
         return Task.FromResult(Materialize<bool>(obs.Value));
     }
 
+    public Task<Result<bool>> HasCoffers(CancellationToken ct)
+    {
+        var obs = ScanNext(nameof(HasCoffers), null);
+        return Task.FromResult(Materialize<bool>(obs.Value));
+    }
+
     private static Result<T> Materialize<T>(JsonElement? value)
         => ObservationMaterializer.Materialize<T>(value);
 }

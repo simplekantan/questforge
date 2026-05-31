@@ -56,6 +56,7 @@ public sealed class EngineHost : IDisposable
     private readonly DalamudBestGearEquipper _bestGearEquipper;
     private readonly DalamudJobChanger _jobChanger;
     private readonly DalamudGearsetManager _gearsetManager;
+    private readonly DalamudCofferOpener _cofferOpener;
     private readonly NullMinigameSkipper _minigames;
     private readonly LuminaDialogueResolver _dialogue;
     private readonly SeededTimingProfile _timing;
@@ -127,6 +128,7 @@ public sealed class EngineHost : IDisposable
         _bestGearEquipper = new DalamudBestGearEquipper(services, () => config.PreferStylist);
         _jobChanger      = new DalamudJobChanger(services);
         _gearsetManager  = new DalamudGearsetManager(services);
+        _cofferOpener    = new DalamudCofferOpener(services);
         _minigames       = new NullMinigameSkipper();
         _dialogue        = new LuminaDialogueResolver(services);
         _timing          = new SeededTimingProfile(seed: 0);
@@ -159,6 +161,7 @@ public sealed class EngineHost : IDisposable
     public IBestGearEquipper  DebugBestGearEquipper => _bestGearEquipper;
     public IJobChanger        DebugJobChanger    => _jobChanger;
     public IGearsetManager    DebugGearsetManager => _gearsetManager;
+    public ICofferOpener      DebugCofferOpener   => _cofferOpener;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
@@ -242,7 +245,8 @@ public sealed class EngineHost : IDisposable
             gearEquipper: _gearEquipper,
             bestGearEquipper: _bestGearEquipper,
             jobChanger: _jobChanger,
-            gearsetManager: _gearsetManager);
+            gearsetManager: _gearsetManager,
+            cofferOpener: _cofferOpener);
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
         _onRunStart?.Invoke();
@@ -558,6 +562,16 @@ public sealed class EngineHost : IDisposable
                     await _navigator.Stop(ct);
                 TryCutsceneSkipConfirm();
                 await _gearsetManager.RegisterGearset(ct);
+                break;
+
+            case EngineAction.OpenCoffer oc:
+                DebounceLog(
+                    $"opencoffer:{oc.ItemId}",
+                    $"[OpenCoffer] itemId={oc.ItemId}");
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
+                TryCutsceneSkipConfirm();
+                await _cofferOpener.OpenCoffer(oc.ItemId, ct);
                 break;
 
             case EngineAction.Wait:

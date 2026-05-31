@@ -35,6 +35,7 @@ namespace QuestForge.Schema;
 [JsonDerivedType(typeof(PurchaseItemStep),      "purchase-item")]
 [JsonDerivedType(typeof(TeleportStep),          "teleport")]
 [JsonDerivedType(typeof(RegisterGearsetStep),   "register-gearset")]
+[JsonDerivedType(typeof(OpenCoffersStep),       "open-coffers")]
 public class Step
 {
     public string Id { get; init; } = default!;
@@ -266,6 +267,8 @@ public class TeleportStep : Step
 }
 
 public sealed class RegisterGearsetStep : Step { }
+
+public sealed class OpenCoffersStep : Step { }
 
 [JsonConverter(typeof(JsonStringEnumConverter<PurchaseCurrency>))]
 public enum PurchaseCurrency

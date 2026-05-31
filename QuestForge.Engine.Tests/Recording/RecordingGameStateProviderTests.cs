@@ -480,6 +480,9 @@ file sealed class FailureGameStateProvider : IGameStateProvider
 
     public Task<Result<bool>> GearsetExistsForJob(uint jobId, CancellationToken ct) =>
         Task.FromResult<Result<bool>>(Result.Fail<bool>(_reason));
+
+    public Task<Result<bool>> HasCoffers(CancellationToken ct) =>
+        Task.FromResult<Result<bool>>(Result.Fail<bool>(_reason));
 }
 
 /// <summary>

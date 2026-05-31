@@ -45,6 +45,7 @@ public sealed class QuestEngine
     private readonly IBestGearEquipper? _bestGearEquipper;
     private readonly IJobChanger? _jobChanger;
     private readonly IGearsetManager? _gearsetManager;
+    private readonly ICofferOpener? _cofferOpener;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly TimeProvider _clock;
@@ -93,7 +94,8 @@ public sealed class QuestEngine
         IGearEquipper? gearEquipper = null,
         IBestGearEquipper? bestGearEquipper = null,
         IJobChanger? jobChanger = null,
-        IGearsetManager? gearsetManager = null)
+        IGearsetManager? gearsetManager = null,
+        ICofferOpener? cofferOpener = null)
     {
         _vendor = vendor;
         _actionExecutor = actionExecutor;
@@ -104,6 +106,7 @@ public sealed class QuestEngine
         _bestGearEquipper = bestGearEquipper;
         _jobChanger = jobChanger;
         _gearsetManager = gearsetManager;
+        _cofferOpener = cofferOpener;
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
         _clock = clock ?? TimeProvider.System;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
@@ -666,6 +669,13 @@ public sealed class QuestEngine
                 return (registerGearsetAction, step.Id);
             }
 
+            // 6a9. OpenCoffersStep async arm — no implicit postcondition (relies on authored Expect).
+            if (step is OpenCoffersStep openCoffersStep)
+            {
+                var openCoffersAction = await ResolveOpenCoffers(openCoffersStep, ct);
+                return (openCoffersAction, step.Id);
+            }
+
             // 6b. TeleportStep async arm — step-gated so IsPlayerInCombat is only read when the
             //     cursor is on a TeleportStep. Pre-flight guards (unknown aetheryte, in combat)
             //     run inside ResolveTeleportAction.
@@ -1041,6 +1051,29 @@ public sealed class QuestEngine
             return new EngineAction.Wait("player in combat; deferring register-gearset", Origin: step);
 
         return new EngineAction.RegisterGearset(Origin: step);
+    }
+
+    private async Task<EngineAction> ResolveOpenCoffers(OpenCoffersStep step, CancellationToken ct)
+    {
+        if (_cofferOpener is null)
+            return new EngineAction.AwaitUser(
+                "OpenCoffersStep dispatched but no ICofferOpener wired — host must supply one");
+
+        var stateResult = await _gameState.GetPlayerState(ct);
+        if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
+            return new EngineAction.Wait("player casting; deferring open-coffers", Origin: step);
+
+        var slotsResult = await _gameState.GetFreeInventorySlots(ct);
+        if (slotsResult is Result<int>.Success { Value: 0 })
+            return new EngineAction.AwaitUser(
+                "inventory full — free space before opening coffers");
+
+        var coffersResult = await _cofferOpener.GetCofferItemIds(ct);
+        if (coffersResult is not Result<IReadOnlyList<uint>>.Success { Value: var cofferIds }
+            || cofferIds.Count == 0)
+            return new EngineAction.Wait("no coffers in inventory", Origin: step);
+
+        return new EngineAction.OpenCoffer(cofferIds[0], Origin: step);
     }
 
     private async Task<EngineAction?> ResolveChangeJob(ChangeJobStep step, CancellationToken ct)
