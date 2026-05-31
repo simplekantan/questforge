@@ -636,6 +636,13 @@ public sealed class QuestEngine
                 return (equipAction, step.Id);
             }
 
+            // 6a6. EquipBestGearStep async arm — no implicit postcondition (relies on authored Expect).
+            if (step is EquipBestGearStep bestGearStep)
+            {
+                var bestGearAction = await ResolveEquipBestGear(bestGearStep, ct);
+                return (bestGearAction, step.Id);
+            }
+
             // 6b. TeleportStep async arm — step-gated so IsPlayerInCombat is only read when the
             //     cursor is on a TeleportStep. Pre-flight guards (unknown aetheryte, in combat)
             //     run inside ResolveTeleportAction.
@@ -977,6 +984,23 @@ public sealed class QuestEngine
         }
 
         return null;
+    }
+
+    private async Task<EngineAction> ResolveEquipBestGear(EquipBestGearStep step, CancellationToken ct)
+    {
+        if (_bestGearEquipper is null)
+            return new EngineAction.AwaitUser(
+                "EquipBestGearStep dispatched but no IBestGearEquipper wired — host must supply one");
+
+        var stateResult = await _gameState.GetPlayerState(ct);
+        if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
+            return new EngineAction.Wait("player casting; deferring equip-best-gear", Origin: step);
+
+        var inCombatResult = await _gameState.IsPlayerInCombat(ct);
+        if (inCombatResult is Result<bool>.Success { Value: true })
+            return new EngineAction.Wait("player in combat; deferring equip-best-gear", Origin: step);
+
+        return new EngineAction.EquipBestGear(Origin: step);
     }
 
     private async Task<EngineAction> ResolveTeleportAction(TeleportStep step, CancellationToken ct)
