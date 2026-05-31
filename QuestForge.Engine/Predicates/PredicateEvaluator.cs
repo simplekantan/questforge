@@ -130,6 +130,7 @@ public sealed class PredicateEvaluator
             "isDiscipleOfMagic" => JobRangeTable.Classify((await _gameState.GetCurrentJob(ct)).ValueOrThrow)
                 is CombatRole.Caster or CombatRole.Healer,
             "isPlayerJob" => (await _gameState.GetCurrentJob(ct)).ValueOrThrow.Value == (uint)(long)args[0],
+            "jobGearsetExists" => (await _gameState.GearsetExistsForJob((uint)(long)args[0], ct)).ValueOrThrow,
             _ => throw new UnknownStateFunctionException(name)
         };
     }

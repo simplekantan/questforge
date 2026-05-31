@@ -109,6 +109,13 @@ public sealed class UIObserver : IDisposable
     // Baseline is NOT reset in ResetWindowState (job persists across recording windows).
     private byte? _lastClassJobId;
 
+    // ── Gearset count tracking ────────────────────────────────────────────
+    // Tracks the most recently observed NumGearsets. null = not yet baselined.
+    // First observation sets baseline silently (no fire).
+    // On increase: fire OnGearsetRegistered. On decrease or same: silent baseline update.
+    // Baseline is NOT reset in ResetWindowState (gearset count persists across recording windows).
+    private byte? _lastGearsetCount;
+
     // ── Target tracking ───────────────────────────────────────────────────
     // _lastTargetBaseId dedups the every-frame PollTargetNpc (aetheryte + interactable-NPC).
     // _lastBattleNpcBaseId dedups the heartbeat PollBattleNpcTarget (hostile combat target).
@@ -220,6 +227,10 @@ public sealed class UIObserver : IDisposable
         _aggregator?.OnJobChangedConsumed();
         // NOTE: _lastClassJobId (baseline) is intentionally NOT reset here.
         // Job state persists across recording windows; only the signal is consumed.
+
+        _aggregator?.OnGearsetRegisteredConsumed();
+        // NOTE: _lastGearsetCount (baseline) is intentionally NOT reset here.
+        // Gearset count persists across recording windows; only the signal is consumed.
     }
 
     /// <summary>
@@ -260,6 +271,7 @@ public sealed class UIObserver : IDisposable
         PollPlayerChatMessage();
         PollEquipmentChange();
         PollJobChange();
+        PollGearsetCount();
 
         // Heartbeat pollers (throttled to 250 ms)
         var now = _clock.UtcNow;
@@ -865,6 +877,28 @@ public sealed class UIObserver : IDisposable
         _lastClassJobId = current.Value;
 
         _aggregator?.OnJobChanged(oldJobId, current.Value);
+    }
+
+    private void PollGearsetCount()
+    {
+        if (_gameProbe is null) return;
+
+        var current = _gameProbe.GetGearsetCount();
+        if (current is null) return;
+
+        if (_lastGearsetCount is null)
+        {
+            // First observation: establish baseline silently (no fire).
+            _lastGearsetCount = current.Value;
+            return;
+        }
+
+        var old = _lastGearsetCount.Value;
+        _lastGearsetCount = current.Value;
+
+        // Only fire on increase (new gearset created). Decrease (deletion) and same: silent baseline update.
+        if (current.Value > old)
+            _aggregator?.OnGearsetRegistered(old, current.Value);
     }
 
     private void PollDialogueOption()

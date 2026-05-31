@@ -178,6 +178,11 @@ public static class StepFactory
                 Expect = expectValue,
                 JobId = after?.JobChanged?.NewJobId ?? 0u
             },
+            "register-gearset" => new QuestForge.Schema.RegisterGearsetStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+            },
             "attune" => new AttunementStep
             {
                 Id = stepId,

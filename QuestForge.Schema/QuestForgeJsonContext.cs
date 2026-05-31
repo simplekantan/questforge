@@ -36,6 +36,7 @@ namespace QuestForge.Schema;
 [JsonSerializable(typeof(PurchaseItemStep))]
 [JsonSerializable(typeof(PurchaseCurrency))]
 [JsonSerializable(typeof(TeleportStep))]
+[JsonSerializable(typeof(RegisterGearsetStep))]
 // RecoverAction subtypes
 [JsonSerializable(typeof(RetryRecoverAction))]
 [JsonSerializable(typeof(GotoRecoverAction))]

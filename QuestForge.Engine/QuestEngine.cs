@@ -44,6 +44,7 @@ public sealed class QuestEngine
     private readonly IGearEquipper? _gearEquipper;
     private readonly IBestGearEquipper? _bestGearEquipper;
     private readonly IJobChanger? _jobChanger;
+    private readonly IGearsetManager? _gearsetManager;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly TimeProvider _clock;
@@ -91,7 +92,8 @@ public sealed class QuestEngine
         IItemUser? itemUser = null,
         IGearEquipper? gearEquipper = null,
         IBestGearEquipper? bestGearEquipper = null,
-        IJobChanger? jobChanger = null)
+        IJobChanger? jobChanger = null,
+        IGearsetManager? gearsetManager = null)
     {
         _vendor = vendor;
         _actionExecutor = actionExecutor;
@@ -101,6 +103,7 @@ public sealed class QuestEngine
         _gearEquipper = gearEquipper;
         _bestGearEquipper = bestGearEquipper;
         _jobChanger = jobChanger;
+        _gearsetManager = gearsetManager;
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
         _clock = clock ?? TimeProvider.System;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
@@ -656,6 +659,13 @@ public sealed class QuestEngine
                 return (changeJobAction, step.Id);
             }
 
+            // 6a8. RegisterGearsetStep async arm — no implicit postcondition (per RG-2).
+            if (step is RegisterGearsetStep registerGearsetStep)
+            {
+                var registerGearsetAction = await ResolveRegisterGearset(registerGearsetStep, ct);
+                return (registerGearsetAction, step.Id);
+            }
+
             // 6b. TeleportStep async arm — step-gated so IsPlayerInCombat is only read when the
             //     cursor is on a TeleportStep. Pre-flight guards (unknown aetheryte, in combat)
             //     run inside ResolveTeleportAction.
@@ -1014,6 +1024,23 @@ public sealed class QuestEngine
             return new EngineAction.Wait("player in combat; deferring equip-best-gear", Origin: step);
 
         return new EngineAction.EquipBestGear(Origin: step);
+    }
+
+    private async Task<EngineAction> ResolveRegisterGearset(RegisterGearsetStep step, CancellationToken ct)
+    {
+        if (_gearsetManager is null)
+            return new EngineAction.AwaitUser(
+                "RegisterGearsetStep dispatched but no IGearsetManager wired — host must supply one");
+
+        var stateResult = await _gameState.GetPlayerState(ct);
+        if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
+            return new EngineAction.Wait("player casting; deferring register-gearset", Origin: step);
+
+        var inCombatResult = await _gameState.IsPlayerInCombat(ct);
+        if (inCombatResult is Result<bool>.Success { Value: true })
+            return new EngineAction.Wait("player in combat; deferring register-gearset", Origin: step);
+
+        return new EngineAction.RegisterGearset(Origin: step);
     }
 
     private async Task<EngineAction?> ResolveChangeJob(ChangeJobStep step, CancellationToken ct)

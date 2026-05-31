@@ -22,4 +22,5 @@ public enum InferredFrom
     ItemUsed,
     EquipmentChanged,
     JobChanged,
+    GearsetRegistered,
 }

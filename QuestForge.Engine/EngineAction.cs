@@ -57,4 +57,6 @@ public abstract record EngineAction
     public sealed record EquipBestGear(Step? Origin = null) : EngineAction;
 
     public sealed record ChangeJob(JobId Job, Step? Origin = null) : EngineAction;
+
+    public sealed record RegisterGearset(Step? Origin = null) : EngineAction;
 }

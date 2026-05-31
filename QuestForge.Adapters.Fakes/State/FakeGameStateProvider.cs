@@ -40,6 +40,7 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     private int _gcSeals;
     private (string Reason, string? Detail)? _gcSealsFailure;
     private readonly Dictionary<ZoneId, TravelCapability> _travelCapabilities = new();
+    private readonly Dictionary<uint, bool> _gearsetExistsForJob = new();
 
     // ---- observable recording ----
     public record StateRead(string Method, DateTimeOffset At) : AdapterCall(At);
@@ -93,6 +94,9 @@ public sealed class FakeGameStateProvider : IGameStateProvider
 
     public void SetTravelCapability(ZoneId zone, TravelCapability cap)
         { lock (_lock) _travelCapabilities[zone] = cap; }
+
+    public void SetGearsetExistsForJob(uint jobId, bool exists)
+        { lock (_lock) _gearsetExistsForJob[jobId] = exists; }
 
     public void AddNpc(NpcReference npc)    { lock (_lock) _npcs.Add(npc); }
     public void RemoveNpc(NpcId id)         { lock (_lock) _npcs.RemoveAll(n => n.Id == id); }
@@ -427,4 +431,14 @@ public sealed class FakeGameStateProvider : IGameStateProvider
 
     public Task<Result<AethernetId?>> GetLastAethernetDestination(CancellationToken ct)
         => Task.FromResult<Result<AethernetId?>>(Result.Ok(LastAethernetDestination));
+
+    public Task<Result<bool>> GearsetExistsForJob(uint jobId, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        lock (_lock)
+        {
+            var exists = _gearsetExistsForJob.TryGetValue(jobId, out var v) && v;
+            return Task.FromResult<Result<bool>>(Result.Ok(exists));
+        }
+    }
 }

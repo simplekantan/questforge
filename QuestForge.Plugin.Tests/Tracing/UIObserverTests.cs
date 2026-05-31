@@ -214,6 +214,14 @@ public sealed class FakeGameProbe : IGameProbe
     public void SetCurrentClassJobId(byte jobId) => _currentClassJobId = jobId;
 
     public byte? GetCurrentClassJobId() => _currentClassJobId;
+
+    // ── UO_GS*: gearset count scripting ─────────────────────────────────────
+
+    private byte? _gearsetCount;
+
+    public void SetGearsetCount(byte count) => _gearsetCount = count;
+
+    public byte? GetGearsetCount() => _gearsetCount;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4754,6 +4762,172 @@ public sealed class UIObserverTests
         // Tick 3: same job as after change -- no fire (baseline preserved)
         framework.Tick();
         Assert.Null(aggregator.Current.JobChanged);
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UO_GS*: Gearset count polling (monotonic counter pattern)
+    //
+    // Covers spec REGISTER_GEARSET_STEP_PLAN.md Decision RG-14, UO_GS1-GS5.
+    //
+    // ALL tests in this group will fail to compile/runtime until Builder adds:
+    //   - GearsetRegisteredSignal record in GameStateSnapshot.cs            (TODO)
+    //   - GameStateSnapshot.GearsetRegistered property                      (TODO)
+    //   - SnapshotAggregator.OnGearsetRegistered / OnGearsetRegisteredConsumed (TODO)
+    //   - IGameProbe.GetGearsetCount()                                      (TODO)
+    //   - FakeGameProbe.SetGearsetCount(byte)                               (TODO)
+    //   - UIObserver.PollGearsetCount                                       (TODO)
+    //   - UIObserver.ResetWindowState calls OnGearsetRegisteredConsumed     (TODO)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // =========================================================================
+    // UO_GS1 -- First gearset count observation sets baseline, no fire
+    // =========================================================================
+
+    [Fact]
+    public void UO_GS1_FirstGearsetCountObservation_EstablishesBaseline_NoFire()
+    {
+        // CONTRACT: Given GetGearsetCount() returns 5,
+        //           When OnFrameworkUpdate fires once,
+        //           Then agg.OnGearsetRegistered was NOT called (first observation is silent baseline).
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        gameProbe.SetGearsetCount(5);
+        framework.Tick();
+
+        // No GearsetRegistered signal should be set on first observation
+        Assert.Null(aggregator.Current.GearsetRegistered);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_GS2 -- Subsequent observation with increased count fires OnGearsetRegistered
+    // =========================================================================
+
+    [Fact]
+    public void UO_GS2_GearsetCountIncreased_FiresOnGearsetRegistered_WithOldAndNewCount()
+    {
+        // CONTRACT: Given baseline count = 5,
+        //           When count changes to 6,
+        //           Then agg.OnGearsetRegistered called with oldCount = 5, newCount = 6.
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Tick 1: baseline
+        gameProbe.SetGearsetCount(5);
+        framework.Tick();
+        Assert.Null(aggregator.Current.GearsetRegistered); // baseline, no fire
+
+        // Tick 2: count increased from 5 to 6
+        gameProbe.SetGearsetCount(6);
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.GearsetRegistered);
+        Assert.Equal((byte)5, aggregator.Current.GearsetRegistered!.OldCount);
+        Assert.Equal((byte)6, aggregator.Current.GearsetRegistered.NewCount);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_GS3 -- Same count across ticks does not re-fire
+    // =========================================================================
+
+    [Fact]
+    public void UO_GS3_SameGearsetCount_DoesNotReFire()
+    {
+        // CONTRACT: Given baseline established with count = 6,
+        //           When same value returned on next poll,
+        //           Then agg.OnGearsetRegistered NOT called.
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Tick 1: baseline
+        gameProbe.SetGearsetCount(6);
+        framework.Tick();
+
+        // Tick 2: same value
+        framework.Tick();
+
+        Assert.Null(aggregator.Current.GearsetRegistered);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_GS4 -- Decreased count (deletion) updates baseline silently, no fire
+    // =========================================================================
+
+    [Fact]
+    public void UO_GS4_GearsetCountDecreased_NoFire_BaselineUpdated()
+    {
+        // CONTRACT: Given baseline count = 6,
+        //           When count decreases to 5 (gearset deleted),
+        //           Then agg.OnGearsetRegistered NOT called (only increases fire).
+        //           Internal baseline updated to 5.
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Tick 1: baseline at 6
+        gameProbe.SetGearsetCount(6);
+        framework.Tick();
+
+        // Tick 2: count decreased to 5 (deletion)
+        gameProbe.SetGearsetCount(5);
+        framework.Tick();
+
+        Assert.Null(aggregator.Current.GearsetRegistered); // no fire on decrease
+
+        // Tick 3: count increases back to 6 -- should fire (baseline was updated to 5)
+        gameProbe.SetGearsetCount(6);
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.GearsetRegistered);
+        Assert.Equal((byte)5, aggregator.Current.GearsetRegistered!.OldCount);
+        Assert.Equal((byte)6, aggregator.Current.GearsetRegistered.NewCount);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_GS5 -- ResetWindowState calls OnGearsetRegisteredConsumed but does NOT reset baseline
+    // =========================================================================
+
+    [Fact]
+    public void UO_GS5_ResetWindowState_ConsumesSignal_PreservesBaseline()
+    {
+        // CONTRACT: Given gearset count increased from 5 to 6 and OnGearsetRegistered fired,
+        //           When ResetWindowState() called, then another tick with count still 6,
+        //           Then agg.OnGearsetRegisteredConsumed was called (signal consumed),
+        //                and agg.OnGearsetRegistered NOT called on the subsequent tick
+        //                (baseline was NOT reset; same count = no change).
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Tick 1: baseline
+        gameProbe.SetGearsetCount(5);
+        framework.Tick();
+
+        // Tick 2: count increased
+        gameProbe.SetGearsetCount(6);
+        framework.Tick();
+        Assert.NotNull(aggregator.Current.GearsetRegistered); // sanity
+
+        // ResetWindowState: should consume GearsetRegistered
+        observer.ResetWindowState();
+        Assert.Null(aggregator.Current.GearsetRegistered); // consumed
+
+        // Tick 3: same count as after increase -- no fire (baseline preserved)
+        framework.Tick();
+        Assert.Null(aggregator.Current.GearsetRegistered);
 
         observer.Dispose();
     }

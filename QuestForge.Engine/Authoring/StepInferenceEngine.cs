@@ -333,6 +333,27 @@ public sealed class StepInferenceEngine
                                  "Implicit postcondition handles self-confirmation.");
         }
 
+        // Rule 3.5k — GearsetRegistered
+        // Fires when UIObserver.PollGearsetCount detected that RaptureGearsetModule.NumGearsets
+        // increased during this recording window (new gearset created).
+        //
+        // PRIORITY: above Rule 3.5g (EquipmentChanged) — gearset creation is the more specific signal
+        // when both fire (creating a gearset does not change equipment, but saving might trigger
+        // equipment snapshot delta). Below Rule 3.5j (JobChanged) — job changes are the authoring
+        // intent when both fire; gearset creation is a side effect.
+        // CONFIDENCE: High. EXPECT: null — author MUST add skipIf to prevent re-registration (W1 fires).
+        if (after.GearsetRegistered is { } gsSignal)
+        {
+            return new InferenceResult(
+                StepType:        "register-gearset",
+                SuggestedStepId: "register-gearset",
+                SuggestedExpect: null,
+                Confidence:      Confidence.High,
+                InferredFrom:    InferredFrom.GearsetRegistered,
+                Notes:           $"Gearset count changed: {gsSignal.OldCount} -> {gsSignal.NewCount}. " +
+                                 "Author MUST add skipIf with jobGearsetExists(N) to prevent re-registration.");
+        }
+
         // Rule 3.5g — EquipmentChanged
         // Fires when UIObserver.PollEquipmentChange detected that the player's equipment changed
         // (one or more slots in InventoryType.EquippedItems changed item IDs) during this recording

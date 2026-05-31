@@ -106,6 +106,16 @@ public sealed record EquipmentChangedSignal(IReadOnlyList<uint> NewItemIds);
 /// </summary>
 public sealed record JobChangedSignal(uint OldJobId, uint NewJobId);
 
+/// <summary>
+/// Records that the player created a new gearset during this recording window. Set by
+/// SnapshotAggregator.OnGearsetRegistered, which is driven by UIObserver.PollGearsetCount
+/// detecting that RaptureGearsetModule.NumGearsets increased. Cleared by
+/// OnGearsetRegisteredConsumed (called from AuthoringHost.RecordStep and
+/// UIObserver.ResetWindowState) so it does not bleed into the next window.
+/// Baseline is NOT reset in ResetWindowState (gearset count persists across recording windows).
+/// </summary>
+public sealed record GearsetRegisteredSignal(byte OldCount, byte NewCount);
+
 public sealed record GameStateSnapshot(
     DateTimeOffset CapturedAt,
     ZoneId Zone,
@@ -247,4 +257,11 @@ public sealed record GameStateSnapshot(
     // and UIObserver.ResetWindowState) so it does not bleed into the next window.
     // Baseline is NOT reset in ResetWindowState (job state persists across recording windows).
     public JobChangedSignal? JobChanged { get; init; }
+
+    // Non-positional. Set when UIObserver.PollGearsetCount detects that
+    // RaptureGearsetModule.NumGearsets increased during this recording window.
+    // Cleared by OnGearsetRegisteredConsumed (called from AuthoringHost.RecordStep
+    // and UIObserver.ResetWindowState) so it does not bleed into the next window.
+    // Baseline is NOT reset in ResetWindowState (gearset count persists across windows).
+    public GearsetRegisteredSignal? GearsetRegistered { get; init; }
 }

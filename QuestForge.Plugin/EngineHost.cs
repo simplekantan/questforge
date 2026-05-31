@@ -55,6 +55,7 @@ public sealed class EngineHost : IDisposable
     private readonly DalamudGearEquipper _gearEquipper;
     private readonly DalamudBestGearEquipper _bestGearEquipper;
     private readonly DalamudJobChanger _jobChanger;
+    private readonly DalamudGearsetManager _gearsetManager;
     private readonly NullMinigameSkipper _minigames;
     private readonly LuminaDialogueResolver _dialogue;
     private readonly SeededTimingProfile _timing;
@@ -125,6 +126,7 @@ public sealed class EngineHost : IDisposable
         _gearEquipper    = new DalamudGearEquipper(services);
         _bestGearEquipper = new DalamudBestGearEquipper(services, () => config.PreferStylist);
         _jobChanger      = new DalamudJobChanger(services);
+        _gearsetManager  = new DalamudGearsetManager(services);
         _minigames       = new NullMinigameSkipper();
         _dialogue        = new LuminaDialogueResolver(services);
         _timing          = new SeededTimingProfile(seed: 0);
@@ -156,6 +158,7 @@ public sealed class EngineHost : IDisposable
     public IGearEquipper      DebugGearEquipper  => _gearEquipper;
     public IBestGearEquipper  DebugBestGearEquipper => _bestGearEquipper;
     public IJobChanger        DebugJobChanger    => _jobChanger;
+    public IGearsetManager    DebugGearsetManager => _gearsetManager;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
@@ -238,7 +241,8 @@ public sealed class EngineHost : IDisposable
             itemUser: _itemUser,
             gearEquipper: _gearEquipper,
             bestGearEquipper: _bestGearEquipper,
-            jobChanger: _jobChanger);
+            jobChanger: _jobChanger,
+            gearsetManager: _gearsetManager);
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
         _onRunStart?.Invoke();
@@ -305,7 +309,7 @@ public sealed class EngineHost : IDisposable
         // against QuestEngine.Tick() are unaffected (see MOUNT_SUPPORT_PLAN.md §3 Q4).
         // Teleport is exempt: the game dismounts the player automatically on arrival if the
         // destination zone prohibits mounts (e.g. cities). No pre-dismount needed.
-        if (_lastDispatchedActionWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport and not EngineAction.EquipGear and not EngineAction.EquipBestGear)
+        if (_lastDispatchedActionWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport and not EngineAction.EquipGear and not EngineAction.EquipBestGear and not EngineAction.RegisterGearset)
         {
             // Don't dismount while vnavmesh is still moving the player. Some non-Navigate
             // actions fire early — notably Engage, which the engine emits as soon as a combat
@@ -544,6 +548,16 @@ public sealed class EngineHost : IDisposable
                     await _navigator.Stop(ct);
                 TryCutsceneSkipConfirm();
                 await _jobChanger.ChangeToJob(cj.Job, ct);
+                break;
+
+            case EngineAction.RegisterGearset:
+                DebounceLog(
+                    "registergearset",
+                    "[RegisterGearset] firing");
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
+                TryCutsceneSkipConfirm();
+                await _gearsetManager.RegisterGearset(ct);
                 break;
 
             case EngineAction.Wait:

@@ -1425,4 +1425,58 @@ public class RoundTripTests
         Assert.Equal(0u, changeJob.JobId);  // RED: property does not exist yet
     }
 
+    // =========================================================================
+    // RG-RT1 -- Round-trip serialization for RegisterGearsetStep
+    // =========================================================================
+
+    [Fact]
+    public void RegisterGearsetStep_RoundTrips_RGRT1()
+    {
+        /*
+         * RED: Will fail to compile -- RegisterGearsetStep does not exist yet.
+         *
+         * CONTRACT: Given RegisterGearsetStep { Id = "register-gearset",
+         *                Expect = PredicateExpect { Predicate = "jobGearsetExists(32)" } },
+         *           When serialized then deserialized,
+         *           Then result is RegisterGearsetStep with Id "register-gearset"
+         *                and Expect.Predicate "jobGearsetExists(32)".
+         */
+
+        var step = new RegisterGearsetStep
+        {
+            Id = "register-gearset",
+            Expect = new PredicateExpect { Predicate = "jobGearsetExists(32)" }
+        };
+
+        var result = RoundTrip(step);
+
+        Assert.Equal("register-gearset", result.Id);
+        Assert.IsType<PredicateExpect>(result.Expect);
+        Assert.Equal("jobGearsetExists(32)", ((PredicateExpect)result.Expect!).Predicate);
+    }
+
+    // RG-RT2: RegisterGearsetStep minimal (no Expect) round-trips
+    [Fact]
+    public void RegisterGearsetStep_Minimal_RoundTrips_RGRT2()
+    {
+        /*
+         * RED: Will fail to compile -- RegisterGearsetStep does not exist yet.
+         *
+         * CONTRACT: Given RegisterGearsetStep { Id = "rg-minimal" } with no Expect,
+         *           When serialized then deserialized,
+         *           Then result is RegisterGearsetStep with Id "rg-minimal"
+         *                and Expect is null.
+         */
+
+        var step = new RegisterGearsetStep
+        {
+            Id = "rg-minimal"
+        };
+
+        var result = RoundTrip(step);
+
+        Assert.Equal("rg-minimal", result.Id);
+        Assert.Null(result.Expect);
+    }
+
 }
