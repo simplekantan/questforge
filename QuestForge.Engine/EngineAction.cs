@@ -53,4 +53,6 @@ public abstract record EngineAction
         Step? Origin = null) : EngineAction;
 
     public sealed record EquipGear(uint ItemId, Step? Origin = null) : EngineAction;
+
+    public sealed record EquipBestGear(Step? Origin = null) : EngineAction;
 }

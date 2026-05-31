@@ -256,6 +256,14 @@ public sealed class EngineTestHarness
                         egResult.IsSuccess ? egResult.ValueOrThrow.ToString() : "Failed");
                     break;
 
+                case EngineAction.EquipBestGear:
+                    actions.Add(action);
+                    EmitActionSubmitted("EquipBestGear", default);
+                    var ebgResult = await BestGearEquipper.EquipBestGear(ct);
+                    EmitActionCompleted("EquipBestGear",
+                        ebgResult.IsSuccess ? ebgResult.ValueOrThrow.ToString() : "Failed");
+                    break;
+
                 case EngineAction.UseItem ui:
                     actions.Add(action);
                     EmitActionSubmitted("UseItem", JsonSerializer.SerializeToElement(
@@ -366,7 +374,7 @@ public sealed class HarnessEngine
         // BEFORE the action is returned to the caller. Flying-dismount may cause fall damage
         // (v1 limitation); vnavmesh usually grounds at stop-distance.
         // Teleport is exempt: the game dismounts on arrival if the destination prohibits mounts.
-        if (_lastDispatchedWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport and not EngineAction.EquipGear)
+        if (_lastDispatchedWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport and not EngineAction.EquipGear and not EngineAction.EquipBestGear)
         {
             // Mirror EngineHost: only consider dismount when vnavmesh has actually stopped.
             // The engine emits Engage early (target in scan range) while the CombatController

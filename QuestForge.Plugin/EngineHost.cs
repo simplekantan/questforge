@@ -154,6 +154,7 @@ public sealed class EngineHost : IDisposable
     public IChatSender        DebugChatSender    => _chatSender;
     public IItemUser          DebugItemUser      => _itemUser;
     public IGearEquipper      DebugGearEquipper  => _gearEquipper;
+    public IBestGearEquipper  DebugBestGearEquipper => _bestGearEquipper;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
@@ -303,7 +304,7 @@ public sealed class EngineHost : IDisposable
         // against QuestEngine.Tick() are unaffected (see MOUNT_SUPPORT_PLAN.md §3 Q4).
         // Teleport is exempt: the game dismounts the player automatically on arrival if the
         // destination zone prohibits mounts (e.g. cities). No pre-dismount needed.
-        if (_lastDispatchedActionWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport and not EngineAction.EquipGear)
+        if (_lastDispatchedActionWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport and not EngineAction.EquipGear and not EngineAction.EquipBestGear)
         {
             // Don't dismount while vnavmesh is still moving the player. Some non-Navigate
             // actions fire early — notably Engage, which the engine emits as soon as a combat
@@ -522,6 +523,16 @@ public sealed class EngineHost : IDisposable
                     await _navigator.Stop(ct);
                 TryCutsceneSkipConfirm();
                 await _gearEquipper.EquipItem(eg.ItemId, ct);
+                break;
+
+            case EngineAction.EquipBestGear:
+                DebounceLog(
+                    "equipbestgear",
+                    "[EquipBestGear] firing");
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
+                TryCutsceneSkipConfirm();
+                await _bestGearEquipper.EquipBestGear(ct);
                 break;
 
             case EngineAction.Wait:
