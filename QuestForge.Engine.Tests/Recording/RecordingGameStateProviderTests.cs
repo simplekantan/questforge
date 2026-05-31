@@ -460,6 +460,9 @@ file sealed class FailureGameStateProvider : IGameStateProvider
     public Task<Result<int>> GetItemCount(ItemId item, CancellationToken ct) =>
         Task.FromResult<Result<int>>(Result.Fail<int>(_reason));
 
+    public Task<Result<bool>> IsItemEquipped(ItemId item, CancellationToken ct) =>
+        Task.FromResult<Result<bool>>(Result.Fail<bool>(_reason));
+
     public Task<Result<long>> GetGil(CancellationToken ct) =>
         Task.FromResult<Result<long>>(Result.Fail<long>(_reason));
 

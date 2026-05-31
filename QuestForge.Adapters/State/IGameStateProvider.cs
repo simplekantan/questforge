@@ -39,6 +39,7 @@ public interface IGameStateProvider
     // Inventory
     Task<Result<int>> GetFreeInventorySlots(CancellationToken ct);
     Task<Result<int>> GetItemCount(ItemId item, CancellationToken ct);
+    Task<Result<bool>> IsItemEquipped(ItemId item, CancellationToken ct);
     Task<Result<long>> GetGil(CancellationToken ct);
     Task<Result<int>> GetGrandCompanySeals(CancellationToken ct);
 
