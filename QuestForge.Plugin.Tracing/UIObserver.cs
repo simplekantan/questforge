@@ -103,6 +103,12 @@ public sealed class UIObserver : IDisposable
     // Baseline is NOT reset in ResetWindowState (equipment persists across recording windows).
     private uint[]? _lastEquippedItemIds;
 
+    // ── Job tracking ─────────────────────────────────────────────────────
+    // Tracks the most recently observed ClassJobId. null = not yet baselined.
+    // First observation sets baseline silently (no fire).
+    // Baseline is NOT reset in ResetWindowState (job persists across recording windows).
+    private byte? _lastClassJobId;
+
     // ── Target tracking ───────────────────────────────────────────────────
     // _lastTargetBaseId dedups the every-frame PollTargetNpc (aetheryte + interactable-NPC).
     // _lastBattleNpcBaseId dedups the heartbeat PollBattleNpcTarget (hostile combat target).
@@ -210,6 +216,10 @@ public sealed class UIObserver : IDisposable
         _aggregator?.OnEquipmentChangedConsumed();
         // NOTE: _lastEquippedItemIds (baseline) is intentionally NOT reset here.
         // Equipment state persists across recording windows; only the signal is consumed.
+
+        _aggregator?.OnJobChangedConsumed();
+        // NOTE: _lastClassJobId (baseline) is intentionally NOT reset here.
+        // Job state persists across recording windows; only the signal is consumed.
     }
 
     /// <summary>
@@ -249,6 +259,7 @@ public sealed class UIObserver : IDisposable
         PollPlayerEmote();
         PollPlayerChatMessage();
         PollEquipmentChange();
+        PollJobChange();
 
         // Heartbeat pollers (throttled to 250 ms)
         var now = _clock.UtcNow;
@@ -832,6 +843,28 @@ public sealed class UIObserver : IDisposable
         if (newItems.Count == 0) return;
 
         _aggregator?.OnEquipmentChanged(newItems);
+    }
+
+    private void PollJobChange()
+    {
+        if (_gameProbe is null) return;
+
+        var current = _gameProbe.GetCurrentClassJobId();
+        if (current is null) return;
+
+        if (_lastClassJobId is null)
+        {
+            // First observation: establish baseline silently (no fire).
+            _lastClassJobId = current.Value;
+            return;
+        }
+
+        if (current.Value == _lastClassJobId.Value) return;
+
+        var oldJobId = _lastClassJobId.Value;
+        _lastClassJobId = current.Value;
+
+        _aggregator?.OnJobChanged(oldJobId, current.Value);
     }
 
     private void PollDialogueOption()

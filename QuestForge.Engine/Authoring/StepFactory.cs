@@ -172,6 +172,12 @@ public static class StepFactory
                 Expect = expectValue,
                 ItemIds = after?.EquipmentChanged?.NewItemIds.ToArray() ?? []
             },
+            "change-job" => new QuestForge.Schema.ChangeJobStep
+            {
+                Id = stepId,
+                Expect = expectValue,
+                JobId = after?.JobChanged?.NewJobId ?? 0u
+            },
             "attune" => new AttunementStep
             {
                 Id = stepId,

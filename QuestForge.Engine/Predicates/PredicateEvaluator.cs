@@ -129,6 +129,7 @@ public sealed class PredicateEvaluator
                 is CombatRole.Tank or CombatRole.Melee or CombatRole.PhysicalRanged,
             "isDiscipleOfMagic" => JobRangeTable.Classify((await _gameState.GetCurrentJob(ct)).ValueOrThrow)
                 is CombatRole.Caster or CombatRole.Healer,
+            "isPlayerJob" => (await _gameState.GetCurrentJob(ct)).ValueOrThrow.Value == (uint)(long)args[0],
             _ => throw new UnknownStateFunctionException(name)
         };
     }

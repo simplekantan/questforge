@@ -97,6 +97,15 @@ public sealed record KillCorrelation(IReadOnlyList<uint> DataIds, int FinalValue
 /// </summary>
 public sealed record EquipmentChangedSignal(IReadOnlyList<uint> NewItemIds);
 
+/// <summary>
+/// Records that the player's job (ClassJob) changed during this recording window. Set by
+/// SnapshotAggregator.OnJobChanged, which is driven by UIObserver.PollJobChange polling
+/// PlayerState.CurrentClassJobId each frame. Cleared by OnJobChangedConsumed (called from
+/// AuthoringHost.RecordStep and UIObserver.ResetWindowState) so it does not bleed into the
+/// next window. Baseline is NOT reset in ResetWindowState (job state persists across windows).
+/// </summary>
+public sealed record JobChangedSignal(uint OldJobId, uint NewJobId);
+
 public sealed record GameStateSnapshot(
     DateTimeOffset CapturedAt,
     ZoneId Zone,
@@ -231,4 +240,11 @@ public sealed record GameStateSnapshot(
     // UIObserver.ResetWindowState) so it does not bleed into the next window.
     // Does NOT clear in ResetDeltas (equipment state persists across recording windows).
     public EquipmentChangedSignal? EquipmentChanged { get; init; }
+
+    // Non-positional. Set when UIObserver.PollJobChange detects that
+    // PlayerState.CurrentClassJobId changed during this recording window.
+    // Cleared by OnJobChangedConsumed (called from AuthoringHost.RecordStep
+    // and UIObserver.ResetWindowState) so it does not bleed into the next window.
+    // Baseline is NOT reset in ResetWindowState (job state persists across recording windows).
+    public JobChangedSignal? JobChanged { get; init; }
 }

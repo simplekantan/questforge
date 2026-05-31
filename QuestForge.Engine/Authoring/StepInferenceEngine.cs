@@ -313,6 +313,26 @@ public sealed class StepInferenceEngine
                 Notes:           $"Author MUST write the Expect predicate (no universal item postcondition). Kind={itemSignal.Kind}, ItemId={itemSignal.ItemId}");
         }
 
+        // Rule 3.5j — JobChanged
+        // Fires when UIObserver.PollJobChange detected that the player's job changed during this
+        // recording window (PlayerState.CurrentClassJobId transitioned to a new value).
+        //
+        // PRIORITY: above Rule 3.5g (EquipmentChanged) — a job change always causes an equipment
+        // change (gearset equip swaps all gear). JobChanged is the more specific signal.
+        // PRIORITY: below Rule 3.5i (ItemUsed) — item use is the more specific signal when both fire.
+        // CONFIDENCE: High. EXPECT: null — implicit postcondition (GetCurrentJob) handles self-confirm.
+        if (after.JobChanged is { } jobSignal)
+        {
+            return new InferenceResult(
+                StepType:        "change-job",
+                SuggestedStepId: $"change-job-{jobSignal.NewJobId}",
+                SuggestedExpect: null,
+                Confidence:      Confidence.High,
+                InferredFrom:    InferredFrom.JobChanged,
+                Notes:           $"Job changed: {jobSignal.OldJobId} -> {jobSignal.NewJobId}. " +
+                                 "Implicit postcondition handles self-confirmation.");
+        }
+
         // Rule 3.5g — EquipmentChanged
         // Fires when UIObserver.PollEquipmentChange detected that the player's equipment changed
         // (one or more slots in InventoryType.EquippedItems changed item IDs) during this recording

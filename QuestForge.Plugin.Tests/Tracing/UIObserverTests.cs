@@ -206,6 +206,14 @@ public sealed class FakeGameProbe : IGameProbe
     public void SetEquippedItemIds(uint[] ids) => _equippedItemIds = ids;
 
     public IReadOnlyList<uint>? GetEquippedItemIds() => _equippedItemIds;
+
+    // ── UO_J*: job change scripting ──────────────────────────────────────────
+
+    private byte? _currentClassJobId;
+
+    public void SetCurrentClassJobId(byte jobId) => _currentClassJobId = jobId;
+
+    public byte? GetCurrentClassJobId() => _currentClassJobId;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4616,6 +4624,136 @@ public sealed class UIObserverTests
         // Tick 3: same equipment as after change -- no fire (baseline preserved)
         framework.Tick();
         Assert.Null(aggregator.Current.EquipmentChanged);
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // §JC: Job change polling (PollJobChange)
+    //
+    // Covers spec CHANGE_JOB_STEP_PLAN.md Decision CJ-11, UO_J1-J4.
+    //
+    // ALL tests in this group will fail to compile/runtime until Builder adds:
+    //   - JobChangedSignal record in GameStateSnapshot.cs              (TODO)
+    //   - GameStateSnapshot.JobChanged property                        (TODO)
+    //   - SnapshotAggregator.OnJobChanged / OnJobChangedConsumed      (TODO)
+    //   - IGameProbe.GetCurrentClassJobId()                            (TODO)
+    //   - FakeGameProbe.SetCurrentClassJobId(byte)                     (TODO)
+    //   - UIObserver.PollJobChange                                     (TODO)
+    //   - UIObserver.ResetWindowState calls OnJobChangedConsumed       (TODO)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // =========================================================================
+    // UO_J1 -- First job observation sets baseline, no fire
+    // =========================================================================
+
+    [Fact]
+    public void UO_J1_FirstJobObservation_EstablishesBaseline_NoFire()
+    {
+        // CONTRACT: Given GetCurrentClassJobId() returns 19 (Paladin),
+        //           When OnFrameworkUpdate fires once,
+        //           Then agg.OnJobChanged was NOT called (first observation is silent baseline).
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        gameProbe.SetCurrentClassJobId(19);
+        framework.Tick();
+
+        // No JobChanged signal should be set on first observation
+        Assert.Null(aggregator.Current.JobChanged);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_J2 -- Subsequent observation with changed job fires OnJobChanged
+    // =========================================================================
+
+    [Fact]
+    public void UO_J2_JobChanged_FiresOnJobChanged_WithOldAndNewJobId()
+    {
+        // CONTRACT: Given baseline job = 19,
+        //           When job changes to 32,
+        //           Then agg.OnJobChanged called with oldJobId = 19, newJobId = 32.
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Tick 1: baseline
+        gameProbe.SetCurrentClassJobId(19);
+        framework.Tick();
+        Assert.Null(aggregator.Current.JobChanged); // baseline, no fire
+
+        // Tick 2: job changed from 19 to 32
+        gameProbe.SetCurrentClassJobId(32);
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.JobChanged);
+        Assert.Equal(19u, aggregator.Current.JobChanged!.OldJobId);
+        Assert.Equal(32u, aggregator.Current.JobChanged.NewJobId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_J3 -- Same job across ticks does not re-fire
+    // =========================================================================
+
+    [Fact]
+    public void UO_J3_SameJob_DoesNotReFire()
+    {
+        // CONTRACT: Given baseline established with job = 32,
+        //           When same value returned on next poll,
+        //           Then agg.OnJobChanged NOT called.
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Tick 1: baseline
+        gameProbe.SetCurrentClassJobId(32);
+        framework.Tick();
+
+        // Tick 2: same value
+        framework.Tick();
+
+        Assert.Null(aggregator.Current.JobChanged);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_J4 -- ResetWindowState calls OnJobChangedConsumed but does NOT reset baseline
+    // =========================================================================
+
+    [Fact]
+    public void UO_J4_ResetWindowState_ConsumesSignal_PreservesBaseline()
+    {
+        // CONTRACT: Given job changed from 19 to 32 and OnJobChanged fired,
+        //           When ResetWindowState() called, then another tick with job still 32,
+        //           Then agg.OnJobChangedConsumed was called (signal consumed),
+        //                and agg.OnJobChanged NOT called on the subsequent tick
+        //                (baseline was NOT reset; same job = no change).
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Tick 1: baseline
+        gameProbe.SetCurrentClassJobId(19);
+        framework.Tick();
+
+        // Tick 2: job changed
+        gameProbe.SetCurrentClassJobId(32);
+        framework.Tick();
+        Assert.NotNull(aggregator.Current.JobChanged); // sanity
+
+        // ResetWindowState: should consume JobChanged
+        observer.ResetWindowState();
+        Assert.Null(aggregator.Current.JobChanged); // consumed
+
+        // Tick 3: same job as after change -- no fire (baseline preserved)
+        framework.Tick();
+        Assert.Null(aggregator.Current.JobChanged);
 
         observer.Dispose();
     }

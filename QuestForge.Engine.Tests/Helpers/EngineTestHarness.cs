@@ -8,6 +8,7 @@ using QuestForge.Adapters.Fakes.Emotes;
 using QuestForge.Adapters.Fakes.Items;
 using QuestForge.Adapters.Fakes.Combat;
 using QuestForge.Adapters.Fakes.Gear;
+using QuestForge.Adapters.Gear;
 using QuestForge.Adapters.Fakes.Interaction;
 using QuestForge.Adapters.Fakes.Minigames;
 using QuestForge.Adapters.Interaction;
@@ -264,6 +265,17 @@ public sealed class EngineTestHarness
                         ebgResult.IsSuccess ? ebgResult.ValueOrThrow.ToString() : "Failed");
                     break;
 
+                case EngineAction.ChangeJob cj:
+                    actions.Add(action);
+                    EmitActionSubmitted("ChangeJob",
+                        JsonSerializer.SerializeToElement(new { jobId = cj.Job.Value }, _jsonOpts));
+                    var cjResult = await JobChanger.ChangeToJob(cj.Job, ct);
+                    if (cjResult.IsSuccess && cjResult.ValueOrThrow == Adapters.Gear.JobChangeOutcome.Changed)
+                        GameState.SetJob(cj.Job, 90);
+                    EmitActionCompleted("ChangeJob",
+                        cjResult.IsSuccess ? cjResult.ValueOrThrow.ToString() : "Failed");
+                    break;
+
                 case EngineAction.UseItem ui:
                     actions.Add(action);
                     EmitActionSubmitted("UseItem", JsonSerializer.SerializeToElement(
@@ -280,6 +292,14 @@ public sealed class EngineTestHarness
                         ui.Kind, ui.ItemId, ui.TargetNpcId, ui.TargetPosition, ct);
                     EmitActionCompleted("UseItem", uiResult.IsSuccess ? "Done" : "Failed");
                     break;
+
+                case EngineAction.Wait w
+                    when w.Reason.Contains("all steps in current sequence satisfied", StringComparison.Ordinal):
+                    // All steps confirmed; engine is waiting for game to advance sequence.
+                    // This is a valid terminal state for integration tests that only have
+                    // one sequence block and no external completion mechanism (e.g. CJ11).
+                    // Return collected actions rather than looping to maxTicks.
+                    return actions;
 
                 case EngineAction.Wait:
                     break;

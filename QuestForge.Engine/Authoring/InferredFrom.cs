@@ -21,4 +21,5 @@ public enum InferredFrom
     SayChatMessageSent,
     ItemUsed,
     EquipmentChanged,
+    JobChanged,
 }

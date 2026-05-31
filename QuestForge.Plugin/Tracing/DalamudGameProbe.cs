@@ -149,4 +149,11 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
         }
         return result;
     }
+
+    public byte? GetCurrentClassJobId()
+    {
+        var ps = FFXIVClientStructs.FFXIV.Client.Game.UI.PlayerState.Instance();
+        if (ps == null) return null;
+        return ps->CurrentClassJobId;
+    }
 }

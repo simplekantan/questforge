@@ -51,6 +51,11 @@ public interface IGameProbe
     /// or the container is not loaded.
     /// </summary>
     IReadOnlyList<uint>? GetEquippedItemIds();
+
+    /// <summary>
+    /// Returns PlayerState.CurrentClassJobId (byte), or null when PlayerState is unavailable.
+    /// </summary>
+    byte? GetCurrentClassJobId();
 }
 
 /// <summary>
