@@ -172,6 +172,9 @@ Example: if the engine emits Navigate 1,847 times followed by Interact 312 times
 | `"useitem"` | `EngineAction.UseItem` | `UseItemStep` dispatch — use a key item or inventory item on an optional NPC or ground-position target. |
 | `"saychatmessage"` | `EngineAction.SayChatMessage` | `SayChatMessageStep` dispatch — send `/say <message>` via chat. |
 | `"engage"` | `EngineAction.Engage` | `CombatStep` dispatch AND global defense rule — engage an attacker before advancing. |
+| `"equipgear"` | `EngineAction.EquipGear` | `EquipGearForQuestStep` dispatch — equip a specific quest-required item. |
+| `"equipbestgear"` | `EngineAction.EquipBestGear` | `EquipBestGearStep` dispatch — equip recommended gear via Stylist/RecommendEquip. |
+| `"changejob"` | `EngineAction.ChangeJob` | `ChangeJobStep` dispatch — switch active job/class. |
 | `"wait"` | `EngineAction.Wait` | Rarely appears in `expectedTransitions` — only when all steps in a sequence are satisfied but the game's sequence number has not yet advanced, or when an action is gated (casting, cooldown). |
 | `"awaituser"` | `EngineAction.AwaitUser` | Terminal action. Lowercased per the extractor's `ToLowerInvariant()` normalization. Never appears in `expectedTransitions` (filtered as terminal); appears in `terminalOutcome` as `"awaitUser"` with original casing. |
 | `"done"` | `EngineAction.Done` | Never appears in `expectedTransitions`; appears in `terminalOutcome` only. |
@@ -210,11 +213,14 @@ with-use-emote.json             # quest with UseEmoteStep (e.g. /cheer at NPC)
 with-teleport.json              # quest with TeleportStep (cross-region travel)
 with-purchase-item.json         # quest with PurchaseItemStep (gil or GC seals)
 with-say-chat-message.json      # quest with SayChatMessageStep (e.g. /say password)
+with-equip-gear-for-quest.json  # quest with EquipGearForQuestStep (equip a specific quest-required item)
+with-equip-best-gear.json       # quest with EquipBestGearStep (equip recommended gear via Stylist/RecommendEquip)
+with-change-job.json            # quest with ChangeJobStep (switch active job/class)
 with-dialogue-choices.json      # quest with SelectString branch (Phase 11+ TBD)
 with-escort.json                # quest with escort NPC (Phase 11+ TBD)
 with-spd.json                   # single-player duty
 with-dungeon.json               # full duty (dungeon/trial)
-with-gear-requirement.json      # quest requiring gear equip (Phase 11+ TBD)
+with-gear-requirement.json      # superseded by with-equip-gear-for-quest.json, with-equip-best-gear.json, with-change-job.json
 with-branching.json             # quest with BranchStep
 with-fragments.json             # quest with FragmentStep
 ```
