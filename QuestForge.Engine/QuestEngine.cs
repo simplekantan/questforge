@@ -1239,7 +1239,11 @@ public sealed class QuestEngine
             return new EngineAction.AwaitUser(
                 "BossMod required for Single Player Duties. Complete manually or install BossMod.");
 
-        return new EngineAction.EnterSinglePlayerDuty(Origin: step);
+        return new EngineAction.EnterSinglePlayerDuty(
+            ContentFinderConditionId: step.ContentFinderConditionId,
+            EntryTargetId: step.EntryTargetId,
+            EntryPosition: step.EntryPosition,
+            Origin: step);
     }
 
     /// <summary>

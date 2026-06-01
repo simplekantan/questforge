@@ -149,6 +149,23 @@ public sealed class DutyStep : Step
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public uint? ContentFinderConditionId { get; init; }
+
+    /// <summary>
+    /// DataId of the NPC that triggers SPD entry. Used by EngineHost for autonomous
+    /// retry after SPD failure: navigate to EntryPosition, interact with EntryTargetId.
+    /// Null when the quest author omits it (legacy quests, or when the preceding TalkStep
+    /// already handles the NPC interaction for initial entry).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public uint? EntryTargetId { get; init; }
+
+    /// <summary>
+    /// World-space position of the entry NPC. Used for implied navigation before re-interact.
+    /// Null is valid: when EntryTargetId is set but EntryPosition is null, EngineHost
+    /// emits Interact without preceding Navigate (assumes player is already near the NPC).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Position3? EntryPosition { get; init; }
 }
 
 public class CutsceneStep : Step
