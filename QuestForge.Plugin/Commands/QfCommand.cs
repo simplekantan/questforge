@@ -567,6 +567,41 @@ internal sealed class QfCommand : IDisposable
         };
         _chat.Print(acceptableLine);
         _log.Info($"[debug quest] {acceptableLine}");
+
+        var qid = new QuestId(rawId);
+
+        var availResult = _host.QuestState.IsQuestAvailable(qid, ct).GetAwaiter().GetResult();
+        var availLine = availResult switch
+        {
+            Result<bool>.Success { Value: var v } => $"  isQuestAvailable: {v.ToString().ToLowerInvariant()}",
+            Result<bool>.Failure { Reason: var r } => $"  isQuestAvailable: (failure: {r})",
+            _ => "  isQuestAvailable: (unknown)"
+        };
+        _chat.Print(availLine);
+        _log.Info($"[debug quest] {availLine}");
+
+        var whyResult = _host.QuestState.WhyUnavailable(qid, ct).GetAwaiter().GetResult();
+        string whyLine;
+        if (whyResult.IsSuccess)
+        {
+            var r = whyResult.ValueOrThrow;
+            whyLine = r is null
+                ? "  whyUnavailable: (available — no blockers)"
+                : $"  whyUnavailable: levelTooLow={r.LevelTooLow}(req:{r.RequiredLevel}) prereqIncomplete={r.PrerequisiteIncomplete}(missing:[{string.Join(",", r.MissingPrereqs.Select(p => p.Value))}]) wrongJob={r.WrongJob}(req:{r.RequiredJob?.Value}) alreadyCompleted={r.AlreadyCompleted} other={r.OtherReason}({r.Detail})";
+        }
+        else
+        {
+            whyLine = "  whyUnavailable: (failure)";
+        }
+        _chat.Print(whyLine);
+        _log.Info($"[debug quest] {whyLine}");
+
+        var tier = _questData.GetQuestTier(qid);
+        var tierLine = tier is not null
+            ? $"  schedulerTier: {tier.Value} ({tier.Value switch { 1 => "class quest", 3 => "auto-chain", 4 => "blue/feature unlock", 5 => "side quest", _ => "unknown" }})"
+            : "  schedulerTier: (not categorized — not in scheduler scope)";
+        _chat.Print(tierLine);
+        _log.Info($"[debug quest] {tierLine}");
     }
 
     private void HandleTest(string[] args)
