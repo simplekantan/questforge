@@ -60,6 +60,36 @@ public sealed class QuestDraft
         return _steps.FirstOrDefault(s => s.StepId == stepId);
     }
 
+    public bool MoveStepUp(string stepId, DateTimeOffset now)
+    {
+        var index = _steps.FindIndex(s => s.StepId == stepId);
+        if (index < 1) return false;
+
+        var step = _steps[index];
+        var above = _steps[index - 1];
+        if (step.SequenceNumber != above.SequenceNumber) return false;
+
+        _steps[index] = above;
+        _steps[index - 1] = step;
+        LastModifiedAt = now;
+        return true;
+    }
+
+    public bool MoveStepDown(string stepId, DateTimeOffset now)
+    {
+        var index = _steps.FindIndex(s => s.StepId == stepId);
+        if (index < 0 || index >= _steps.Count - 1) return false;
+
+        var step = _steps[index];
+        var below = _steps[index + 1];
+        if (step.SequenceNumber != below.SequenceNumber) return false;
+
+        _steps[index] = below;
+        _steps[index + 1] = step;
+        LastModifiedAt = now;
+        return true;
+    }
+
     /// <summary>
     /// Test-only escape hatch: construct a draft whose internal step list is
     /// not guarded by AddStep's uniqueness invariant. Required for E1 (duplicate

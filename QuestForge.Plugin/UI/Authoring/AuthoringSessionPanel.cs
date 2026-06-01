@@ -176,30 +176,68 @@ public sealed class AuthoringSessionPanel : Window
         }
 
         string? stepToDelete = null;
+        string? stepToMoveUp = null;
+        string? stepToMoveDown = null;
         DraftStep? stepToEdit = null;
 
-        for (var i = 0; i < steps.Count; i++)
+        var sequences = steps
+            .Select((s, i) => (Step: s, GlobalIndex: i))
+            .GroupBy(x => x.Step.SequenceNumber)
+            .OrderBy(g => g.Key);
+
+        foreach (var seqGroup in sequences)
         {
-            var step = steps[i];
-            ImGui.PushID(i);
+            if (ImGui.CollapsingHeader($"Sequence {seqGroup.Key} ({seqGroup.Count()} steps)", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                var stepsInSeq = seqGroup.ToList();
+                for (var local = 0; local < stepsInSeq.Count; local++)
+                {
+                    var (step, globalIndex) = stepsInSeq[local];
+                    ImGui.PushID(globalIndex);
 
-            ImGui.TextUnformatted($"[{i + 1}] {step.StepType} | {step.StepId} | seq={step.SequenceNumber}");
+                    ImGui.TextUnformatted($"  [{local + 1}] {step.StepType} | {step.StepId}");
 
-            ImGui.SameLine();
-            if (ImGui.SmallButton("edit"))
-                stepToEdit = step;
+                    ImGui.SameLine();
+                    ImGui.BeginDisabled(local == 0);
+                    if (ImGui.SmallButton("▲"))
+                        stepToMoveUp = step.StepId;
+                    ImGui.EndDisabled();
 
-            ImGui.SameLine();
-            if (ImGui.SmallButton("delete"))
-                stepToDelete = step.StepId;
+                    ImGui.SameLine();
+                    ImGui.BeginDisabled(local == stepsInSeq.Count - 1);
+                    if (ImGui.SmallButton("▼"))
+                        stepToMoveDown = step.StepId;
+                    ImGui.EndDisabled();
 
-            ImGui.PopID();
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("edit"))
+                        stepToEdit = step;
+
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("delete"))
+                        stepToDelete = step.StepId;
+
+                    ImGui.PopID();
+                }
+            }
         }
 
-        // Perform deletions/edits after the loop
+        var dirty = false;
+
+        if (stepToMoveUp is not null)
+            dirty = draft.MoveStepUp(stepToMoveUp, DateTimeOffset.UtcNow);
+
+        if (stepToMoveDown is not null)
+            dirty = draft.MoveStepDown(stepToMoveDown, DateTimeOffset.UtcNow);
+
         if (stepToDelete is not null)
         {
             draft.RemoveStep(stepToDelete, DateTimeOffset.UtcNow);
+            dirty = true;
+        }
+
+        if (dirty)
+        {
             _host.DraftManager.MarkDirty(target.Value);
             _ = _host.DraftManager.SaveNow(target.Value, CancellationToken.None);
         }
