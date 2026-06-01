@@ -21,4 +21,11 @@ public interface ITargetProbe
     /// Docile quest mobs (IsHostile:False) ARE BattleNpcs and must be captured.
     /// </summary>
     (uint BaseId, float X, float Y, float Z, int Zone)? GetBattleNpcTarget();
+
+    /// <summary>
+    /// Current hard target if its ObjectKind is EventObj or Treasure, otherwise null.
+    /// Used by PollEventObjInteraction to capture the target's BaseId before the
+    /// OccupiedInEvent transition fires.
+    /// </summary>
+    (uint BaseId, float X, float Y, float Z, int Zone)? GetEventObjTarget();
 }

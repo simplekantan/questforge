@@ -116,6 +116,19 @@ public sealed record JobChangedSignal(uint OldJobId, uint NewJobId);
 /// </summary>
 public sealed record GearsetRegisteredSignal(byte OldCount, byte NewCount);
 
+/// <summary>
+/// Records that the player interacted with an EventObj (quest sparkle, aether current, door lever,
+/// treasure chest, etc.) during this recording window. Set by SnapshotAggregator.OnObjectInteracted,
+/// which is driven by UIObserver.PollEventObjInteraction detecting that the player had an EventObj
+/// (or Treasure) hard-targeted AND Conditions.OccupiedInEvent transitioned false→true. Cleared by
+/// OnObjectInteractedConsumed (called from AuthoringHost.RecordStep and UIObserver.ResetWindowState)
+/// so it does not bleed into the next recording window.
+///
+/// InteractableId is the EventObj's BaseId (matches InteractObjectStep.InteractableId).
+/// X, Y, Z are the EventObj's world position at the moment of interaction detection.
+/// </summary>
+public sealed record ObjectInteractedSignal(uint InteractableId, float X, float Y, float Z);
+
 public sealed record GameStateSnapshot(
     DateTimeOffset CapturedAt,
     ZoneId Zone,
@@ -264,4 +277,11 @@ public sealed record GameStateSnapshot(
     // and UIObserver.ResetWindowState) so it does not bleed into the next window.
     // Baseline is NOT reset in ResetWindowState (gearset count persists across windows).
     public GearsetRegisteredSignal? GearsetRegistered { get; init; }
+
+    // Non-positional. Set when UIObserver.PollEventObjInteraction detects that the player
+    // interacted with an EventObj (or Treasure) during this recording window. Cleared by
+    // OnObjectInteractedConsumed (called from AuthoringHost.RecordStep and
+    // UIObserver.ResetWindowState) so it does not bleed into the next recording window.
+    // Does NOT clear in ResetDeltas — survives per-window.
+    public ObjectInteractedSignal? ObjectInteracted { get; init; }
 }

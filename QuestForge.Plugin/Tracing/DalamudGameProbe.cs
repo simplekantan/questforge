@@ -163,4 +163,10 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
         if (gsm == null) return null;
         return gsm->NumGearsets;
     }
+
+    public bool IsOccupiedInEvent()
+    {
+        var cond = Conditions.Instance();
+        return cond != null && cond->OccupiedInEvent;
+    }
 }

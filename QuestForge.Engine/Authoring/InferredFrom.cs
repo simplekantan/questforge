@@ -23,4 +23,5 @@ public enum InferredFrom
     EquipmentChanged,
     JobChanged,
     GearsetRegistered,
+    ObjectInteracted,
 }
