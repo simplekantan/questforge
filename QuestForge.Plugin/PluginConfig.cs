@@ -1,8 +1,21 @@
 using Dalamud.Plugin;
 using QuestForge.Adapters.Tracing;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace QuestForge.Plugin;
+
+/// <summary>
+/// Preferred difficulty when retrying a Single Player Duty (DutyStep kind="spd").
+/// Read by EngineHost.TryHandleDifficultySelect when the DifficultySelectYesNo addon appears.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<SpdDifficulty>))]
+public enum SpdDifficulty
+{
+    Normal   = 0,
+    Easy     = 1,
+    VeryEasy = 2
+}
 
 public sealed class PluginConfig
 {
@@ -41,6 +54,13 @@ public sealed class PluginConfig
     /// Falls back to native if Stylist is not installed. Default: true.
     /// </summary>
     public bool PreferStylist { get; set; } = true;
+
+    /// <summary>
+    /// Preferred difficulty when retrying a Single Player Duty.
+    /// Selected when the DifficultySelectYesNo addon appears after an SPD failure.
+    /// Default: Normal.
+    /// </summary>
+    public SpdDifficulty PreferredSpdDifficulty { get; set; } = SpdDifficulty.Normal;
 
     public static PluginConfig Load(IDalamudPluginInterface pi)
     {

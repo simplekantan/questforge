@@ -12,8 +12,10 @@ using QuestForge.Adapters.Dalamud.Interaction;
 using QuestForge.Adapters.Dalamud.Minigames;
 using QuestForge.Adapters.Dalamud.Actions;
 using QuestForge.Adapters.Dalamud.Chat;
+using QuestForge.Adapters.Dalamud.Duty;
 using QuestForge.Adapters.Dalamud.Emotes;
 using QuestForge.Adapters.Dalamud.Items;
+using QuestForge.Adapters.Duty;
 using QuestForge.Adapters.Dalamud.Movement;
 using QuestForge.Adapters.Chat;
 using QuestForge.Adapters.Emotes;
@@ -39,6 +41,7 @@ namespace QuestForge.Plugin;
 public sealed class EngineHost : IDisposable
 {
     private readonly PluginServices _services;
+    private readonly PluginConfig _config;
 
     private readonly DalamudGameStateProvider _gameStateInner;
     private readonly DalamudQuestState _questStateInner;
@@ -58,6 +61,7 @@ public sealed class EngineHost : IDisposable
     private readonly DalamudGearsetManager _gearsetManager;
     private readonly DalamudCofferOpener _cofferOpener;
     private readonly DalamudObjectInteractor _objectInteractor;
+    private readonly DalamudDutyRunner _dutyRunner;
     private readonly NullMinigameSkipper _minigames;
     private readonly LuminaDialogueResolver _dialogue;
     private readonly SeededTimingProfile _timing;
@@ -98,6 +102,9 @@ public sealed class EngineHost : IDisposable
     // (SelectYesno confirm → inventory update → engine's postcondition gate) can complete
     // before we dismiss the addon.
     private bool _lastDispatchedActionWasPurchase;
+    // Tracks the active SPD step ID for StopDuty cleanup when the step advances (SPD7).
+    private string? _activeSpdStepId;
+
     // Tracks whether the previous dispatched action was a Navigate so the lazy-dismount
     // hook fires on the next non-Navigate action (mirrors the close-shop pattern).
     private bool _lastDispatchedActionWasNavigate;
@@ -113,6 +120,7 @@ public sealed class EngineHost : IDisposable
     {
         _services = services;
         _traceSession = traceSession;
+        _config = config;
         _gameStateInner = new DalamudGameStateProvider(services);
         _questStateInner = new DalamudQuestState(services);
         _navigator       = new VnavmeshNavigator(services);
@@ -131,6 +139,7 @@ public sealed class EngineHost : IDisposable
         _gearsetManager  = new DalamudGearsetManager(services);
         _cofferOpener    = new DalamudCofferOpener(services);
         _objectInteractor = new DalamudObjectInteractor(_interactor);
+        _dutyRunner      = new DalamudDutyRunner(services);
         _minigames       = new NullMinigameSkipper();
         _dialogue        = new LuminaDialogueResolver(services);
         _timing          = new SeededTimingProfile(seed: 0);
@@ -165,6 +174,7 @@ public sealed class EngineHost : IDisposable
     public IGearsetManager    DebugGearsetManager => _gearsetManager;
     public ICofferOpener      DebugCofferOpener   => _cofferOpener;
     public IObjectInteractor  DebugObjectInteractor => _objectInteractor;
+    public IDutyRunner        DebugDutyRunner       => _dutyRunner;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
@@ -250,7 +260,8 @@ public sealed class EngineHost : IDisposable
             jobChanger: _jobChanger,
             gearsetManager: _gearsetManager,
             cofferOpener: _cofferOpener,
-            objectInteractor: _objectInteractor);
+            objectInteractor: _objectInteractor,
+            dutyRunner: _dutyRunner);
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
         _onRunStart?.Invoke();
@@ -307,6 +318,16 @@ public sealed class EngineHost : IDisposable
         {
             await _vendor.Close(ct);
             _lastDispatchedActionWasPurchase = false;
+        }
+
+        // SPD cleanup (SPD7): when the engine advances past an SPD step (emits anything other
+        // than EnterSinglePlayerDuty or Wait), disable BossMod AI and clear the tracking flag.
+        if (_activeSpdStepId is not null
+            && action is not EngineAction.EnterSinglePlayerDuty
+            && action is not EngineAction.Wait)
+        {
+            await _dutyRunner.StopDuty(ct);
+            _activeSpdStepId = null;
         }
 
         // Lazy dismount: if the previous dispatch was a Navigate and the engine has now
@@ -588,6 +609,18 @@ public sealed class EngineHost : IDisposable
                 await _cofferOpener.OpenCoffer(oc.ItemId, ct);
                 break;
 
+            case EngineAction.EnterSinglePlayerDuty espd:
+                DebounceLog(
+                    $"enterspd:{espd.Origin?.Id}",
+                    $"[EnterSinglePlayerDuty] stepId={espd.Origin?.Id ?? "(unknown)"}");
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
+                _activeSpdStepId = espd.Origin?.Id;
+                TryCutsceneSkipConfirm();
+                await _dutyRunner.StartDuty(ct);
+                await _interactor.AdvanceDialogue(ct);
+                break;
+
             case EngineAction.Wait:
                 // Engine is satisfied with step state but waiting for the game to advance
                 // sequence (e.g. Talk addon still open after interact). Keep clicking through.
@@ -718,6 +751,12 @@ public sealed class EngineHost : IDisposable
     private void EndRun()
     {
         _leaseLatch.Release(_recordingCombat ?? _combat, CancellationToken.None).GetAwaiter().GetResult();
+        // Stop BossMod AI if an SPD was active when the run ended (e.g. via /qf stop).
+        if (_activeSpdStepId is not null)
+        {
+            _dutyRunner.StopDuty(CancellationToken.None).GetAwaiter().GetResult();
+            _activeSpdStepId = null;
+        }
         if (_runId is not null && !_engineEmittedRunEnd)
             _traceSession.Write(new RunEndEvent(_runId, "ended", DateTimeOffset.UtcNow));
         _engine      = null;
@@ -747,6 +786,28 @@ public sealed class EngineHost : IDisposable
         if (addonPtr.IsNull || !addonPtr.IsReady) return;
 
         ((AtkUnitBase*)addonPtr.Address)->FireCallbackInt(0);
+    }
+
+    // When the DifficultySelectYesNo addon appears (SPD retry), select the configured
+    // difficulty radio button and click Proceed. The exact FireCallback signatures must be
+    // verified in-game via /qf debug addon DifficultySelectYesNo before this code goes live.
+    // NodeIDs: 5=Normal, 6=Easy, 7=VeryEasy; Proceed button NodeID=13 (provisional).
+    private unsafe void TryHandleDifficultySelect()
+    {
+        var addonPtr = _services.GameGui.GetAddonByName("DifficultySelectYesNo");
+        if (addonPtr.IsNull || !addonPtr.IsReady) return;
+
+        var addon = (AtkUnitBase*)addonPtr.Address;
+        if (addon == null || !addon->IsVisible) return;
+
+        int radioIndex = _config.PreferredSpdDifficulty switch
+        {
+            SpdDifficulty.Easy     => 1,
+            SpdDifficulty.VeryEasy => 2,
+            _                      => 0
+        };
+        addon->FireCallbackInt(radioIndex);
+        addon->FireCallbackInt(3); // Proceed
     }
 
     private void EnableCutsceneSkip()
