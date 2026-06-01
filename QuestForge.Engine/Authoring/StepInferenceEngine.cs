@@ -354,6 +354,24 @@ public sealed class StepInferenceEngine
                                  "Author MUST add skipIf with jobGearsetExists(N) to prevent re-registration.");
         }
 
+        // Rule 3.5o — ObjectInteracted
+        // Fires when UIObserver.PollEventObjInteraction detected that the player interacted with an
+        // EventObj (quest sparkle, aether current, door lever, etc.) during this recording window.
+        //
+        // PRIORITY: above Rule 3.5g (EquipmentChanged). Object interaction is the more deliberate signal.
+        // PRIORITY: below Rule 3.5k (GearsetRegistered). Gearset creation is more specific.
+        // CONFIDENCE: High. EXPECT: null -- author MUST write the postcondition.
+        if (after.ObjectInteracted is { } objSignal)
+        {
+            return new InferenceResult(
+                StepType:        "interact-object",
+                SuggestedStepId: $"interact-object-{objSignal.InteractableId}",
+                SuggestedExpect: null,
+                Confidence:      Confidence.High,
+                InferredFrom:    InferredFrom.ObjectInteracted,
+                Notes:           "Author MUST write the Expect predicate (no universal object interaction postcondition).");
+        }
+
         // Rule 3.5g — EquipmentChanged
         // Fires when UIObserver.PollEquipmentChange detected that the player's equipment changed
         // (one or more slots in InventoryType.EquippedItems changed item IDs) during this recording

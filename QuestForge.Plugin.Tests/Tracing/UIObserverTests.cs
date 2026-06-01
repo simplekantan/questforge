@@ -222,6 +222,14 @@ public sealed class FakeGameProbe : IGameProbe
     public void SetGearsetCount(byte count) => _gearsetCount = count;
 
     public byte? GetGearsetCount() => _gearsetCount;
+
+    // ── UO_OI*: OccupiedInEvent scripting ───────────────────────────────────
+
+    private bool _occupiedInEvent;
+
+    public void SetOccupiedInEvent(bool value) => _occupiedInEvent = value;
+
+    public bool IsOccupiedInEvent() => _occupiedInEvent;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4928,6 +4936,273 @@ public sealed class UIObserverTests
         // Tick 3: same count as after increase -- no fire (baseline preserved)
         framework.Tick();
         Assert.Null(aggregator.Current.GearsetRegistered);
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UO_OI*: EventObj interaction polling (PollEventObjInteraction)
+    //
+    // Covers spec INTERACT_OBJECT_INFERENCE_PLAN.md Decision OI-INF-9, UO_OI1-OI7.
+    //
+    // ALL tests in this group will fail to compile/runtime until Builder adds:
+    //   - ObjectInteractedSignal record in GameStateSnapshot.cs                (Task 1)
+    //   - GameStateSnapshot.ObjectInteracted property                          (Task 1)
+    //   - SnapshotAggregator.OnObjectInteracted / OnObjectInteractedConsumed  (Task 2)
+    //   - IGameProbe.IsOccupiedInEvent()                                      (Task 7)
+    //   - FakeGameProbe.SetOccupiedInEvent(bool)                              (Task 10)
+    //   - ITargetProbe.GetEventObjTarget()                                    (Task 6)
+    //   - FakeTargetProbe.SetEventObjTarget / ClearEventObjTarget             (Task 10)
+    //   - UIObserver.PollEventObjInteraction                                  (Task 8)
+    //   - UIObserver.ResetWindowState calls OnObjectInteractedConsumed        (Task 8)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // =========================================================================
+    // UO_OI1 -- EventObj targeted + OccupiedInEvent transition fires ObjectInteracted
+    // =========================================================================
+
+    [Fact]
+    public void UO_OI1_EventObjTargeted_OccupiedTransition_FiresObjectInteracted()
+    {
+        // CONTRACT: Given FakeTargetProbe returns EventObjTarget(BaseId=2001500, X=10, Y=5, Z=20, Zone=134),
+        //           FakeGameProbe.IsOccupiedInEvent() returns false,
+        //           When one frame tick (target is latched),
+        //           And FakeGameProbe.SetOccupiedInEvent(true), one more frame tick,
+        //           Then aggregator.Current.ObjectInteracted is new(2001500, 10, 5, 20).
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        // Frame 1: target latched, OccupiedInEvent=false
+        targetProbe.SetEventObjTarget(2001500u, 10f, 5f, 20f, 134);
+        gameProbe.SetOccupiedInEvent(false);
+        framework.Tick();
+
+        // No fire yet (no transition)
+        Assert.Null(aggregator.Current.ObjectInteracted);
+
+        // Frame 2: OccupiedInEvent transitions false -> true
+        gameProbe.SetOccupiedInEvent(true);
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.ObjectInteracted);
+        Assert.Equal(2001500u, aggregator.Current.ObjectInteracted!.InteractableId);
+        Assert.Equal(10f, aggregator.Current.ObjectInteracted.X);
+        Assert.Equal(5f, aggregator.Current.ObjectInteracted.Y);
+        Assert.Equal(20f, aggregator.Current.ObjectInteracted.Z);
+
+        // Verify trace observation was written
+        var objObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Method == "ObjectInteracted")
+            .ToList();
+        Assert.Single(objObs);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_OI2 -- No EventObj target + OccupiedInEvent transition does NOT fire
+    // =========================================================================
+
+    [Fact]
+    public void UO_OI2_NoEventObjTarget_OccupiedTransition_DoesNotFire()
+    {
+        // CONTRACT: Given no EventObjTarget (null), OccupiedInEvent=false,
+        //           When OccupiedInEvent transitions to true on next tick,
+        //           Then aggregator.Current.ObjectInteracted remains null.
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        // No EventObj target set (null by default)
+        gameProbe.SetOccupiedInEvent(false);
+        framework.Tick();
+
+        // Transition to occupied
+        gameProbe.SetOccupiedInEvent(true);
+        framework.Tick();
+
+        Assert.Null(aggregator.Current.ObjectInteracted);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_OI3 -- EventObj targeted but no OccupiedInEvent transition does NOT fire
+    // =========================================================================
+
+    [Fact]
+    public void UO_OI3_EventObjTargeted_NoOccupiedTransition_DoesNotFire()
+    {
+        // CONTRACT: Given EventObjTarget(BaseId=2001500, ...) and OccupiedInEvent=false,
+        //           When multiple frame ticks (target latched, but no transition),
+        //           Then aggregator.Current.ObjectInteracted remains null.
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        targetProbe.SetEventObjTarget(2001500u, 10f, 5f, 20f, 134);
+        gameProbe.SetOccupiedInEvent(false);
+
+        framework.Tick();
+        framework.Tick();
+        framework.Tick();
+
+        Assert.Null(aggregator.Current.ObjectInteracted);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_OI4 -- After initial fire, _lastEventObjBaseId is cleared; re-fire
+    //           requires re-latching the target
+    // =========================================================================
+
+    [Fact]
+    public void UO_OI4_AfterFire_BaseIdCleared_RequiresRelatch_ToReFire()
+    {
+        // CONTRACT: Given EventObj 2001500 already detected (OI fired),
+        //           When OccupiedInEvent transitions true->false->true WITHOUT re-latching target,
+        //           Then aggregator.Current.ObjectInteracted is STILL the first signal (no re-fire).
+        //           When the target is re-latched and OccupiedInEvent transitions again,
+        //           Then it fires again.
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        // Initial fire
+        targetProbe.SetEventObjTarget(2001500u, 10f, 5f, 20f, 134);
+        gameProbe.SetOccupiedInEvent(false);
+        framework.Tick(); // latch target
+
+        gameProbe.SetOccupiedInEvent(true);
+        framework.Tick(); // fire
+        Assert.NotNull(aggregator.Current.ObjectInteracted);
+
+        // OccupiedInEvent drops to false (interaction complete)
+        gameProbe.SetOccupiedInEvent(false);
+        targetProbe.ClearEventObjTarget(); // target cleared by game
+        framework.Tick();
+
+        // Consume the signal to start clean
+        aggregator.OnObjectInteractedConsumed();
+        Assert.Null(aggregator.Current.ObjectInteracted);
+
+        // Now OccupiedInEvent goes true again WITHOUT target being re-latched
+        gameProbe.SetOccupiedInEvent(true);
+        framework.Tick();
+
+        // Should NOT fire (no EventObj target latched since last fire)
+        Assert.Null(aggregator.Current.ObjectInteracted);
+
+        // Now re-latch the target and trigger again
+        gameProbe.SetOccupiedInEvent(false);
+        framework.Tick();
+        targetProbe.SetEventObjTarget(2001500u, 10f, 5f, 20f, 134);
+        framework.Tick(); // latch
+        gameProbe.SetOccupiedInEvent(true);
+        framework.Tick(); // fire
+
+        Assert.NotNull(aggregator.Current.ObjectInteracted);
+        Assert.Equal(2001500u, aggregator.Current.ObjectInteracted!.InteractableId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_OI5 -- ResetWindowState clears EventObj tracking state
+    // =========================================================================
+
+    [Fact]
+    public void UO_OI5_ResetWindowState_ClearsEventObjTrackingAndSignal()
+    {
+        // CONTRACT: Given EventObj was detected (ObjectInteracted signal set),
+        //           When ResetWindowState() is called,
+        //           Then aggregator.Current.ObjectInteracted is null.
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        // Fire the signal
+        targetProbe.SetEventObjTarget(2001500u, 10f, 5f, 20f, 134);
+        gameProbe.SetOccupiedInEvent(false);
+        framework.Tick();
+        gameProbe.SetOccupiedInEvent(true);
+        framework.Tick();
+        Assert.NotNull(aggregator.Current.ObjectInteracted); // sanity
+
+        // ResetWindowState should clear everything
+        observer.ResetWindowState();
+        Assert.Null(aggregator.Current.ObjectInteracted);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_OI6 -- Different EventObj replaces the latched target
+    // =========================================================================
+
+    [Fact]
+    public void UO_OI6_DifferentEventObj_ReplacesLatchedTarget()
+    {
+        // CONTRACT: Given EventObjTarget(BaseId=2001500) on frame 1,
+        //           When EventObjTarget(BaseId=2001600) on frame 2,
+        //           And OccupiedInEvent transitions on frame 3,
+        //           Then aggregator.Current.ObjectInteracted?.InteractableId == 2001600.
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        gameProbe.SetOccupiedInEvent(false);
+
+        // Frame 1: target 2001500
+        targetProbe.SetEventObjTarget(2001500u, 10f, 5f, 20f, 134);
+        framework.Tick();
+
+        // Frame 2: target changes to 2001600
+        targetProbe.SetEventObjTarget(2001600u, 30f, 15f, 40f, 134);
+        framework.Tick();
+
+        // Frame 3: OccupiedInEvent transitions
+        gameProbe.SetOccupiedInEvent(true);
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.ObjectInteracted);
+        Assert.Equal(2001600u, aggregator.Current.ObjectInteracted!.InteractableId);
+        Assert.Equal(30f, aggregator.Current.ObjectInteracted.X);
+        Assert.Equal(15f, aggregator.Current.ObjectInteracted.Y);
+        Assert.Equal(40f, aggregator.Current.ObjectInteracted.Z);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_OI7 -- OccupiedInEvent true on first frame with EventObj target fires
+    //           (first-frame edge case: _lastOccupiedInEvent starts false)
+    // =========================================================================
+
+    [Fact]
+    public void UO_OI7_OccupiedInEvent_TrueOnFirstFrame_WithTarget_Fires()
+    {
+        // CONTRACT: Given OccupiedInEvent=true and EventObjTarget set on the very first frame,
+        //           When first frame tick fires,
+        //           Then aggregator.Current.ObjectInteracted fires (transition from default false to true).
+        //
+        // WHY: _lastOccupiedInEvent starts as false (default). If the game is already in an event
+        //      when UIObserver starts, the first frame sees a false-to-true transition. This is
+        //      intentional (worst case = spurious fire that author dismisses).
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator, targetProbe) =
+            BuildFixtureWithAggregatorAndTarget();
+
+        // Set both EventObj target AND OccupiedInEvent=true BEFORE first tick
+        targetProbe.SetEventObjTarget(2001500u, 10f, 5f, 20f, 134);
+        gameProbe.SetOccupiedInEvent(true);
+
+        framework.Tick(); // first frame: default false -> true = transition
+
+        Assert.NotNull(aggregator.Current.ObjectInteracted);
+        Assert.Equal(2001500u, aggregator.Current.ObjectInteracted!.InteractableId);
 
         observer.Dispose();
     }

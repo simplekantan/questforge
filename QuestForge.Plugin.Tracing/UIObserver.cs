@@ -126,6 +126,16 @@ public sealed class UIObserver : IDisposable
     private uint _lastTargetBaseId;
     private uint _lastBattleNpcBaseId;
 
+    // ── EventObj interaction tracking ─────────────────────────────────────
+    // _lastEventObjBaseId: the BaseId of the most recently latched EventObj target.
+    // 0 = no EventObj latched (or cleared after firing). Reset by ResetWindowState.
+    // _lastEventObjPosition: the world position of the most recently latched EventObj target.
+    // _lastOccupiedInEvent: the OccupiedInEvent flag value from the previous frame.
+    // Starts false (default) so the first frame where it is true fires a transition.
+    private uint _lastEventObjBaseId;
+    private (float X, float Y, float Z, int Zone) _lastEventObjPosition;
+    private bool _lastOccupiedInEvent;
+
     // ── disposal ──────────────────────────────────────────────────────────
     private bool _disposed;
 
@@ -231,6 +241,10 @@ public sealed class UIObserver : IDisposable
         _aggregator?.OnGearsetRegisteredConsumed();
         // NOTE: _lastGearsetCount (baseline) is intentionally NOT reset here.
         // Gearset count persists across recording windows; only the signal is consumed.
+
+        _lastEventObjBaseId  = 0;
+        _lastOccupiedInEvent = false;
+        _aggregator?.OnObjectInteractedConsumed();
     }
 
     /// <summary>
@@ -272,6 +286,7 @@ public sealed class UIObserver : IDisposable
         PollEquipmentChange();
         PollJobChange();
         PollGearsetCount();
+        PollEventObjInteraction();
 
         // Heartbeat pollers (throttled to 250 ms)
         var now = _clock.UtcNow;
@@ -899,6 +914,43 @@ public sealed class UIObserver : IDisposable
         // Only fire on increase (new gearset created). Decrease (deletion) and same: silent baseline update.
         if (current.Value > old)
             _aggregator?.OnGearsetRegistered(old, current.Value);
+    }
+
+    private void PollEventObjInteraction()
+    {
+        if (_targetProbe is null || _gameProbe is null) return;
+
+        // Latch EventObj target every frame (before OccupiedInEvent check).
+        // WHY: the game may clear the target once the event handler takes over, so we capture
+        // the BaseId and position while the target is still available.
+        var eventObj = _targetProbe.GetEventObjTarget();
+        if (eventObj.HasValue)
+        {
+            _lastEventObjBaseId    = eventObj.Value.BaseId;
+            _lastEventObjPosition  = (eventObj.Value.X, eventObj.Value.Y, eventObj.Value.Z, eventObj.Value.Zone);
+        }
+
+        // Detect OccupiedInEvent false→true transition.
+        var occupied = _gameProbe.IsOccupiedInEvent();
+        if (occupied && !_lastOccupiedInEvent && _lastEventObjBaseId != 0)
+        {
+            var now   = _clock.UtcNow;
+            var runId = CurrentRunId;
+            WriteObservation(
+                "ObjectInteracted",
+                _lastEventObjBaseId,
+                new { x = _lastEventObjPosition.X, y = _lastEventObjPosition.Y,
+                      z = _lastEventObjPosition.Z, zone = _lastEventObjPosition.Zone },
+                runId,
+                now);
+            _aggregator?.OnObjectInteracted(
+                _lastEventObjBaseId,
+                _lastEventObjPosition.X,
+                _lastEventObjPosition.Y,
+                _lastEventObjPosition.Z);
+            _lastEventObjBaseId = 0; // prevent re-fire until target is re-latched
+        }
+        _lastOccupiedInEvent = occupied;
     }
 
     private void PollDialogueOption()

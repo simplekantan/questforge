@@ -40,6 +40,7 @@ public sealed class SnapshotAggregator
     private EquipmentChangedSignal? _equipmentChanged;
     private JobChangedSignal? _jobChanged;
     private GearsetRegisteredSignal? _gearsetRegistered;
+    private ObjectInteractedSignal? _objectInteracted;
 
     // ── purchase span state ────────────────────────────────────────────────
     private bool _shopOpen;
@@ -121,7 +122,8 @@ public sealed class SnapshotAggregator
         ItemUsed                     = _itemUsed,
         EquipmentChanged             = _equipmentChanged,
         JobChanged                   = _jobChanged,
-        GearsetRegistered            = _gearsetRegistered
+        GearsetRegistered            = _gearsetRegistered,
+        ObjectInteracted             = _objectInteracted
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -627,6 +629,21 @@ public sealed class SnapshotAggregator
     /// the gearset-registered signal so it does not bleed into the next recording window.
     /// </summary>
     public void OnGearsetRegisteredConsumed() => _gearsetRegistered = null;
+
+    /// <summary>
+    /// Called by UIObserver.PollEventObjInteraction when the player interacts with an EventObj
+    /// (or Treasure). Records the EventObj's BaseId and world position. Survives ResetDeltas;
+    /// cleared by OnObjectInteractedConsumed (called from AuthoringHost.RecordStep and
+    /// UIObserver.ResetWindowState). Last-write-wins on multiple calls within the same window.
+    /// </summary>
+    public void OnObjectInteracted(uint interactableId, float x, float y, float z)
+        => _objectInteracted = new ObjectInteractedSignal(interactableId, x, y, z);
+
+    /// <summary>
+    /// Called at the end of RecordStep (and from UIObserver.ResetWindowState) to consume
+    /// the object-interacted signal so it does not bleed into the next recording window.
+    /// </summary>
+    public void OnObjectInteractedConsumed() => _objectInteracted = null;
 
     // ── Private span-correlation helper ──────────────────────────────────────
 

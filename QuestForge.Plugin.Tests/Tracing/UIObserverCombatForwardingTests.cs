@@ -70,6 +70,18 @@ public sealed class FakeTargetProbe : ITargetProbe
 
     public (uint BaseId, float X, float Y, float Z, int Zone)? GetBattleNpcTarget()
         => _battleNpcTarget;
+
+    // ── UO_OI*: EventObj target scripting ───────────────────────────────────
+
+    private (uint BaseId, float X, float Y, float Z, int Zone)? _eventObjTarget;
+
+    public void SetEventObjTarget(uint baseId, float x, float y, float z, int zone)
+        => _eventObjTarget = (baseId, x, y, z, zone);
+
+    public void ClearEventObjTarget() => _eventObjTarget = null;
+
+    public (uint BaseId, float X, float Y, float Z, int Zone)? GetEventObjTarget()
+        => _eventObjTarget;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

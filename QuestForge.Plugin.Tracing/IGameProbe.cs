@@ -61,6 +61,12 @@ public interface IGameProbe
     /// Returns RaptureGearsetModule.NumGearsets (byte), or null when RaptureGearsetModule is unavailable.
     /// </summary>
     byte? GetGearsetCount();
+
+    /// <summary>
+    /// Returns true when the player is occupied in an event (quest interaction, aether current,
+    /// cutscene trigger, etc.). Read from Conditions.OccupiedInEvent (offset 31).
+    /// </summary>
+    bool IsOccupiedInEvent();
 }
 
 /// <summary>

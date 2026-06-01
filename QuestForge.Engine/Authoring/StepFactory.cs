@@ -208,8 +208,10 @@ public static class StepFactory
                 Expect = expectValue,
                 Zone = zoneStr,
                 RequiredZone = zoneStr,
-                InteractableId = npcId,
-                Position = npcPos
+                InteractableId = after?.ObjectInteracted?.InteractableId ?? npcId,
+                Position = after?.ObjectInteracted is { } pi
+                    ? new Position3(pi.X, pi.Y, pi.Z)
+                    : npcPos
             },
             "interact-object" => new InteractObjectStep
             {
@@ -217,8 +219,10 @@ public static class StepFactory
                 Expect = expectValue,
                 Zone = zoneStr,
                 RequiredZone = zoneStr,
-                InteractableId = npcId,
-                Position = npcPos
+                InteractableId = after?.ObjectInteracted?.InteractableId ?? npcId,
+                Position = after?.ObjectInteracted is { } oi
+                    ? new Position3(oi.X, oi.Y, oi.Z)
+                    : npcPos
             },
             "purchase-item" => BuildPurchaseItemStep(stepId, expectValue, zoneStr, zone, npcPos, after),
             _ => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, RequiredZone = zoneStr, Target = npcLoc, DialogueChoices = dialogueChoices }
