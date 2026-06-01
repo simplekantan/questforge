@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using QuestForge.Adapters;
 using QuestForge.Adapters.Actions;
 using QuestForge.Adapters.Chat;
+using QuestForge.Adapters.Duty;
 using QuestForge.Adapters.Emotes;
 using QuestForge.Adapters.Items;
 using QuestForge.Adapters.Combat;
@@ -47,6 +48,7 @@ public sealed class QuestEngine
     private readonly IGearsetManager? _gearsetManager;
     private readonly ICofferOpener? _cofferOpener;
     private readonly IObjectInteractor? _objectInteractor;
+    private readonly IDutyRunner? _dutyRunner;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly TimeProvider _clock;
@@ -97,7 +99,8 @@ public sealed class QuestEngine
         IJobChanger? jobChanger = null,
         IGearsetManager? gearsetManager = null,
         ICofferOpener? cofferOpener = null,
-        IObjectInteractor? objectInteractor = null)
+        IObjectInteractor? objectInteractor = null,
+        IDutyRunner? dutyRunner = null)
     {
         _vendor = vendor;
         _actionExecutor = actionExecutor;
@@ -110,6 +113,7 @@ public sealed class QuestEngine
         _gearsetManager = gearsetManager;
         _cofferOpener = cofferOpener;
         _objectInteractor = objectInteractor;
+        _dutyRunner = dutyRunner;
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
         _clock = clock ?? TimeProvider.System;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
@@ -430,9 +434,33 @@ public sealed class QuestEngine
         //       and fall through to the live-sequence loop below.
 
         var currentSeq = seqResult.ValueOrThrow;
-        var matchingBlock = _quest.Sequences.FirstOrDefault(s => s.Sequence == currentSeq);
+        // Block selection: prefer exact match. When no exact match exists, fall back to the
+        // highest-Sequence block that is <= currentSeq, but ONLY if that floor block is also
+        // the highest defined block overall. This accommodates single-phase quests where
+        // questSequence advances sub-objectively within block 0 (Expect predicates gate step
+        // confirmation rather than block selection). In multi-block quests, a questSequence
+        // landing in a gap between defined blocks is treated as an authoring error → AwaitUser.
+        var exactBlock = _quest.Sequences.FirstOrDefault(s => s.Sequence == currentSeq);
+        QuestSequence? matchingBlock;
+        if (exactBlock is not null)
+        {
+            matchingBlock = exactBlock;
+        }
+        else
+        {
+            var maxSequence = _quest.Sequences.Max(s => s.Sequence);
+            var floorBlock = _quest.Sequences
+                .Where(s => s.Sequence <= currentSeq)
+                .OrderByDescending(s => s.Sequence)
+                .FirstOrDefault();
+            // Use the floor block only when it is also the highest-defined block.
+            // If a higher block exists (gap scenario), the gap is an authoring error.
+            matchingBlock = (floorBlock is not null && floorBlock.Sequence == maxSequence)
+                ? floorBlock
+                : null;
+        }
         if (matchingBlock is null)
-            return (new EngineAction.AwaitUser($"no sequence block matches current sequence {currentSeq}"), null);
+            return (new EngineAction.AwaitUser($"no sequence block covers current sequence {currentSeq}"), null);
 
         if (matchingBlock.SkipIf is not null)
         {
@@ -677,6 +705,14 @@ public sealed class QuestEngine
             {
                 var openCoffersAction = await ResolveOpenCoffers(openCoffersStep, ct);
                 return (openCoffersAction, step.Id);
+            }
+
+            // 6b0. DutyStep async arm — step-gated so IsBossModAvailable is only read when
+            //      the cursor is on a DutyStep. Routes by Kind.
+            if (step is DutyStep dutyStep)
+            {
+                var dutyAction = await ResolveDuty(dutyStep, ct);
+                return (dutyAction, step.Id);
             }
 
             // 6b. TeleportStep async arm — step-gated so IsPlayerInCombat is only read when the
@@ -1133,6 +1169,30 @@ public sealed class QuestEngine
             return new EngineAction.AwaitUser("cannot teleport while in combat");
 
         return new EngineAction.Teleport(new Adapters.Types.AetheryteId(step.AetheryteId.Value), Origin: step);
+    }
+
+    private async Task<EngineAction> ResolveDuty(DutyStep step, CancellationToken ct)
+    {
+        return step.Kind switch
+        {
+            "spd" => await ResolveSpd(step, ct),
+            _ => throw new NotSupportedException(
+                $"DutyStep kind '{step.Kind}' is not supported. Only 'spd' is implemented.")
+        };
+    }
+
+    private async Task<EngineAction> ResolveSpd(DutyStep step, CancellationToken ct)
+    {
+        if (_dutyRunner is null)
+            return new EngineAction.AwaitUser(
+                "DutyStep(kind:spd) dispatched but no IDutyRunner configured — host must supply one");
+
+        var availResult = await _dutyRunner.IsBossModAvailable(ct);
+        if (availResult is Result<bool>.Success { Value: false })
+            return new EngineAction.AwaitUser(
+                "BossMod required for Single Player Duties. Complete manually or install BossMod.");
+
+        return new EngineAction.EnterSinglePlayerDuty(Origin: step);
     }
 
     /// <summary>

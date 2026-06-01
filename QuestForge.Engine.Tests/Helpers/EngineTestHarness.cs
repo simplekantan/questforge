@@ -4,6 +4,7 @@ using QuestForge.Adapters;
 using QuestForge.Adapters.Fakes;
 using QuestForge.Adapters.Fakes.Actions;
 using QuestForge.Adapters.Fakes.Chat;
+using QuestForge.Adapters.Fakes.Duty;
 using QuestForge.Adapters.Fakes.Emotes;
 using QuestForge.Adapters.Fakes.Items;
 using QuestForge.Adapters.Fakes.Combat;
@@ -65,6 +66,7 @@ public sealed class EngineTestHarness
     public FakeGearsetManager GearsetManager { get; } = new FakeGearsetManager();
     public FakeCofferOpener CofferOpener { get; } = new FakeCofferOpener();
     public FakeObjectInteractor ObjectInteractor { get; } = new FakeObjectInteractor();
+    public FakeDutyRunner DutyRunner { get; } = new FakeDutyRunner();
 
     /// <summary>
     /// The FakeTraceWriter used for assertions in tests. In the default constructor,
@@ -143,8 +145,9 @@ public sealed class EngineTestHarness
             jobChanger: JobChanger,
             gearsetManager: GearsetManager,
             cofferOpener: CofferOpener,
-            objectInteractor: ObjectInteractor);
-        Engine = new HarnessEngine(inner, GameState, Mount, Navigator, ObjectInteractor);
+            objectInteractor: ObjectInteractor,
+            dutyRunner: DutyRunner);
+        Engine = new HarnessEngine(inner, GameState, Mount, Navigator, ObjectInteractor, Interactor, DutyRunner);
     }
 
     /// <summary>
@@ -354,6 +357,15 @@ public sealed class EngineTestHarness
                     actions.Add(action);
                     break;
 
+                case EngineAction.EnterSinglePlayerDuty espd:
+                    actions.Add(action);
+                    EmitActionSubmitted("EnterSinglePlayerDuty",
+                        JsonSerializer.SerializeToElement(new { origin = espd.Origin?.Id }, _jsonOpts));
+                    var spdResult = await DutyRunner.StartDuty(ct);
+                    EmitActionCompleted("EnterSinglePlayerDuty",
+                        spdResult.IsSuccess ? "Started" : "Failed");
+                    break;
+
                 default:
                     throw new InvalidOperationException(
                         $"Unhandled EngineAction subtype: {action.GetType().Name}");
@@ -402,16 +414,20 @@ public sealed class HarnessEngine
     private readonly FakeMount _mount;
     private readonly FakeNavigator _navigator;
     private readonly FakeObjectInteractor _objectInteractor;
+    private readonly FakeInteractor _interactor;
+    private readonly FakeDutyRunner _dutyRunner;
     private bool _lastDispatchedWasNavigate;
     private const float MountDistanceThresholdMeters = 20f;
 
-    internal HarnessEngine(QuestEngine inner, FakeGameStateProvider gameState, FakeMount mount, FakeNavigator navigator, FakeObjectInteractor objectInteractor)
+    internal HarnessEngine(QuestEngine inner, FakeGameStateProvider gameState, FakeMount mount, FakeNavigator navigator, FakeObjectInteractor objectInteractor, FakeInteractor interactor, FakeDutyRunner dutyRunner)
     {
         _inner = inner;
         _gameState = gameState;
         _mount = mount;
         _navigator = navigator;
         _objectInteractor = objectInteractor;
+        _interactor = interactor;
+        _dutyRunner = dutyRunner;
     }
 
     public string? CurrentRunId => _inner.CurrentRunId;
@@ -497,6 +513,20 @@ public sealed class HarnessEngine
         if (action is EngineAction.InteractObject io)
         {
             await _objectInteractor.InteractWithObject(io.Target, ct);
+        }
+
+        // Inline dispatch for Interact: fires OnInteractWith callbacks so that direct Tick()
+        // calls in tests see the same side effects as RunToCompletion's Interact case.
+        if (action is EngineAction.Interact interact)
+        {
+            await _interactor.InteractWith(interact.Target, ct);
+        }
+
+        // Inline dispatch for EnterSinglePlayerDuty: calls StartDuty so that direct Tick()
+        // calls in tests see the same StartDutyCallCount side effects as RunToCompletion.
+        if (action is EngineAction.EnterSinglePlayerDuty)
+        {
+            await _dutyRunner.StartDuty(ct);
         }
 
         return action;
