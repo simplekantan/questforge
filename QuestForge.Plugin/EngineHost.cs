@@ -61,7 +61,7 @@ public sealed class EngineHost : IDisposable
     private readonly DalamudGearsetManager _gearsetManager;
     private readonly DalamudCofferOpener _cofferOpener;
     private readonly DalamudObjectInteractor _objectInteractor;
-    private readonly DalamudDutyRunner _dutyRunner;
+    private readonly DalamudQuestBattleRunner _questBattleRunner;
     private readonly NullMinigameSkipper _minigames;
     private readonly LuminaDialogueResolver _dialogue;
     private readonly SeededTimingProfile _timing;
@@ -139,7 +139,7 @@ public sealed class EngineHost : IDisposable
         _gearsetManager  = new DalamudGearsetManager(services);
         _cofferOpener    = new DalamudCofferOpener(services);
         _objectInteractor = new DalamudObjectInteractor(_interactor);
-        _dutyRunner      = new DalamudDutyRunner(services);
+        _questBattleRunner = new DalamudQuestBattleRunner(services);
         _minigames       = new NullMinigameSkipper();
         _dialogue        = new LuminaDialogueResolver(services);
         _timing          = new SeededTimingProfile(seed: 0);
@@ -174,7 +174,7 @@ public sealed class EngineHost : IDisposable
     public IGearsetManager    DebugGearsetManager => _gearsetManager;
     public ICofferOpener      DebugCofferOpener   => _cofferOpener;
     public IObjectInteractor  DebugObjectInteractor => _objectInteractor;
-    public IDutyRunner        DebugDutyRunner       => _dutyRunner;
+    public IQuestBattleRunner DebugQuestBattleRunner => _questBattleRunner;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
@@ -261,7 +261,7 @@ public sealed class EngineHost : IDisposable
             gearsetManager: _gearsetManager,
             cofferOpener: _cofferOpener,
             objectInteractor: _objectInteractor,
-            dutyRunner: _dutyRunner);
+            questBattleRunner: _questBattleRunner);
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
         _onRunStart?.Invoke();
@@ -326,7 +326,7 @@ public sealed class EngineHost : IDisposable
             && action is not EngineAction.EnterSinglePlayerDuty
             && action is not EngineAction.Wait)
         {
-            await _dutyRunner.StopDuty(ct);
+            await _questBattleRunner.StopDuty(ct);
             _activeSpdStepId = null;
         }
 
@@ -617,7 +617,7 @@ public sealed class EngineHost : IDisposable
                     await _navigator.Stop(ct);
                 _activeSpdStepId = espd.Origin?.Id;
                 TryCutsceneSkipConfirm();
-                await _dutyRunner.StartDuty(ct);
+                await _questBattleRunner.StartDuty(ct);
                 await _interactor.AdvanceDialogue(ct);
                 break;
 
@@ -754,7 +754,7 @@ public sealed class EngineHost : IDisposable
         // Stop BossMod AI if an SPD was active when the run ended (e.g. via /qf stop).
         if (_activeSpdStepId is not null)
         {
-            _dutyRunner.StopDuty(CancellationToken.None).GetAwaiter().GetResult();
+            _questBattleRunner.StopDuty(CancellationToken.None).GetAwaiter().GetResult();
             _activeSpdStepId = null;
         }
         if (_runId is not null && !_engineEmittedRunEnd)

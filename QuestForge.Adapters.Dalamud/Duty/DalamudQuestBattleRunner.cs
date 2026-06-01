@@ -12,7 +12,7 @@ namespace QuestForge.Adapters.Dalamud.Duty;
 /// StopDuty: disables AI and clears the preset. Idempotent.
 /// IsBossModAvailable: probes the BossMod.Presets.Get IPC gate.
 /// </summary>
-public sealed class DalamudDutyRunner : IDutyRunner
+public sealed class DalamudQuestBattleRunner : IQuestBattleRunner
 {
     private readonly PluginServices _svc;
     private bool _started;
@@ -30,7 +30,7 @@ public sealed class DalamudDutyRunner : IDutyRunner
     private ICallGateSubscriber<bool> ClearPresetActive
         => _svc.PluginInterface.GetIpcSubscriber<bool>("BossMod.Presets.ClearActive");
 
-    public DalamudDutyRunner(PluginServices svc)
+    public DalamudQuestBattleRunner(PluginServices svc)
     {
         _svc = svc;
     }

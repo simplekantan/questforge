@@ -48,7 +48,7 @@ public sealed class QuestEngine
     private readonly IGearsetManager? _gearsetManager;
     private readonly ICofferOpener? _cofferOpener;
     private readonly IObjectInteractor? _objectInteractor;
-    private readonly IDutyRunner? _dutyRunner;
+    private readonly IQuestBattleRunner? _questBattleRunner;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly TimeProvider _clock;
@@ -100,7 +100,7 @@ public sealed class QuestEngine
         IGearsetManager? gearsetManager = null,
         ICofferOpener? cofferOpener = null,
         IObjectInteractor? objectInteractor = null,
-        IDutyRunner? dutyRunner = null)
+        IQuestBattleRunner? questBattleRunner = null)
     {
         _vendor = vendor;
         _actionExecutor = actionExecutor;
@@ -113,7 +113,7 @@ public sealed class QuestEngine
         _gearsetManager = gearsetManager;
         _cofferOpener = cofferOpener;
         _objectInteractor = objectInteractor;
-        _dutyRunner = dutyRunner;
+        _questBattleRunner = questBattleRunner;
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
         _clock = clock ?? TimeProvider.System;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
@@ -1183,11 +1183,11 @@ public sealed class QuestEngine
 
     private async Task<EngineAction> ResolveSpd(DutyStep step, CancellationToken ct)
     {
-        if (_dutyRunner is null)
+        if (_questBattleRunner is null)
             return new EngineAction.AwaitUser(
-                "DutyStep(kind:spd) dispatched but no IDutyRunner configured — host must supply one");
+                "DutyStep(kind:spd) dispatched but no IQuestBattleRunner configured — host must supply one");
 
-        var availResult = await _dutyRunner.IsBossModAvailable(ct);
+        var availResult = await _questBattleRunner.IsBossModAvailable(ct);
         if (availResult is Result<bool>.Success { Value: false })
             return new EngineAction.AwaitUser(
                 "BossMod required for Single Player Duties. Complete manually or install BossMod.");

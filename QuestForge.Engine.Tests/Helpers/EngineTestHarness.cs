@@ -66,7 +66,7 @@ public sealed class EngineTestHarness
     public FakeGearsetManager GearsetManager { get; } = new FakeGearsetManager();
     public FakeCofferOpener CofferOpener { get; } = new FakeCofferOpener();
     public FakeObjectInteractor ObjectInteractor { get; } = new FakeObjectInteractor();
-    public FakeDutyRunner DutyRunner { get; } = new FakeDutyRunner();
+    public FakeQuestBattleRunner QuestBattleRunner { get; } = new FakeQuestBattleRunner();
 
     /// <summary>
     /// The FakeTraceWriter used for assertions in tests. In the default constructor,
@@ -146,8 +146,8 @@ public sealed class EngineTestHarness
             gearsetManager: GearsetManager,
             cofferOpener: CofferOpener,
             objectInteractor: ObjectInteractor,
-            dutyRunner: DutyRunner);
-        Engine = new HarnessEngine(inner, GameState, Mount, Navigator, ObjectInteractor, Interactor, DutyRunner);
+            questBattleRunner: QuestBattleRunner);
+        Engine = new HarnessEngine(inner, GameState, Mount, Navigator, ObjectInteractor, Interactor, QuestBattleRunner);
     }
 
     /// <summary>
@@ -361,7 +361,7 @@ public sealed class EngineTestHarness
                     actions.Add(action);
                     EmitActionSubmitted("EnterSinglePlayerDuty",
                         JsonSerializer.SerializeToElement(new { origin = espd.Origin?.Id }, _jsonOpts));
-                    var spdResult = await DutyRunner.StartDuty(ct);
+                    var spdResult = await QuestBattleRunner.StartDuty(ct);
                     EmitActionCompleted("EnterSinglePlayerDuty",
                         spdResult.IsSuccess ? "Started" : "Failed");
                     break;
@@ -415,11 +415,11 @@ public sealed class HarnessEngine
     private readonly FakeNavigator _navigator;
     private readonly FakeObjectInteractor _objectInteractor;
     private readonly FakeInteractor _interactor;
-    private readonly FakeDutyRunner _dutyRunner;
+    private readonly FakeQuestBattleRunner _questBattleRunner;
     private bool _lastDispatchedWasNavigate;
     private const float MountDistanceThresholdMeters = 20f;
 
-    internal HarnessEngine(QuestEngine inner, FakeGameStateProvider gameState, FakeMount mount, FakeNavigator navigator, FakeObjectInteractor objectInteractor, FakeInteractor interactor, FakeDutyRunner dutyRunner)
+    internal HarnessEngine(QuestEngine inner, FakeGameStateProvider gameState, FakeMount mount, FakeNavigator navigator, FakeObjectInteractor objectInteractor, FakeInteractor interactor, FakeQuestBattleRunner questBattleRunner)
     {
         _inner = inner;
         _gameState = gameState;
@@ -427,7 +427,7 @@ public sealed class HarnessEngine
         _navigator = navigator;
         _objectInteractor = objectInteractor;
         _interactor = interactor;
-        _dutyRunner = dutyRunner;
+        _questBattleRunner = questBattleRunner;
     }
 
     public string? CurrentRunId => _inner.CurrentRunId;
@@ -526,7 +526,7 @@ public sealed class HarnessEngine
         // calls in tests see the same StartDutyCallCount side effects as RunToCompletion.
         if (action is EngineAction.EnterSinglePlayerDuty)
         {
-            await _dutyRunner.StartDuty(ct);
+            await _questBattleRunner.StartDuty(ct);
         }
 
         return action;

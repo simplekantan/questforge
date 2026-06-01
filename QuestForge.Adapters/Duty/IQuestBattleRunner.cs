@@ -2,7 +2,7 @@ using QuestForge.Adapters.Types;
 
 namespace QuestForge.Adapters.Duty;
 
-public interface IDutyRunner
+public interface IQuestBattleRunner
 {
     /// <summary>
     /// Enable BossMod AI for a Single Player Duty.

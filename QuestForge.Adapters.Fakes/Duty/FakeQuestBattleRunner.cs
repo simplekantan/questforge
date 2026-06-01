@@ -3,7 +3,7 @@ using QuestForge.Adapters.Types;
 
 namespace QuestForge.Adapters.Fakes.Duty;
 
-public sealed class FakeDutyRunner : IDutyRunner
+public sealed class FakeQuestBattleRunner : IQuestBattleRunner
 {
     public bool BossModAvailable { get; set; } = true;
     public int StartDutyCallCount { get; private set; }
