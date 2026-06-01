@@ -124,14 +124,11 @@ public class RoundTripTests
         {
             Id = "do-dungeon",
             Kind = "regular",
-            DutyId = 56,
-            EntryNpc = new NpcLocation(1014883, 419, new Position3(6f, -1f, 47f)),
             Expect = new PredicateExpect { Predicate = "questSequence(2054) >= 5" }
         };
 
         var result = RoundTrip(step);
         Assert.Equal("regular", result.Kind);
-        Assert.Equal(56u, result.DutyId);
     }
 
     [Fact]
@@ -141,13 +138,11 @@ public class RoundTripTests
         {
             Id = "quest-battle",
             Kind = "spd",
-            Trigger = new DutyTrigger("object", 134, new Position3(81f, 7f, 32f), InteractableId: 2001234),
             Expect = new PredicateExpect { Predicate = "questFlag(65849, 3)" }
         };
 
         var result = RoundTrip(step);
         Assert.Equal("spd", result.Kind);
-        Assert.NotNull(result.Trigger);
     }
 
     [Fact]
@@ -1566,6 +1561,84 @@ public class RoundTripTests
 
         // Verify "position" key absent from JSON
         Assert.DoesNotContain("\"position\"", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // =========================================================================
+    // D19 -- DutyStep(kind: "duty") with ContentFinderConditionId round-trips
+    // Spec: docs/DUTY_AUTODUTY_PLAN.md scenario D19
+    // RED: DutyStep.ContentFinderConditionId does not exist yet.
+    // =========================================================================
+
+    /// <summary>
+    /// D19 -- DutyStep(kind: "duty") with ContentFinderConditionId round-trips.
+    /// Verifies the new field serializes and deserializes correctly.
+    /// </summary>
+    [Fact]
+    public void DutyStep_Duty_WithCfcId_RoundTrips_D19()
+    {
+        var step = new DutyStep
+        {
+            Id = "enter-dungeon",
+            Kind = "duty",
+            ContentFinderConditionId = 2,
+            Expect = new PredicateExpect { Predicate = "questSequence(80001) >= 3" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        Assert.Equal("duty", result.Kind);
+        Assert.Equal(2u, result.ContentFinderConditionId);
+        Assert.IsType<PredicateExpect>(result.Expect);
+
+        // Verify the JSON contains the new field
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"contentFinderConditionId\":2", compactJson, StringComparison.Ordinal);
+        Assert.Contains("\"kind\":\"duty\"", compactJson, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// D19b -- DutyStep(kind: "spd") without ContentFinderConditionId: field absent from JSON.
+    /// Verifies [JsonIgnore(WhenWritingNull)] is honored on the nullable field.
+    /// </summary>
+    [Fact]
+    public void DutyStep_Spd_NoCfcId_FieldAbsentFromJson_D19b()
+    {
+        var step = new DutyStep
+        {
+            Id = "quest-battle",
+            Kind = "spd",
+            ContentFinderConditionId = null,
+            Expect = new PredicateExpect { Predicate = "questFlag(65849, 3)" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+
+        // ContentFinderConditionId must be absent from JSON when null
+        Assert.DoesNotContain("contentFinderConditionId", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// D19c -- DutyStep minimal: kind "duty" + CFC ID only, no optional fields.
+    /// </summary>
+    [Fact]
+    public void DutyStep_Duty_Minimal_RoundTrips_D19c()
+    {
+        const string json = """
+            {
+              "type": "duty",
+              "id": "minimal-dungeon",
+              "kind": "duty",
+              "contentFinderConditionId": 42
+            }
+            """;
+
+        var step = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+        var duty = Assert.IsType<DutyStep>(step);
+
+        Assert.Equal("duty", duty.Kind);
+        Assert.Equal(42u, duty.ContentFinderConditionId);
+        Assert.Null(duty.Expect);
     }
 
     // =========================================================================

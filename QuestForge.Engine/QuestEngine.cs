@@ -49,6 +49,8 @@ public sealed class QuestEngine
     private readonly ICofferOpener? _cofferOpener;
     private readonly IObjectInteractor? _objectInteractor;
     private readonly IQuestBattleRunner? _questBattleRunner;
+    private readonly IDutyRunner? _dutyRunner;
+    private readonly ICfcResolver? _cfcResolver;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly TimeProvider _clock;
@@ -100,7 +102,9 @@ public sealed class QuestEngine
         IGearsetManager? gearsetManager = null,
         ICofferOpener? cofferOpener = null,
         IObjectInteractor? objectInteractor = null,
-        IQuestBattleRunner? questBattleRunner = null)
+        IQuestBattleRunner? questBattleRunner = null,
+        IDutyRunner? dutyRunner = null,
+        ICfcResolver? cfcResolver = null)
     {
         _vendor = vendor;
         _actionExecutor = actionExecutor;
@@ -114,6 +118,8 @@ public sealed class QuestEngine
         _cofferOpener = cofferOpener;
         _objectInteractor = objectInteractor;
         _questBattleRunner = questBattleRunner;
+        _dutyRunner = dutyRunner;
+        _cfcResolver = cfcResolver;
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
         _clock = clock ?? TimeProvider.System;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
@@ -1175,10 +1181,51 @@ public sealed class QuestEngine
     {
         return step.Kind switch
         {
-            "spd" => await ResolveSpd(step, ct),
+            "spd"  => await ResolveSpd(step, ct),
+            "duty" => await ResolveDungeonTrial(step, ct),
             _ => throw new NotSupportedException(
-                $"DutyStep kind '{step.Kind}' is not supported. Only 'spd' is implemented.")
+                $"DutyStep kind '{step.Kind}' is not supported. Only 'spd' and 'duty' are implemented.")
         };
+    }
+
+    private async Task<EngineAction> ResolveDungeonTrial(DutyStep step, CancellationToken ct)
+    {
+        if (_dutyRunner is null)
+            return new EngineAction.AwaitUser(
+                "DutyStep(kind:duty) dispatched but no IDutyRunner configured — " +
+                "install AutoDuty or complete this duty manually");
+
+        if (_cfcResolver is null)
+            return new EngineAction.AwaitUser(
+                "DutyStep(kind:duty) dispatched but no ICfcResolver configured — " +
+                "host must supply one");
+
+        if (step.ContentFinderConditionId is null or 0)
+            return new EngineAction.AwaitUser(
+                $"DutyStep '{step.Id}' has no ContentFinderConditionId — " +
+                "quest file must specify it for kind 'duty'");
+
+        var territoryType = _cfcResolver.GetTerritoryType(step.ContentFinderConditionId.Value);
+        if (territoryType is null)
+            return new EngineAction.AwaitUser(
+                $"ContentFinderConditionId {step.ContentFinderConditionId} could not be " +
+                "resolved to a territory type — unknown duty");
+
+        var availResult = await _dutyRunner.IsAvailable(ct);
+        if (availResult is Result<bool>.Success { Value: false })
+            return new EngineAction.AwaitUser(
+                "AutoDuty required for dungeon/trial automation. " +
+                "Install AutoDuty or complete this duty manually.");
+
+        var pathResult = await _dutyRunner.ContentHasPath(territoryType.Value, ct);
+        if (pathResult is Result<bool>.Success { Value: false })
+            return new EngineAction.AwaitUser(
+                $"AutoDuty does not have a path for territory {territoryType.Value} " +
+                $"(CFC {step.ContentFinderConditionId}). Complete this duty manually " +
+                "or wait for AutoDuty path support.");
+
+        return new EngineAction.EnterDuty(
+            step.ContentFinderConditionId.Value, Origin: step);
     }
 
     private async Task<EngineAction> ResolveSpd(DutyStep step, CancellationToken ct)

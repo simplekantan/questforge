@@ -152,6 +152,17 @@ public sealed class DraftValidator
             }
         }
 
+        // E21: DutyStep(kind:"duty") with ContentFinderConditionId == 0
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is DutyStep { Kind: "duty", ContentFinderConditionId: 0 })
+            {
+                errors.Add(new DraftValidationError("E21",
+                    $"Step '{steps[i].StepId}' has ContentFinderConditionId=0 which is invalid.",
+                    [i]));
+            }
+        }
+
         // E14: UseItemStep with TargetNpcId == 0 (null is allowed; explicit zero is invalid)
         for (var i = 0; i < steps.Count; i++)
         {
@@ -240,7 +251,14 @@ public sealed class DraftValidator
         {
             var step = steps[i];
             if (step.Raw is null) continue;
-            if (step.Raw.Expect is null && step.Raw is not UseActionStep and not UseEmoteStep and not SayChatMessageStep and not UseItemStep and not EquipGearForQuestStep and not ChangeJobStep)
+            if (step.Raw.Expect is null
+                && step.Raw is not UseActionStep
+                and not UseEmoteStep
+                and not SayChatMessageStep
+                and not UseItemStep
+                and not EquipGearForQuestStep
+                and not ChangeJobStep
+                && step.Raw is not DutyStep { Kind: "duty" })
             {
                 warnings.Add(new DraftValidationWarning("W1",
                     $"Step '{step.StepId}' has no 'expect' predicate. Consider adding one for reliability.",
@@ -292,6 +310,20 @@ public sealed class DraftValidator
             {
                 warnings.Add(new DraftValidationWarning("W10",
                     $"Step '{step.StepId}' is a UseItemStep with no 'expect' predicate — without it the engine will spin-loop re-emitting the action. Add an expect predicate.",
+                    [i]));
+            }
+        }
+
+        // W11: DutyStep(kind:"duty") with no Expect — engine spin-loops without one
+        for (var i = 0; i < steps.Count; i++)
+        {
+            var step = steps[i];
+            if (step.Raw is DutyStep { Kind: "duty" } dt && dt.Expect is null)
+            {
+                warnings.Add(new DraftValidationWarning("W11",
+                    $"Step '{step.StepId}' is a DutyStep(kind:duty) with no 'expect' predicate " +
+                    "-- without it the engine will spin-loop re-dispatching EnterDuty. " +
+                    "Add an expect predicate (e.g. questSequence).",
                     [i]));
             }
         }

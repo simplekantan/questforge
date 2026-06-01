@@ -181,6 +181,7 @@ Example: if the engine emits Navigate 1,847 times followed by Interact 312 times
 | `"opencoffer"` | `EngineAction.OpenCoffer` | `OpenCoffersStep` dispatch — open one gear coffer via ActionManager.UseAction(Item). |
 | `"interactobject"` | `EngineAction.InteractObject` | `InteractObjectStep` and `PickupItemStep` dispatch — interact with a world EventObj via TargetSystem.InteractWithObject. |
 | `"entersingleplayerduty"` | `EngineAction.EnterSinglePlayerDuty` | `DutyStep(kind:"spd")` dispatch — enable BossMod AI for a Single Player Duty. |
+| `"enterduty"` | `EngineAction.EnterDuty` | `DutyStep(kind:"duty")` dispatch — configure AutoDuty for Support mode and start dungeon/trial. |
 | `"wait"` | `EngineAction.Wait` | Rarely appears in `expectedTransitions` — only when all steps in a sequence are satisfied but the game's sequence number has not yet advanced, or when an action is gated (casting, cooldown). |
 | `"awaituser"` | `EngineAction.AwaitUser` | Terminal action. Lowercased per the extractor's `ToLowerInvariant()` normalization. Never appears in `expectedTransitions` (filtered as terminal); appears in `terminalOutcome` as `"awaitUser"` with original casing. |
 | `"done"` | `EngineAction.Done` | Never appears in `expectedTransitions`; appears in `terminalOutcome` only. |

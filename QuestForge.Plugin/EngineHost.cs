@@ -62,6 +62,8 @@ public sealed class EngineHost : IDisposable
     private readonly DalamudCofferOpener _cofferOpener;
     private readonly DalamudObjectInteractor _objectInteractor;
     private readonly DalamudQuestBattleRunner _questBattleRunner;
+    private readonly DalamudDutyRunner _dutyRunner;
+    private readonly LuminaCfcResolver _cfcResolver;
     private readonly NullMinigameSkipper _minigames;
     private readonly LuminaDialogueResolver _dialogue;
     private readonly SeededTimingProfile _timing;
@@ -104,6 +106,8 @@ public sealed class EngineHost : IDisposable
     private bool _lastDispatchedActionWasPurchase;
     // Tracks the active SPD step ID for StopDuty cleanup when the step advances (SPD7).
     private string? _activeSpdStepId;
+    // Tracks the active dungeon/trial step ID for StopDuty cleanup when the step advances (AD9).
+    private string? _activeDutyStepId;
 
     // Tracks whether the previous dispatched action was a Navigate so the lazy-dismount
     // hook fires on the next non-Navigate action (mirrors the close-shop pattern).
@@ -140,6 +144,8 @@ public sealed class EngineHost : IDisposable
         _cofferOpener    = new DalamudCofferOpener(services);
         _objectInteractor = new DalamudObjectInteractor(_interactor);
         _questBattleRunner = new DalamudQuestBattleRunner(services);
+        _dutyRunner      = new DalamudDutyRunner(services);
+        _cfcResolver     = new LuminaCfcResolver(services);
         _minigames       = new NullMinigameSkipper();
         _dialogue        = new LuminaDialogueResolver(services);
         _timing          = new SeededTimingProfile(seed: 0);
@@ -175,6 +181,7 @@ public sealed class EngineHost : IDisposable
     public ICofferOpener      DebugCofferOpener   => _cofferOpener;
     public IObjectInteractor  DebugObjectInteractor => _objectInteractor;
     public IQuestBattleRunner DebugQuestBattleRunner => _questBattleRunner;
+    public IDutyRunner DebugDutyRunner => _dutyRunner;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
@@ -261,7 +268,9 @@ public sealed class EngineHost : IDisposable
             gearsetManager: _gearsetManager,
             cofferOpener: _cofferOpener,
             objectInteractor: _objectInteractor,
-            questBattleRunner: _questBattleRunner);
+            questBattleRunner: _questBattleRunner,
+            dutyRunner: _dutyRunner,
+            cfcResolver: _cfcResolver);
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
         _onRunStart?.Invoke();
@@ -328,6 +337,16 @@ public sealed class EngineHost : IDisposable
         {
             await _questBattleRunner.StopDuty(ct);
             _activeSpdStepId = null;
+        }
+
+        // Duty cleanup (AD9): when the engine advances past a dungeon/trial step (emits anything
+        // other than EnterDuty or Wait), tell AutoDuty to stop and clear the tracking flag.
+        if (_activeDutyStepId is not null
+            && action is not EngineAction.EnterDuty
+            && action is not EngineAction.Wait)
+        {
+            await _dutyRunner.StopDuty(ct);
+            _activeDutyStepId = null;
         }
 
         // Lazy dismount: if the previous dispatch was a Navigate and the engine has now
@@ -621,6 +640,18 @@ public sealed class EngineHost : IDisposable
                 await _interactor.AdvanceDialogue(ct);
                 break;
 
+            case EngineAction.EnterDuty ed:
+                DebounceLog(
+                    $"enterduty:{ed.Origin?.Id}",
+                    $"[EnterDuty] stepId={ed.Origin?.Id ?? "(unknown)"} cfcId={ed.ContentFinderConditionId}");
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
+                _activeDutyStepId = ed.Origin?.Id;
+                var tt = _cfcResolver.GetTerritoryType(ed.ContentFinderConditionId);
+                if (tt is not null)
+                    await _dutyRunner.StartDuty(tt.Value, ct);
+                break;
+
             case EngineAction.Wait:
                 // Engine is satisfied with step state but waiting for the game to advance
                 // sequence (e.g. Talk addon still open after interact). Keep clicking through.
@@ -756,6 +787,12 @@ public sealed class EngineHost : IDisposable
         {
             _questBattleRunner.StopDuty(CancellationToken.None).GetAwaiter().GetResult();
             _activeSpdStepId = null;
+        }
+        // Stop AutoDuty if a dungeon/trial was active when the run ended (e.g. via /qf stop).
+        if (_activeDutyStepId is not null)
+        {
+            _dutyRunner.StopDuty(CancellationToken.None).GetAwaiter().GetResult();
+            _activeDutyStepId = null;
         }
         if (_runId is not null && !_engineEmittedRunEnd)
             _traceSession.Write(new RunEndEvent(_runId, "ended", DateTimeOffset.UtcNow));

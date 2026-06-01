@@ -139,13 +139,16 @@ public enum CombatSpawn
     OverworldEnemies
 }
 
-public class DutyStep : Step
+public sealed class DutyStep : Step
 {
-    public string Kind { get; init; } = default!;   // "regular" | "spd"
-    public uint? DutyId { get; init; }
-    public NpcLocation? EntryNpc { get; init; }
-    public DutyTrigger? Trigger { get; init; }
-    public string? FallbackOverride { get; init; }
+    public string Kind { get; init; } = default!;   // "regular" | "spd" | "duty"
+
+    /// <summary>
+    /// ContentFinderCondition row ID (Lumina). Required for kind "duty".
+    /// The adapter derives territory type from this ID for AutoDuty's IPC.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public uint? ContentFinderConditionId { get; init; }
 }
 
 public class CutsceneStep : Step
