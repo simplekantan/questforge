@@ -270,7 +270,8 @@ public sealed class EngineHost : IDisposable
             objectInteractor: _objectInteractor,
             questBattleRunner: _questBattleRunner,
             dutyRunner: _dutyRunner,
-            cfcResolver: _cfcResolver);
+            cfcResolver: _cfcResolver,
+            actionCooldownSeconds: _config.ActionCooldownSeconds);
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
         _onRunStart?.Invoke();

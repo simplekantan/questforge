@@ -62,6 +62,13 @@ public sealed class PluginConfig
     /// </summary>
     public SpdDifficulty PreferredSpdDifficulty { get; set; } = SpdDifficulty.Normal;
 
+    /// <summary>
+    /// Seconds to wait after firing an instant action (SayChatMessage, UseEmote, UseAction, UseItem)
+    /// before allowing re-fire on the same step. Prevents visible spam for actions with no cast bar.
+    /// Set to 0 to disable throttling.
+    /// </summary>
+    public double ActionCooldownSeconds { get; set; } = 5.0;
+
     public static PluginConfig Load(IDalamudPluginInterface pi)
     {
         try

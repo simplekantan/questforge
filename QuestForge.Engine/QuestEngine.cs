@@ -54,6 +54,7 @@ public sealed class QuestEngine
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly TimeProvider _clock;
+    private readonly double _actionCooldownSeconds;
     private readonly ExpectEvaluator _expectEvaluator;
 
     /// <summary>Exposed for test inspection (EX-reset-on-advance). Internal to the engine assembly.</summary>
@@ -65,6 +66,8 @@ public sealed class QuestEngine
     private readonly HashSet<string> _confirmedStepIds = new();
     private DateTimeOffset? _waitStepStart;
     private string? _waitStepStartId;
+    private DateTimeOffset? _lastActionFiredAt;
+    private string? _lastActionFiredStepId;
     private int _lastKnownSequence = -1;
     private IReadOnlyDictionary<string, FragmentDefinition>? _fragments;
     private readonly HashSet<string> _resumePointExecutedIds = new();
@@ -104,7 +107,8 @@ public sealed class QuestEngine
         IObjectInteractor? objectInteractor = null,
         IQuestBattleRunner? questBattleRunner = null,
         IDutyRunner? dutyRunner = null,
-        ICfcResolver? cfcResolver = null)
+        ICfcResolver? cfcResolver = null,
+        double actionCooldownSeconds = 5.0)
     {
         _vendor = vendor;
         _actionExecutor = actionExecutor;
@@ -122,6 +126,7 @@ public sealed class QuestEngine
         _cfcResolver = cfcResolver;
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
         _clock = clock ?? TimeProvider.System;
+        _actionCooldownSeconds = actionCooldownSeconds;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
         _navigator = navigator ?? throw new ArgumentNullException(nameof(navigator));
         _teleporter = teleporter ?? throw new ArgumentNullException(nameof(teleporter));
@@ -933,6 +938,25 @@ public sealed class QuestEngine
         _ => new EngineAction.AwaitUser($"resume recovery '{action.GetType().Name}' for step '{mainStep.Id}'")
     };
 
+    private EngineAction.Wait? CheckActionCooldown(Step step)
+    {
+        if (_actionCooldownSeconds <= 0) return null;
+        if (_lastActionFiredStepId != step.Id || _lastActionFiredAt is null) return null;
+
+        var elapsed = _clock.GetUtcNow() - _lastActionFiredAt.Value;
+        if (elapsed.TotalSeconds >= _actionCooldownSeconds) return null;
+
+        return new EngineAction.Wait(
+            $"action cooldown ({elapsed.TotalSeconds:F1}s / {_actionCooldownSeconds:F1}s)",
+            Origin: step);
+    }
+
+    private void RecordActionFired(Step step)
+    {
+        _lastActionFiredAt = _clock.GetUtcNow();
+        _lastActionFiredStepId = step.Id;
+    }
+
     private async Task<EngineAction> ResolvePurchaseAction(
         PurchaseItemStep step, WorldPosition? playerPos, CancellationToken ct)
     {
@@ -1009,7 +1033,11 @@ public sealed class QuestEngine
         }
         // Fail-open: status read failure → proceed to emit
 
+        var cooldownUa = CheckActionCooldown(step);
+        if (cooldownUa is not null) return cooldownUa;
+
         var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
+        RecordActionFired(step);
         return new EngineAction.UseAction(step.ActionType, step.ActionId, target, Origin: step);
     }
 
@@ -1023,7 +1051,11 @@ public sealed class QuestEngine
         if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
             return new EngineAction.Wait("player casting; deferring use-emote", Origin: step);
 
+        var cooldownUe = CheckActionCooldown(step);
+        if (cooldownUe is not null) return cooldownUe;
+
         var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
+        RecordActionFired(step);
         return new EngineAction.UseEmote(step.EmoteId, target, step.Motion, Origin: step);
     }
 
@@ -1037,7 +1069,11 @@ public sealed class QuestEngine
         if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
             return new EngineAction.Wait("player casting; deferring say-chat-message", Origin: step);
 
+        var cooldownSc = CheckActionCooldown(step);
+        if (cooldownSc is not null) return cooldownSc;
+
         var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
+        RecordActionFired(step);
         return new EngineAction.SayChatMessage(step.Message, target, Origin: step);
     }
 
@@ -1051,7 +1087,11 @@ public sealed class QuestEngine
         if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
             return new EngineAction.Wait("player casting; deferring use-item", Origin: step);
 
+        var cooldownUi = CheckActionCooldown(step);
+        if (cooldownUi is not null) return cooldownUi;
+
         var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
+        RecordActionFired(step);
         return new EngineAction.UseItem(step.Kind, step.ItemId, target, step.TargetPosition, Origin: step);
     }
 
