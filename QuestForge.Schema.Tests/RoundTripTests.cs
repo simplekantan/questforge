@@ -72,35 +72,6 @@ public class RoundTripTests
     }
 
     [Fact]
-    public void InteractObjectStep_RoundTrips()
-    {
-        var step = new InteractObjectStep
-        {
-            Id = "ring-bell",
-            Target = new InteractableTarget(2001500, 134, new Position3(81f, 7f, 32f)),
-            Expect = new PredicateExpect { Predicate = "questFlag(65, 5)" }
-        };
-
-        var result = RoundTrip(step);
-        Assert.Equal("ring-bell", result.Id);
-        Assert.Equal(2001500u, result.Target.InteractableId);
-    }
-
-    [Fact]
-    public void PickupItemStep_RoundTrips()
-    {
-        var step = new PickupItemStep
-        {
-            Id = "pick-up-letter",
-            Target = new InteractableTarget(2001234, 134, new Position3(81f, 7f, 32f)),
-            Expect = new PredicateExpect { Predicate = "questFlag(65, 3)" }
-        };
-
-        var result = RoundTrip(step);
-        Assert.Equal("pick-up-letter", result.Id);
-    }
-
-    [Fact]
     public void AcceptStep_RoundTrips()
     {
         var step = new AcceptStep
@@ -1477,6 +1448,124 @@ public class RoundTripTests
 
         Assert.Equal("rg-minimal", result.Id);
         Assert.Null(result.Expect);
+    }
+
+    // =========================================================================
+    // IO-R1 -- InteractObjectStep flat shape round-trips (RED PHASE)
+    // Will fail to compile until Builder flattens InteractObjectStep:
+    // InteractableId (uint) and Position (Position3?) replace InteractableTarget Target.
+    // =========================================================================
+
+    /// <summary>
+    /// IO-R1 -- InteractObjectStep with flat InteractableId, Position, Zone, and Expect round-trips.
+    /// No "target" wrapper object in serialized JSON.
+    /// </summary>
+    [Fact]
+    public void InteractObjectStep_FlatShape_RoundTrips_IOR1()
+    {
+        /*
+         * RED: Will fail to compile -- InteractObjectStep.InteractableId does not exist yet
+         *      (current shape has InteractableTarget Target).
+         *
+         * CONTRACT: Given InteractObjectStep with InteractableId=2001500, Position=(1,2,3),
+         *               Zone="134", Expect="questFlag(65657, 5)",
+         *           When serialized then deserialized,
+         *           Then InteractableId == 2001500, Position.X == 1, Zone == "134",
+         *                and JSON does NOT contain a "target" wrapper.
+         *
+         * BUILDER GUIDANCE: Flatten InteractObjectStep to use uint InteractableId
+         *   and Position3? Position directly on the step. Delete InteractableTarget.
+         */
+
+        var step = new InteractObjectStep
+        {
+            Id = "ring-bell",
+            InteractableId = 2001500u,                      // RED: property does not exist yet
+            Position = new Position3(1f, 2f, 3f),           // RED: property does not exist yet
+            Zone = "134",
+            Expect = new PredicateExpect { Predicate = "questFlag(65657, 5)" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        Assert.Equal(2001500u, result.InteractableId);
+        Assert.NotNull(result.Position);
+        Assert.Equal(1f, result.Position!.X, precision: 3);
+        Assert.Equal("134", result.Zone);
+
+        // Verify no "target" wrapper in JSON
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.DoesNotContain("\"target\":{", compactJson, StringComparison.Ordinal);
+        Assert.Contains("\"interactableId\":2001500", compactJson, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// IO-R2 -- PickupItemStep with flat shape round-trips.
+    /// </summary>
+    [Fact]
+    public void PickupItemStep_FlatShape_RoundTrips_IOR2()
+    {
+        /*
+         * RED: Will fail to compile -- PickupItemStep.InteractableId does not exist yet.
+         *
+         * CONTRACT: Given PickupItemStep with InteractableId=2001234, Position=(81.5,7.0,32.2),
+         *               Zone="134", Expect="questFlag(65657, 3)",
+         *           When serialized then deserialized,
+         *           Then InteractableId == 2001234, Position.X == 81.5.
+         */
+
+        var step = new PickupItemStep
+        {
+            Id = "pick-up-letter",
+            InteractableId = 2001234u,                      // RED: property does not exist yet
+            Position = new Position3(81.5f, 7.0f, 32.2f),   // RED: property does not exist yet
+            Zone = "134",
+            Expect = new PredicateExpect { Predicate = "questFlag(65657, 3)" }
+        };
+
+        var result = RoundTrip(step);
+
+        Assert.Equal(2001234u, result.InteractableId);
+        Assert.NotNull(result.Position);
+        Assert.Equal(81.5f, result.Position!.X, precision: 3);
+        Assert.Equal(7.0f, result.Position!.Y, precision: 3);
+        Assert.Equal(32.2f, result.Position!.Z, precision: 3);
+    }
+
+    /// <summary>
+    /// IO-R3 -- InteractObjectStep with null Position round-trips.
+    /// Position key must be absent from JSON output ([JsonIgnore(WhenWritingNull)]).
+    /// </summary>
+    [Fact]
+    public void InteractObjectStep_NullPosition_RoundTrips_IOR3()
+    {
+        /*
+         * RED: Will fail to compile -- InteractObjectStep.InteractableId does not exist yet.
+         *
+         * CONTRACT: Given InteractObjectStep with InteractableId=2001500, Position=null,
+         *           When serialized then deserialized,
+         *           Then Position is null and "position" key is absent from JSON.
+         *
+         * BUILDER GUIDANCE: Apply [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+         *   to Position property.
+         */
+
+        var step = new InteractObjectStep
+        {
+            Id = "interact-no-pos",
+            InteractableId = 2001500u,                      // RED: property does not exist yet
+            Position = null,                                // RED: property does not exist yet
+            Expect = new PredicateExpect { Predicate = "questFlag(65657, 5)" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        Assert.Null(result.Position);
+
+        // Verify "position" key absent from JSON
+        Assert.DoesNotContain("\"position\"", json, StringComparison.OrdinalIgnoreCase);
     }
 
     // =========================================================================

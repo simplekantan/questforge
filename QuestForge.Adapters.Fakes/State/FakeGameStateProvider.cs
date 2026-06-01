@@ -8,6 +8,7 @@ public sealed class FakeGameStateProvider : IGameStateProvider
 {
     // Single lock guards all mutable state — consistent, no partial-update races.
     private readonly object _lock = new();
+    private readonly HashSet<uint> _aetherCurrents = [];
 
     private ZoneId _zone = new(0);
     private WorldPosition _position = new(0f, 0f, 0f);
@@ -144,6 +145,15 @@ public sealed class FakeGameStateProvider : IGameStateProvider
         {
             if (attuned) _attunedAetherytes.Add(id);
             else _attunedAetherytes.Remove(id);
+        }
+    }
+
+    public void SetAetherCurrentAttuned(uint dataId, bool attuned = true)
+    {
+        lock (_lock)
+        {
+            if (attuned) _aetherCurrents.Add(dataId);
+            else _aetherCurrents.Remove(dataId);
         }
     }
 
@@ -451,5 +461,26 @@ public sealed class FakeGameStateProvider : IGameStateProvider
         Record(nameof(HasCoffers));
         lock (_lock)
             return Task.FromResult<Result<bool>>(Result.Ok(_hasCoffers));
+    }
+
+    public Task<Result<bool>> IsAetherCurrentAttuned(uint aetherCurrentDataId, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        Record(nameof(IsAetherCurrentAttuned));
+        lock (_lock)
+            return Task.FromResult<Result<bool>>(Result.Ok(_aetherCurrents.Contains(aetherCurrentDataId)));
+    }
+
+    public Task<Result<bool>> NpcExistsNearby(uint dataId, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        Record(nameof(NpcExistsNearby));
+        lock (_lock)
+        {
+            var npcFound = _npcs.Any(n => n.Id.Value == dataId);
+            if (npcFound) return Task.FromResult<Result<bool>>(Result.Ok(true));
+            var objFound = _interactables.Any(i => i.Id.Value == dataId);
+            return Task.FromResult<Result<bool>>(Result.Ok(objFound));
+        }
     }
 }

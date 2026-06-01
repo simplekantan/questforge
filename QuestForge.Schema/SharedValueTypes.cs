@@ -147,9 +147,6 @@ public record Preconditions(int? MinGearCondition = null);
 
 public record RewardOverride(string Strategy, uint? ItemId = null);
 
-/// <summary>Target for interact-object and pickup-item steps.</summary>
-public record InteractableTarget(uint InteractableId, int Zone, Position3 Position);
-
 // CombatTarget (was: nearestHostile / specificNpc / wave) — retired in part A.
 // Combat step completion is now modelled via Step.Expect + CombatStep.KillEnemyDataIds + CombatSpawn.
 // No schema-version bump — early dev, no existing authored quests used this type.

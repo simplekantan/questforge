@@ -64,6 +64,7 @@ public sealed class EngineTestHarness
     public FakeItemUser ItemUser { get; } = new FakeItemUser();
     public FakeGearsetManager GearsetManager { get; } = new FakeGearsetManager();
     public FakeCofferOpener CofferOpener { get; } = new FakeCofferOpener();
+    public FakeObjectInteractor ObjectInteractor { get; } = new FakeObjectInteractor();
 
     /// <summary>
     /// The FakeTraceWriter used for assertions in tests. In the default constructor,
@@ -141,8 +142,9 @@ public sealed class EngineTestHarness
             bestGearEquipper: BestGearEquipper,
             jobChanger: JobChanger,
             gearsetManager: GearsetManager,
-            cofferOpener: CofferOpener);
-        Engine = new HarnessEngine(inner, GameState, Mount, Navigator);
+            cofferOpener: CofferOpener,
+            objectInteractor: ObjectInteractor);
+        Engine = new HarnessEngine(inner, GameState, Mount, Navigator, ObjectInteractor);
     }
 
     /// <summary>
@@ -207,6 +209,12 @@ public sealed class EngineTestHarness
                     EmitActionSubmitted("Interact", JsonSerializer.SerializeToElement(interact.Target, _jsonOpts));
                     var interactResult = await Interactor.InteractWith(interact.Target, ct);
                     EmitActionCompleted("Interact", interactResult.IsSuccess ? "Done" : "Failed");
+                    break;
+
+                case EngineAction.InteractObject io:
+                    // HarnessEngine.Tick() already dispatched to ObjectInteractor inline
+                    // (mirroring EngineHost.DispatchAction). RunToCompletion only records the action.
+                    actions.Add(action);
                     break;
 
                 case EngineAction.HandOver handOver:
@@ -393,15 +401,17 @@ public sealed class HarnessEngine
     private readonly FakeGameStateProvider _gameState;
     private readonly FakeMount _mount;
     private readonly FakeNavigator _navigator;
+    private readonly FakeObjectInteractor _objectInteractor;
     private bool _lastDispatchedWasNavigate;
     private const float MountDistanceThresholdMeters = 20f;
 
-    internal HarnessEngine(QuestEngine inner, FakeGameStateProvider gameState, FakeMount mount, FakeNavigator navigator)
+    internal HarnessEngine(QuestEngine inner, FakeGameStateProvider gameState, FakeMount mount, FakeNavigator navigator, FakeObjectInteractor objectInteractor)
     {
         _inner = inner;
         _gameState = gameState;
         _mount = mount;
         _navigator = navigator;
+        _objectInteractor = objectInteractor;
     }
 
     public string? CurrentRunId => _inner.CurrentRunId;
@@ -480,6 +490,13 @@ public sealed class HarnessEngine
             // Note: do NOT call _navigator.NavigateTo here. HarnessEngine.Tick mirrors only
             // EngineHost's pre-switch hooks (mount predicate + lazy dismount), NOT the
             // dispatch arm itself. RunToCompletion's Navigate case is the dispatch path.
+        }
+
+        // Inline dispatch for InteractObject: mirrors EngineHost.DispatchAction
+        // so that direct Tick() calls in tests see the adapter call side effect.
+        if (action is EngineAction.InteractObject io)
+        {
+            await _objectInteractor.InteractWithObject(io.Target, ct);
         }
 
         return action;

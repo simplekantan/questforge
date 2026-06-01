@@ -1220,6 +1220,153 @@ public sealed class PredicateEvaluatorTests
         Assert.False(unequippedResult, "After SetItemEquipped(false) — should be false");
     }
 
+    // =========================================================================
+    // isAetherCurrentAttuned predicate tests (IO-P1, IO-P2 from INTERACT_OBJECT_STEP_PLAN.md)
+    // =========================================================================
+
+    [Fact]
+    public async Task IsAetherCurrentAttuned_Attuned_ReturnsTrue_IOP1()
+    {
+        /*
+         * RED: Will fail until Builder implements the isAetherCurrentAttuned switch arm.
+         *
+         * CONTRACT: Given FakeGameStateProvider.SetAetherCurrentAttuned(2818048, true),
+         *           When evaluating "isAetherCurrentAttuned(2818048)",
+         *           Then result is true.
+         *
+         * BUILDER GUIDANCE: Add "isAetherCurrentAttuned" arm to EvaluateFunction:
+         *   "isAetherCurrentAttuned" => (await _gameState.IsAetherCurrentAttuned(
+         *       (uint)(long)args[0], ct)).ValueOrThrow,
+         *   Also add IsAetherCurrentAttuned to IGameStateProvider, FakeGameStateProvider,
+         *   and RecordingGameStateProvider.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        gameState.SetAetherCurrentAttuned(2818048u, true);               // RED: method does not exist yet
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("isAetherCurrentAttuned(2818048)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.True(result, "Aether current 2818048 is attuned — isAetherCurrentAttuned(2818048) should be true");
+    }
+
+    [Fact]
+    public async Task IsAetherCurrentAttuned_NotAttuned_ReturnsFalse_IOP2()
+    {
+        /*
+         * RED: Will fail until Builder implements the isAetherCurrentAttuned switch arm.
+         *
+         * CONTRACT: Given no aether currents set,
+         *           When evaluating "isAetherCurrentAttuned(2818048)",
+         *           Then result is false.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        // No SetAetherCurrentAttuned call — default is false
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("isAetherCurrentAttuned(2818048)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.False(result, "No aether currents set — isAetherCurrentAttuned(2818048) should be false");
+    }
+
+    // =========================================================================
+    // npcExistsNearby predicate tests (IO-P3 through IO-P5 from INTERACT_OBJECT_STEP_PLAN.md)
+    // =========================================================================
+
+    [Fact]
+    public async Task NpcExistsNearby_NpcExists_ReturnsTrue_IOP3()
+    {
+        /*
+         * RED: Will fail until Builder implements the npcExistsNearby switch arm.
+         *
+         * CONTRACT: Given an NPC with NpcId(1000789) is nearby,
+         *           When evaluating "npcExistsNearby(1000789)",
+         *           Then result is true.
+         *
+         * BUILDER GUIDANCE: Add "npcExistsNearby" arm to EvaluateFunction:
+         *   "npcExistsNearby" => await EvaluateNpcExistsNearby((long)args[0], ct),
+         *   The helper tries FindNpc first, then FindInteractable.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        gameState.AddNpc(new NpcReference(
+            new NpcId(1000789),
+            new WorldPosition(10f, 0f, 10f),
+            DistanceToPlayer: 5f));
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("npcExistsNearby(1000789)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.True(result, "NPC 1000789 exists — npcExistsNearby(1000789) should be true");
+    }
+
+    [Fact]
+    public async Task NpcExistsNearby_InteractableExists_ReturnsTrue_IOP4()
+    {
+        /*
+         * RED: Will fail until Builder implements the npcExistsNearby switch arm.
+         *
+         * CONTRACT: Given an interactable with InteractableId(2001234) is nearby (not an NPC),
+         *           When evaluating "npcExistsNearby(2001234)",
+         *           Then result is true (falls through NPC miss to interactable hit).
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        // No NPC with this ID, but an interactable exists
+        gameState.AddInteractable(new InteractableReference(
+            new InteractableId(2001234),
+            new WorldPosition(5f, 0f, 5f),
+            DistanceToPlayer: 3f,
+            Kind: InteractableKind.EventTrigger));
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("npcExistsNearby(2001234)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.True(result,
+            "Interactable 2001234 exists (NPC miss, interactable hit) — npcExistsNearby(2001234) should be true");
+    }
+
+    [Fact]
+    public async Task NpcExistsNearby_NeitherExists_ReturnsFalse_IOP5()
+    {
+        /*
+         * RED: Will fail until Builder implements the npcExistsNearby switch arm.
+         *
+         * CONTRACT: Given no NPCs or interactables set,
+         *           When evaluating "npcExistsNearby(9999999)",
+         *           Then result is false.
+         */
+
+        // Arrange
+        var gameState = new FakeGameStateProvider();
+        // No NPCs, no interactables
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("npcExistsNearby(9999999)").Ast!;
+
+        // Act
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        // Assert
+        Assert.False(result, "Nothing with ID 9999999 exists — npcExistsNearby(9999999) should be false");
+    }
+
     // -------------------------------------------------------------------------
     // Factory helpers
     // -------------------------------------------------------------------------

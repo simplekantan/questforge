@@ -236,35 +236,11 @@ public sealed class ImpliedNavigationTests
 
     // =========================================================================
     // B5 — InteractObjectStep, player far away → emits Navigate
-    //       (InteractObject uses InteractableTarget; Navigate half only tested here —
-    //        no EngineAction.InteractObject exists yet so the in-range Interact is deferred)
     // =========================================================================
 
     [Fact]
     public async Task B5_InteractObjectStep_PlayerOutOfRange_EmitsNavigate()
     {
-        /*
-         * RED: Will fail in two ways until Builder implements:
-         *   1. Currently InteractObjectStep falls through to the catch-all
-         *      NotSupportedException arm — so any test using it fails immediately.
-         *   2. Once an InteractObjectStep arm exists, it must also apply the distance guard.
-         *
-         * CONTRACT: Given an InteractObjectStep with Target.InteractableId 99001
-         *                                          at position (35, 4, -151),
-         *           AND player position is (0, 0, 0) (XZ distance >> stop distance),
-         *           When Engine.Tick is called,
-         *           Then EngineAction.Navigate is returned with:
-         *             Destination = WorldPosition(35.0f, 4.0f, -151.0f)
-         *             Options.StoppingDistance = 3.0f
-         *
-         * BUILDER GUIDANCE: Add an InteractObjectStep arm to the switch. Apply the same
-         *   XZ-plane distance guard used by TalkStep/AcceptStep/TurnInStep. The target
-         *   position comes from step.Target.Position. No EngineAction.InteractObject
-         *   exists yet; when in-range the Interact action for objects is deferred to a
-         *   later phase — for now the arm only needs to emit Navigate when out of range.
-         *   When in-range, throwing NotSupportedException is acceptable for this phase.
-         */
-
         // Arrange — player at origin, target at (35, 4, -151), XZ distance >> 3.0f
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(TestQuestId), TestSequence);
@@ -276,10 +252,8 @@ public sealed class ImpliedNavigationTests
             step: new InteractObjectStep
             {
                 Id = "interact-object-out-of-range",
-                Target = new InteractableTarget(
-                    InteractableId: 99001u,
-                    Zone: TestZone,
-                    Position: TargetPosition)
+                InteractableId = 99001u,
+                Position = TargetPosition
             });
 
         harness.Engine.StartQuest(quest);

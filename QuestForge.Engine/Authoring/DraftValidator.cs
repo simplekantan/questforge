@@ -213,6 +213,28 @@ public sealed class DraftValidator
             }
         }
 
+        // E19: InteractObjectStep with InteractableId == 0
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is InteractObjectStep io && io.InteractableId == 0)
+            {
+                errors.Add(new DraftValidationError("E19",
+                    $"Step '{steps[i].StepId}' is an InteractObjectStep with InteractableId == 0.",
+                    [i]));
+            }
+        }
+
+        // E20: PickupItemStep with InteractableId == 0
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is PickupItemStep pi && pi.InteractableId == 0)
+            {
+                errors.Add(new DraftValidationError("E20",
+                    $"Step '{steps[i].StepId}' is a PickupItemStep with InteractableId == 0.",
+                    [i]));
+            }
+        }
+
         // W1: Step has no Expect
         for (var i = 0; i < steps.Count; i++)
         {

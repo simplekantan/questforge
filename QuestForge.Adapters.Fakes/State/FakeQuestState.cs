@@ -39,11 +39,23 @@ public sealed class FakeQuestState : IQuestState
             _flags[quest] = current & ~(1u << bit);
     }
 
+    /// <summary>
+    /// Sets all 6 quest variable bytes (V0–V5). Throws if the array length is not exactly 6.
+    /// </summary>
     public void SetQuestVariables(QuestId quest, params byte[] variables)
     {
         if (variables.Length != 6)
             throw new ArgumentException("Quest variables must be exactly 6 bytes (V0–V5).", nameof(variables));
         _variables[quest] = variables;
+    }
+
+    /// <summary>
+    /// Convenience overload: sets V0 and leaves V1–V5 as zero.
+    /// Called when a single numeric literal is passed (e.g. SetQuestVariables(Q, 1)).
+    /// </summary>
+    public void SetQuestVariables(QuestId quest, int v0)
+    {
+        _variables[quest] = [(byte)v0, 0, 0, 0, 0, 0];
     }
 
     public void AddAcceptedQuest(QuestId quest) => _accepted.Add(quest);
