@@ -25,6 +25,11 @@ public sealed class RecordStepModal : Window
     private string _editExpect = "";
     private string _editNotes = "";
 
+    // Replace mode: when re-recording a step, this holds the original step ID
+    private bool _replaceMode;
+    private string _replaceOriginalStepId = "";
+    private int _replaceSequenceNumber;
+
     // Step type picker: empty = <Detect> (run inference), non-empty = author override
     private string _overrideStepType = "";
     private static readonly string[] StepTypeOptions =
@@ -64,6 +69,23 @@ public sealed class RecordStepModal : Window
 
     public void Open()
     {
+        _replaceMode = false;
+        _replaceOriginalStepId = "";
+        _replaceSequenceNumber = 0;
+        OpenInternal();
+    }
+
+    public void OpenForReplace(DraftStep originalStep)
+    {
+        _replaceMode = true;
+        _replaceOriginalStepId = originalStep.StepId;
+        _replaceSequenceNumber = originalStep.SequenceNumber;
+        OpenInternal();
+        _editStepId = originalStep.StepId;
+    }
+
+    private void OpenInternal()
+    {
         _before = _host.OpenRecordModal();
         _state = RecordState.WaitingForAction;
         _inference = null;
@@ -99,6 +121,14 @@ public sealed class RecordStepModal : Window
     private void DrawWaitingState()
     {
         var before = _before!;
+
+        if (_replaceMode)
+        {
+            ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(1f, 0.8f, 0.2f, 1f));
+            ImGui.TextUnformatted($"Re-recording step: {_replaceOriginalStepId}");
+            ImGui.PopStyleColor();
+            ImGui.Separator();
+        }
 
         // Step type override — author can specify the type upfront instead of relying on inference
         ImGui.TextUnformatted("Step type:");
@@ -335,7 +365,11 @@ public sealed class RecordStepModal : Window
         string? notes,
         Step rawStep)
     {
-        await _host.RecordStep(before, inference, stepId, expect, notes, rawStep, CancellationToken.None);
+        if (_replaceMode)
+            await _host.ReplaceRecordedStep(_replaceOriginalStepId, _replaceSequenceNumber,
+                before, inference, stepId, expect, notes, rawStep, CancellationToken.None);
+        else
+            await _host.RecordStep(before, inference, stepId, expect, notes, rawStep, CancellationToken.None);
     }
 
     private Step BuildRawStep(string stepId, string stepType, string? expect, GameStateSnapshot? after, GameStateSnapshot? before = null)

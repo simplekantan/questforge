@@ -10,6 +10,7 @@ namespace QuestForge.Plugin.UI.Authoring;
 public sealed class StepEditModal : Window
 {
     private readonly AuthoringHost _host;
+    private RecordStepModal? _recordModal;
 
     private DraftStep? _editingStep;
     private string _stepId = "";
@@ -71,10 +72,22 @@ public sealed class StepEditModal : Window
         ImGui.TextUnformatted(_rawJsonDisplay);
 
         ImGui.Spacing();
+        if (_host.Mode == AuthoringMode.Author && _recordModal is not null)
+        {
+            if (ImGui.Button("Re-record"))
+            {
+                _recordModal.OpenForReplace(_editingStep);
+                _editingStep = null;
+                IsOpen = false;
+            }
+            ImGui.SameLine();
+        }
         if (ImGui.Button("Close"))
         {
             _editingStep = null;
             IsOpen = false;
         }
     }
+
+    public void SetRecordModal(RecordStepModal modal) => _recordModal = modal;
 }
