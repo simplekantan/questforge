@@ -16,11 +16,11 @@ namespace QuestForge.Engine.Tests.Engine;
 ///
 /// All types referenced below are NEW and do not yet exist:
 ///   - EngineAction.EnterSinglePlayerDuty(Step? Origin)               (TODO)
-///   - IDutyRunner interface                                           (TODO)
-///   - FakeDutyRunner fake                                             (TODO)
-///   - QuestEngine ctor param dutyRunner: IDutyRunner?                 (TODO)
+///   - IQuestBattleRunner interface                                     (TODO)
+///   - FakeQuestBattleRunner fake                                       (TODO)
+///   - QuestEngine ctor param questBattleRunner: IQuestBattleRunner?   (TODO)
 ///   - QuestEngine.ResolveSpd async pre-arm                            (TODO)
-///   - EngineTestHarness.DutyRunner property                           (TODO)
+///   - EngineTestHarness.QuestBattleRunner property                    (TODO)
 ///   - EngineTestHarness RunToCompletion arm for EnterSinglePlayerDuty (TODO)
 ///
 /// Run with: dotnet test QuestForge.Engine.Tests --filter "FullyQualifiedName~SinglePlayerDutyStepTests"
@@ -38,7 +38,7 @@ public sealed class SinglePlayerDutyStepTests
         harness.QuestState.SetQuestSequence(new QuestId(70001), 0);
         harness.GameState.SetZone(new ZoneId(132));
         harness.GameState.SetPosition(new WorldPosition(10f, 0f, 20f));
-        harness.DutyRunner.BossModAvailable = true;
+        harness.QuestBattleRunner.BossModAvailable = true;
 
         // Wire: on first Interact for talk-to-npc, advance quest to seq 2
         harness.Interactor.OnInteractWith(new NpcId(5000u), () =>
@@ -94,7 +94,7 @@ public sealed class SinglePlayerDutyStepTests
         Assert.NotNull(enterSpd.Origin);
 
         // Verify BossMod was checked
-        Assert.True(harness.DutyRunner.IsBossModAvailableCallCount >= 1);
+        Assert.True(harness.QuestBattleRunner.IsBossModAvailableCallCount >= 1);
     }
 
     // =========================================================================
@@ -106,7 +106,7 @@ public sealed class SinglePlayerDutyStepTests
     {
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(70002), 0);
-        harness.DutyRunner.BossModAvailable = false;
+        harness.QuestBattleRunner.BossModAvailable = false;
 
         var step = new DutyStep
         {
@@ -124,7 +124,7 @@ public sealed class SinglePlayerDutyStepTests
     }
 
     // =========================================================================
-    // S3 -- IDutyRunner null (no adapter wired) -- AwaitUser
+    // S3 -- IQuestBattleRunner null (no adapter wired) -- AwaitUser
     // =========================================================================
 
     [Fact]
@@ -147,7 +147,7 @@ public sealed class SinglePlayerDutyStepTests
             new Adapters.Fakes.Timing.FakeTimingProfile(),
             new Adapters.Fakes.FakeTraceWriter(),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<QuestEngine>.Instance,
-            dutyRunner: null);
+            questBattleRunner: null);
 
         var step = new DutyStep
         {
@@ -161,7 +161,7 @@ public sealed class SinglePlayerDutyStepTests
         var action = await engine.Tick(CancellationToken.None);
 
         var awaitUser = Assert.IsType<EngineAction.AwaitUser>(action);
-        Assert.Contains("IDutyRunner", awaitUser.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("IQuestBattleRunner", awaitUser.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     // =========================================================================
@@ -173,7 +173,7 @@ public sealed class SinglePlayerDutyStepTests
     {
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(70004), 0);
-        harness.DutyRunner.BossModAvailable = true;
+        harness.QuestBattleRunner.BossModAvailable = true;
 
         var step = new DutyStep
         {
@@ -201,7 +201,7 @@ public sealed class SinglePlayerDutyStepTests
     {
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(70005), 0);
-        harness.DutyRunner.BossModAvailable = true;
+        harness.QuestBattleRunner.BossModAvailable = true;
 
         var step = new DutyStep
         {
@@ -227,8 +227,8 @@ public sealed class SinglePlayerDutyStepTests
         Assert.IsType<EngineAction.Wait>(finalAction);
 
         // StartDuty was called multiple times (idempotent calls from harness dispatch)
-        Assert.True(harness.DutyRunner.StartDutyCallCount >= 3,
-            $"Expected StartDutyCallCount >= 3 but got {harness.DutyRunner.StartDutyCallCount}");
+        Assert.True(harness.QuestBattleRunner.StartDutyCallCount >= 3,
+            $"Expected StartDutyCallCount >= 3 but got {harness.QuestBattleRunner.StartDutyCallCount}");
     }
 
     // =========================================================================
@@ -240,7 +240,7 @@ public sealed class SinglePlayerDutyStepTests
     {
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(70006), 3);
-        harness.DutyRunner.BossModAvailable = true;
+        harness.QuestBattleRunner.BossModAvailable = true;
 
         var step = new DutyStep
         {
@@ -256,8 +256,8 @@ public sealed class SinglePlayerDutyStepTests
         // Expect is already true -> cursor walk confirms step -> Wait (no more steps)
         Assert.IsType<EngineAction.Wait>(action);
         // DutyRunner never called
-        Assert.Equal(0, harness.DutyRunner.StartDutyCallCount);
-        Assert.Equal(0, harness.DutyRunner.IsBossModAvailableCallCount);
+        Assert.Equal(0, harness.QuestBattleRunner.StartDutyCallCount);
+        Assert.Equal(0, harness.QuestBattleRunner.IsBossModAvailableCallCount);
     }
 
     // =========================================================================
@@ -298,7 +298,7 @@ public sealed class SinglePlayerDutyStepTests
         harness.GameState.SetZone(new ZoneId(128));
         harness.GameState.SetPosition(new WorldPosition(0f, 0f, 0f));
         harness.GameState.SetMountState(MountState.Mounted);
-        harness.DutyRunner.BossModAvailable = true;
+        harness.QuestBattleRunner.BossModAvailable = true;
 
         var quest = BuildTwoStepQuest(
             questId: 70008,
@@ -343,7 +343,7 @@ public sealed class SinglePlayerDutyStepTests
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(70009), 0);
         harness.GameState.SetMountState(MountState.Mounted);
-        harness.DutyRunner.BossModAvailable = true;
+        harness.QuestBattleRunner.BossModAvailable = true;
 
         var step = new DutyStep
         {
@@ -370,7 +370,7 @@ public sealed class SinglePlayerDutyStepTests
     {
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(70010), 0);
-        harness.DutyRunner.BossModAvailable = true;
+        harness.QuestBattleRunner.BossModAvailable = true;
 
         var quest = new QuestDefinition
         {
@@ -443,8 +443,8 @@ public sealed class SinglePlayerDutyStepTests
         harness.QuestState.SetQuestSequence(new QuestId(70010), 2);
 
         // StartDuty was called for both SPDs
-        Assert.True(harness.DutyRunner.StartDutyCallCount >= 2,
-            $"Expected StartDutyCallCount >= 2 but got {harness.DutyRunner.StartDutyCallCount}");
+        Assert.True(harness.QuestBattleRunner.StartDutyCallCount >= 2,
+            $"Expected StartDutyCallCount >= 2 but got {harness.QuestBattleRunner.StartDutyCallCount}");
     }
 
     // =========================================================================
@@ -456,7 +456,7 @@ public sealed class SinglePlayerDutyStepTests
     {
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(70011), 0);
-        harness.DutyRunner.BossModAvailable = true;
+        harness.QuestBattleRunner.BossModAvailable = true;
 
         var step = new DutyStep
         {
