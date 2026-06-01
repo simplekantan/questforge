@@ -150,7 +150,8 @@ public sealed class EngineTestHarness
             objectInteractor: ObjectInteractor,
             questBattleRunner: QuestBattleRunner,
             dutyRunner: DutyRunner,
-            cfcResolver: CfcResolver);
+            cfcResolver: CfcResolver,
+            actionCooldownSeconds: 0);
         Engine = new HarnessEngine(inner, GameState, Mount, Navigator, ObjectInteractor, Interactor, QuestBattleRunner, DutyRunner, CfcResolver);
     }
 
