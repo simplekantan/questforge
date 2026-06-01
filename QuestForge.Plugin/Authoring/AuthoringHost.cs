@@ -266,7 +266,62 @@ public sealed class AuthoringHost : IDisposable
         }
         _traceSession.OnConfirmRecordStep();
 
-        // Consume per-step events so they don't bleed into the next recording window.
+        ConsumeAllSignals();
+        return Task.CompletedTask;
+    }
+
+    public Task ReplaceRecordedStep(
+        string originalStepId,
+        int sequenceNumber,
+        GameStateSnapshot before,
+        InferenceResult inference,
+        string finalStepId,
+        string? finalExpect,
+        string? notes,
+        Step rawStep,
+        CancellationToken ct)
+    {
+        if (AuthoringTarget is null || Mode != AuthoringMode.Author) return Task.CompletedTask;
+
+        var draft = _draftManager.GetOrCreate(AuthoringTarget.Value, ct).GetAwaiter().GetResult();
+        var draftStep = new DraftStep(
+            StepId: finalStepId,
+            StepType: inference.StepType,
+            SequenceNumber: sequenceNumber,
+            InferredFrom: inference.InferredFrom,
+            ObservedBefore: before,
+            ObservedAfter: _aggregator.Current,
+            SuggestedExpect: finalExpect,
+            Notes: notes,
+            Raw: rawStep);
+
+        draft.ReplaceStep(originalStepId, draftStep, DateTimeOffset.UtcNow);
+        _draftManager.MarkDirty(AuthoringTarget.Value);
+        _ = _draftManager.SaveNow(AuthoringTarget.Value, CancellationToken.None);
+
+        if (_authoringRunId is not null)
+        {
+            var stepParams = JsonSerializer.SerializeToElement(
+                new { stepId = finalStepId, replacedStepId = originalStepId, stepType = inference.StepType }, _jsonOpts);
+            _traceSession.Write(new ActionSubmittedEvent(_authoringRunId, inference.StepType, stepParams, DateTimeOffset.UtcNow));
+            _traceSession.Write(new ActionCompletedEvent(_authoringRunId, inference.StepType, "replaced", DateTimeOffset.UtcNow));
+
+            var stepJson = JsonSerializer.SerializeToElement(rawStep, QuestForge.Schema.QuestForgeJsonContext.QuestFileOptions);
+            _traceSession.Write(new StepRecordedEvent(
+                RunId:          _authoringRunId,
+                StepId:         finalStepId,
+                SequenceNumber: sequenceNumber,
+                Step:           stepJson,
+                At:             DateTimeOffset.UtcNow));
+        }
+        _traceSession.OnConfirmRecordStep();
+
+        ConsumeAllSignals();
+        return Task.CompletedTask;
+    }
+
+    private void ConsumeAllSignals()
+    {
         _aggregator.OnAethernetTeleportConsumed();
         _aggregator.OnDialogueOptionConsumed();
         _aggregator.OnTeleportConsumed();
@@ -275,10 +330,9 @@ public sealed class AuthoringHost : IDisposable
         _aggregator.OnSayChatMessageConsumed();
         _aggregator.OnItemUsedConsumed();
         _aggregator.OnEquipmentChangedConsumed();
+        _aggregator.OnJobChangedConsumed();
         _aggregator.OnGearsetRegisteredConsumed();
         _aggregator.OnObjectInteractedConsumed();
-
-        return Task.CompletedTask;
     }
 
     // --- Dalamud event handlers ---

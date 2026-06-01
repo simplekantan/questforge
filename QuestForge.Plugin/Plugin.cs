@@ -98,6 +98,7 @@ public sealed class Plugin : IDalamudPlugin
 
         var recordModal = new RecordStepModal(_authoringHost);
         var editModal = new StepEditModal(_authoringHost);
+        editModal.SetRecordModal(recordModal);
         var exportDialog = new ExportDialog(_authoringHost, pi, dataManager);
         _authoringSessionPanel = new AuthoringSessionPanel(_authoringHost, recordModal, editModal, exportDialog, config, pi);
 
