@@ -31,7 +31,10 @@ public sealed class RecordStepModal : Window
     [
         "<Detect>", "travel", "talk", "accept", "turn-in", "attune",
         "hand-over-item", "pickup-item", "interact-object", "cutscene",
-        "use-item", "use-emote", "use-action", "await-user", "combat"
+        "use-item", "use-emote", "use-action", "say-chat-message",
+        "equip-gear-for-quest", "equip-best-gear", "change-job",
+        "register-gearset", "open-coffers", "teleport", "purchase-item",
+        "wait", "duty", "combat", "await-user"
     ];
 
     // Combat step: comma-separated DataIds entered by the author (manual override)
@@ -181,17 +184,28 @@ public sealed class RecordStepModal : Window
 
     private static string DefaultStepIdForType(string stepType) => stepType switch
     {
-        "travel"         => "travel-step",
-        "talk"           => "talk-step",
-        "accept"         => "accept-quest",
-        "turn-in"        => "turn-in-quest",
-        "attune"         => "attune-aetheryte",
-        "hand-over-item" => "hand-over-item",
-        "pickup-item"    => "pickup-item",
-        "interact-object"=> "interact-object",
-        "cutscene"       => "cutscene",
-        "combat"         => "combat-step",
-        _                => "step"
+        "travel"              => "travel-step",
+        "talk"                => "talk-step",
+        "accept"              => "accept-quest",
+        "turn-in"             => "turn-in-quest",
+        "attune"              => "attune-aetheryte",
+        "hand-over-item"      => "hand-over-item",
+        "pickup-item"         => "pickup-item",
+        "interact-object"     => "interact-object",
+        "cutscene"            => "cutscene",
+        "combat"              => "combat-step",
+        "say-chat-message"    => "say-chat-message",
+        "equip-gear-for-quest"=> "equip-gear",
+        "equip-best-gear"     => "equip-best-gear",
+        "change-job"          => "change-job",
+        "register-gearset"    => "register-gearset",
+        "open-coffers"        => "open-coffers",
+        "teleport"            => "teleport-step",
+        "purchase-item"       => "purchase-item",
+        "wait"                => "wait-step",
+        "duty"                => "duty-step",
+        "await-user"          => "await-user",
+        _                     => "step"
     };
 
     private void DrawInferenceState()
