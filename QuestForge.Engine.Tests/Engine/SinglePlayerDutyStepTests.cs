@@ -274,8 +274,6 @@ public sealed class SinglePlayerDutyStepTests
         {
             Id = "enter-regular-duty",
             Kind = "regular",
-            DutyId = 56,
-            EntryNpc = new NpcLocation(9000u, 128, new Position3(0f, 0f, 0f)),
             Expect = new PredicateExpect { Predicate = "questSequence(70007) >= 5" }
         };
 

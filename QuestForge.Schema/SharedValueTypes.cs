@@ -125,12 +125,6 @@ public record RouteHint(
 /// <summary>A single dialogue interaction. Type: "list" | "yesno" | "talk".</summary>
 public record DialogueChoice(string Type, string? Prompt = null, string? Answer = null);
 
-public record DutyTrigger(
-    string Kind,        // "npc" | "object"
-    int Zone,
-    Position3 Position,
-    uint? NpcId = null,
-    uint? InteractableId = null);
 
 public record BranchCase(string When, Step[] Steps = default!);
 

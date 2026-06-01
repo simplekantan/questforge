@@ -67,6 +67,8 @@ public sealed class EngineTestHarness
     public FakeCofferOpener CofferOpener { get; } = new FakeCofferOpener();
     public FakeObjectInteractor ObjectInteractor { get; } = new FakeObjectInteractor();
     public FakeQuestBattleRunner QuestBattleRunner { get; } = new FakeQuestBattleRunner();
+    public FakeDutyRunner DutyRunner { get; } = new FakeDutyRunner();
+    public FakeCfcResolver CfcResolver { get; } = new FakeCfcResolver();
 
     /// <summary>
     /// The FakeTraceWriter used for assertions in tests. In the default constructor,
@@ -146,8 +148,10 @@ public sealed class EngineTestHarness
             gearsetManager: GearsetManager,
             cofferOpener: CofferOpener,
             objectInteractor: ObjectInteractor,
-            questBattleRunner: QuestBattleRunner);
-        Engine = new HarnessEngine(inner, GameState, Mount, Navigator, ObjectInteractor, Interactor, QuestBattleRunner);
+            questBattleRunner: QuestBattleRunner,
+            dutyRunner: DutyRunner,
+            cfcResolver: CfcResolver);
+        Engine = new HarnessEngine(inner, GameState, Mount, Navigator, ObjectInteractor, Interactor, QuestBattleRunner, DutyRunner, CfcResolver);
     }
 
     /// <summary>
@@ -366,6 +370,25 @@ public sealed class EngineTestHarness
                         spdResult.IsSuccess ? "Started" : "Failed");
                     break;
 
+                case EngineAction.EnterDuty ed:
+                    actions.Add(action);
+                    EmitActionSubmitted("EnterDuty",
+                        JsonSerializer.SerializeToElement(
+                            new { cfcId = ed.ContentFinderConditionId, origin = ed.Origin?.Id },
+                            _jsonOpts));
+                    var edTt = CfcResolver.GetTerritoryType(ed.ContentFinderConditionId);
+                    if (edTt is not null)
+                    {
+                        var dutyResult = await DutyRunner.StartDuty(edTt.Value, ct);
+                        EmitActionCompleted("EnterDuty",
+                            dutyResult.IsSuccess ? "Started" : "Failed");
+                    }
+                    else
+                    {
+                        EmitActionCompleted("EnterDuty", "Failed:UnknownCFC");
+                    }
+                    break;
+
                 default:
                     throw new InvalidOperationException(
                         $"Unhandled EngineAction subtype: {action.GetType().Name}");
@@ -416,10 +439,12 @@ public sealed class HarnessEngine
     private readonly FakeObjectInteractor _objectInteractor;
     private readonly FakeInteractor _interactor;
     private readonly FakeQuestBattleRunner _questBattleRunner;
+    private readonly FakeDutyRunner _dutyRunner;
+    private readonly FakeCfcResolver _cfcResolver;
     private bool _lastDispatchedWasNavigate;
     private const float MountDistanceThresholdMeters = 20f;
 
-    internal HarnessEngine(QuestEngine inner, FakeGameStateProvider gameState, FakeMount mount, FakeNavigator navigator, FakeObjectInteractor objectInteractor, FakeInteractor interactor, FakeQuestBattleRunner questBattleRunner)
+    internal HarnessEngine(QuestEngine inner, FakeGameStateProvider gameState, FakeMount mount, FakeNavigator navigator, FakeObjectInteractor objectInteractor, FakeInteractor interactor, FakeQuestBattleRunner questBattleRunner, FakeDutyRunner dutyRunner, FakeCfcResolver cfcResolver)
     {
         _inner = inner;
         _gameState = gameState;
@@ -428,6 +453,8 @@ public sealed class HarnessEngine
         _objectInteractor = objectInteractor;
         _interactor = interactor;
         _questBattleRunner = questBattleRunner;
+        _dutyRunner = dutyRunner;
+        _cfcResolver = cfcResolver;
     }
 
     public string? CurrentRunId => _inner.CurrentRunId;
@@ -527,6 +554,15 @@ public sealed class HarnessEngine
         if (action is EngineAction.EnterSinglePlayerDuty)
         {
             await _questBattleRunner.StartDuty(ct);
+        }
+
+        // Inline dispatch for EnterDuty: calls StartDuty on FakeDutyRunner so that direct
+        // Tick() calls in tests see StartDutyCallCount / LastStartedTerritoryType side effects.
+        if (action is EngineAction.EnterDuty ed)
+        {
+            var tt = _cfcResolver.GetTerritoryType(ed.ContentFinderConditionId);
+            if (tt is not null)
+                await _dutyRunner.StartDuty(tt.Value, ct);
         }
 
         return action;
