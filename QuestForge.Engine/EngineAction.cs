@@ -63,7 +63,11 @@ public abstract record EngineAction
 
     public sealed record OpenCoffer(uint ItemId, Step? Origin = null) : EngineAction;
 
-    public sealed record EnterSinglePlayerDuty(Step? Origin = null) : EngineAction;
+    public sealed record EnterSinglePlayerDuty(
+        uint? ContentFinderConditionId,
+        uint? EntryTargetId,
+        Position3? EntryPosition,
+        Step? Origin = null) : EngineAction;
 
     public sealed record EnterDuty(
         uint ContentFinderConditionId,

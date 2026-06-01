@@ -163,6 +163,18 @@ public sealed class DraftValidator
             }
         }
 
+        // E22: DutyStep with EntryTargetId == 0 (null is OK; explicit 0 is invalid)
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is DutyStep { EntryTargetId: 0 })
+            {
+                errors.Add(new DraftValidationError("E22",
+                    $"Step '{steps[i].StepId}' has EntryTargetId=0 which is invalid. " +
+                    "Use null to omit entry target, or provide a valid NPC DataId.",
+                    [i]));
+            }
+        }
+
         // E14: UseItemStep with TargetNpcId == 0 (null is allowed; explicit zero is invalid)
         for (var i = 0; i < steps.Count; i++)
         {

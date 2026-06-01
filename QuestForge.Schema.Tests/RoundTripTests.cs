@@ -1564,6 +1564,70 @@ public class RoundTripTests
     }
 
     // =========================================================================
+    // R-S7 -- DutyStep(kind: "spd") with EntryTargetId + EntryPosition round-trips
+    // Spec: docs/SPD_RETRY_PLAN.md scenario R-S7
+    // RED: DutyStep.EntryTargetId and DutyStep.EntryPosition do not exist yet.
+    // =========================================================================
+
+    /// <summary>
+    /// R-S7 -- DutyStep with all entry fields set round-trips through JSON.
+    /// Verifies EntryTargetId and EntryPosition serialize and deserialize correctly.
+    /// </summary>
+    [Fact]
+    public void DutyStep_Spd_WithEntryFields_RoundTrips_RS7()
+    {
+        var step = new DutyStep
+        {
+            Id = "spd-entry-rt",
+            Kind = "spd",
+            ContentFinderConditionId = 830,
+            EntryTargetId = 1045123u,                              // RED: property does not exist
+            EntryPosition = new Position3(100f, 20f, -50f),        // RED: property does not exist
+            Expect = new PredicateExpect { Predicate = "questSequence(70020) >= 3" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        // Round-trip fidelity
+        Assert.Equal("spd", result.Kind);
+        Assert.Equal(830u, result.ContentFinderConditionId);
+        Assert.Equal(1045123u, result.EntryTargetId);              // RED: property does not exist
+        Assert.NotNull(result.EntryPosition);                      // RED: property does not exist
+        Assert.Equal(100f, result.EntryPosition!.X, precision: 3);
+        Assert.Equal(20f, result.EntryPosition!.Y, precision: 3);
+        Assert.Equal(-50f, result.EntryPosition!.Z, precision: 3);
+
+        // Verify fields present in JSON
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"entryTargetId\":1045123", compactJson, StringComparison.Ordinal);
+        Assert.Contains("\"entryPosition\":", compactJson, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R-S8 -- DutyStep without entry fields: fields absent from JSON.
+    /// Verifies [JsonIgnore(WhenWritingNull)] is honored on both new nullable fields.
+    /// </summary>
+    [Fact]
+    public void DutyStep_Spd_WithoutEntryFields_FieldsAbsentFromJson_RS8()
+    {
+        var step = new DutyStep
+        {
+            Id = "spd-no-entry-rt",
+            Kind = "spd",
+            ContentFinderConditionId = 830,
+            // EntryTargetId and EntryPosition intentionally omitted (null)
+            Expect = new PredicateExpect { Predicate = "questFlag(65849, 3)" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+
+        // EntryTargetId and EntryPosition must be absent from JSON when null
+        Assert.DoesNotContain("entryTargetId", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("entryPosition", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // =========================================================================
     // D19 -- DutyStep(kind: "duty") with ContentFinderConditionId round-trips
     // Spec: docs/DUTY_AUTODUTY_PLAN.md scenario D19
     // RED: DutyStep.ContentFinderConditionId does not exist yet.

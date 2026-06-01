@@ -631,7 +631,9 @@ public sealed class EngineHost : IDisposable
             case EngineAction.EnterSinglePlayerDuty espd:
                 DebounceLog(
                     $"enterspd:{espd.Origin?.Id}",
-                    $"[EnterSinglePlayerDuty] stepId={espd.Origin?.Id ?? "(unknown)"}");
+                    $"[EnterSinglePlayerDuty] stepId={espd.Origin?.Id ?? "(unknown)"}" +
+                    $" cfcId={espd.ContentFinderConditionId}" +
+                    $" entryTarget={espd.EntryTargetId}");
                 if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
                     await _navigator.Stop(ct);
                 _activeSpdStepId = espd.Origin?.Id;
