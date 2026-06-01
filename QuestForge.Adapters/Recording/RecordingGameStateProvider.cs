@@ -298,4 +298,18 @@ public sealed class RecordingGameStateProvider : IGameStateProvider
         Record(nameof(HasCoffers), null, result);
         return result;
     }
+
+    public async Task<Result<bool>> IsAetherCurrentAttuned(uint aetherCurrentDataId, CancellationToken ct)
+    {
+        var result = await _inner.IsAetherCurrentAttuned(aetherCurrentDataId, ct);
+        Record(nameof(IsAetherCurrentAttuned), aetherCurrentDataId, result);
+        return result;
+    }
+
+    public async Task<Result<bool>> NpcExistsNearby(uint dataId, CancellationToken ct)
+    {
+        var result = await _inner.NpcExistsNearby(dataId, ct);
+        Record(nameof(NpcExistsNearby), dataId, result);
+        return result;
+    }
 }

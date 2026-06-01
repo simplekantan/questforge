@@ -31,6 +31,10 @@ public interface IGameStateProvider
     Task<Result<InteractableReference?>> FindInteractable(InteractableId obj, CancellationToken ct);
     Task<Result<bool>> IsInteractableActive(InteractableId obj, CancellationToken ct);
     Task<Result<bool>> IsAetheryteAttuned(AetheryteId aetheryte, CancellationToken ct);
+    Task<Result<bool>> IsAetherCurrentAttuned(uint aetherCurrentDataId, CancellationToken ct)
+        => throw new NotImplementedException($"{GetType().Name} does not implement IsAetherCurrentAttuned");
+    Task<Result<bool>> NpcExistsNearby(uint dataId, CancellationToken ct)
+        => throw new NotImplementedException($"{GetType().Name} does not implement NpcExistsNearby");
     Task<Result<IReadOnlyList<AetheryteId>>> GetAttunedAetherytes(CancellationToken ct);
 
     // UI state (composite)

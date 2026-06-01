@@ -76,14 +76,18 @@ public class TalkStep : Step
     public DialogueChoice[] DialogueChoices { get; init; } = [];
 }
 
-public class InteractObjectStep : Step
+public sealed class InteractObjectStep : Step
 {
-    public InteractableTarget Target { get; init; } = default!;
+    public uint InteractableId { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Position3? Position { get; init; }
 }
 
-public class PickupItemStep : Step
+public sealed class PickupItemStep : Step
 {
-    public InteractableTarget Target { get; init; } = default!;
+    public uint InteractableId { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Position3? Position { get; init; }
 }
 
 public class AcceptStep : Step

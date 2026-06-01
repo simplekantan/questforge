@@ -132,8 +132,20 @@ public sealed class PredicateEvaluator
             "isPlayerJob" => (await _gameState.GetCurrentJob(ct)).ValueOrThrow.Value == (uint)(long)args[0],
             "jobGearsetExists" => (await _gameState.GearsetExistsForJob((uint)(long)args[0], ct)).ValueOrThrow,
             "inventoryHasCoffers" => (await _gameState.HasCoffers(ct)).ValueOrThrow,
+            "isAetherCurrentAttuned" => (await _gameState.IsAetherCurrentAttuned(
+                (uint)(long)args[0], ct)).ValueOrThrow,
+            "npcExistsNearby" => await EvaluateNpcExistsNearby((long)args[0], ct),
             _ => throw new UnknownStateFunctionException(name)
         };
+    }
+
+    private async Task<object> EvaluateNpcExistsNearby(long dataId, CancellationToken ct)
+    {
+        var npcResult = await _gameState.FindNpc(new NpcId((uint)dataId), ct);
+        if (npcResult is Result<NpcReference?>.Success { Value: not null })
+            return true;
+        var objResult = await _gameState.FindInteractable(new InteractableId((uint)dataId), ct);
+        return objResult is Result<InteractableReference?>.Success { Value: not null };
     }
 
     private async Task<object> EvaluateQuestVariable(long questId, long index, Nibble nibble, CancellationToken ct)

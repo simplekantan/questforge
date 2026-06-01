@@ -10,6 +10,7 @@ public abstract record EngineAction
 {
     public sealed record Navigate(WorldPosition Destination, NavigationOptions Options) : EngineAction;
     public sealed record Interact(NpcId Target, Step? Origin = null) : EngineAction;
+    public sealed record InteractObject(InteractableId Target, Step? Origin = null) : EngineAction;
     public sealed record HandOver(NpcId Target, ItemId[] Items) : EngineAction;
     public sealed record Purchase(NpcId Vendor, ItemId Item, int Quantity, PurchaseCurrency Currency, Step? Origin = null, int? GcCategory = null, int? GcRankTier = null) : EngineAction;
     // SourcePosition: world position of the source aethernet shard the player navigates to

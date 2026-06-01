@@ -46,6 +46,7 @@ public sealed class QuestEngine
     private readonly IJobChanger? _jobChanger;
     private readonly IGearsetManager? _gearsetManager;
     private readonly ICofferOpener? _cofferOpener;
+    private readonly IObjectInteractor? _objectInteractor;
     private readonly ITraceWriter _trace;
     private readonly ILogger<QuestEngine> _logger;
     private readonly TimeProvider _clock;
@@ -95,7 +96,8 @@ public sealed class QuestEngine
         IBestGearEquipper? bestGearEquipper = null,
         IJobChanger? jobChanger = null,
         IGearsetManager? gearsetManager = null,
-        ICofferOpener? cofferOpener = null)
+        ICofferOpener? cofferOpener = null,
+        IObjectInteractor? objectInteractor = null)
     {
         _vendor = vendor;
         _actionExecutor = actionExecutor;
@@ -107,6 +109,7 @@ public sealed class QuestEngine
         _jobChanger = jobChanger;
         _gearsetManager = gearsetManager;
         _cofferOpener = cofferOpener;
+        _objectInteractor = objectInteractor;
         _gameState = gameState ?? throw new ArgumentNullException(nameof(gameState));
         _clock = clock ?? TimeProvider.System;
         _questState = questState ?? throw new ArgumentNullException(nameof(questState));
@@ -764,13 +767,28 @@ public sealed class QuestEngine
                 step, turnIn.Target.Position, playerPos,
                 new EngineAction.Interact(new NpcId(turnIn.Target.NpcId), Origin: step)),
 
-        // TODO: replace with EngineAction.InteractObject(InteractableId) once that action type exists.
-        // Coercing InteractableId into NpcId is a shim Ã¢â‚¬â€ the in-range Interact path is not yet
-        // reachable from tests (only the Navigate half is exercised by B5).
-        InteractObjectStep interactObj =>
+        // IO4: object interaction dispatches via IObjectInteractor (not NpcId shim) Ã¢â‚¬â€ the in-range Interact path is not yet
+        InteractObjectStep interactObj when _objectInteractor is null =>
+            new EngineAction.AwaitUser("IObjectInteractor not configured - supply an IObjectInteractor to dispatch InteractObjectStep"),
+
+        InteractObjectStep interactObj when interactObj.Position is not null =>
             ResolveInteractOrNavigate(
-                step, interactObj.Target.Position, playerPos,
-                new EngineAction.Interact(new NpcId(interactObj.Target.InteractableId), Origin: step)),
+                step, interactObj.Position, playerPos,
+                new EngineAction.InteractObject(new InteractableId(interactObj.InteractableId), Origin: step)),
+
+        InteractObjectStep interactObj =>
+            new EngineAction.InteractObject(new InteractableId(interactObj.InteractableId), Origin: step),
+
+        PickupItemStep pickup when _objectInteractor is null =>
+            new EngineAction.AwaitUser("IObjectInteractor not configured - supply an IObjectInteractor to dispatch PickupItemStep"),
+
+        PickupItemStep pickup when pickup.Position is not null =>
+            ResolveInteractOrNavigate(
+                step, pickup.Position, playerPos,
+                new EngineAction.InteractObject(new InteractableId(pickup.InteractableId), Origin: step)),
+
+        PickupItemStep pickup =>
+            new EngineAction.InteractObject(new InteractableId(pickup.InteractableId), Origin: step),
 
         AttunementStep attune when attune.Location is not null =>
             ResolveInteractOrNavigate(

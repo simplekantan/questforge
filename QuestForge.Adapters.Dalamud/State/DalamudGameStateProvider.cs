@@ -597,4 +597,27 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
 
         return Task.FromResult<Result<bool>>(Result.Ok(false));
     }
+
+    public unsafe Task<Result<bool>> IsAetherCurrentAttuned(uint aetherCurrentDataId, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var playerState = PlayerState.Instance();
+        if (playerState == null)
+            return Task.FromResult<Result<bool>>(
+                Result.Fail<bool>("noPlayerState", "PlayerState.Instance() returned null"));
+        return Task.FromResult<Result<bool>>(
+            Result.Ok(playerState->IsAetherCurrentUnlocked(aetherCurrentDataId)));
+    }
+
+    public Task<Result<bool>> NpcExistsNearby(uint dataId, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        foreach (var obj in _svc.ObjectTable)
+        {
+            if (obj is null) continue;
+            if (obj.BaseId == dataId)
+                return Task.FromResult<Result<bool>>(Result.Ok(true));
+        }
+        return Task.FromResult<Result<bool>>(Result.Ok(false));
+    }
 }

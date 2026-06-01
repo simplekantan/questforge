@@ -57,6 +57,7 @@ public sealed class EngineHost : IDisposable
     private readonly DalamudJobChanger _jobChanger;
     private readonly DalamudGearsetManager _gearsetManager;
     private readonly DalamudCofferOpener _cofferOpener;
+    private readonly DalamudObjectInteractor _objectInteractor;
     private readonly NullMinigameSkipper _minigames;
     private readonly LuminaDialogueResolver _dialogue;
     private readonly SeededTimingProfile _timing;
@@ -129,6 +130,7 @@ public sealed class EngineHost : IDisposable
         _jobChanger      = new DalamudJobChanger(services);
         _gearsetManager  = new DalamudGearsetManager(services);
         _cofferOpener    = new DalamudCofferOpener(services);
+        _objectInteractor = new DalamudObjectInteractor(_interactor);
         _minigames       = new NullMinigameSkipper();
         _dialogue        = new LuminaDialogueResolver(services);
         _timing          = new SeededTimingProfile(seed: 0);
@@ -162,6 +164,7 @@ public sealed class EngineHost : IDisposable
     public IJobChanger        DebugJobChanger    => _jobChanger;
     public IGearsetManager    DebugGearsetManager => _gearsetManager;
     public ICofferOpener      DebugCofferOpener   => _cofferOpener;
+    public IObjectInteractor  DebugObjectInteractor => _objectInteractor;
 
     // Called by /qf stop — safe to call mid-tick because all Phase 6 adapters complete
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
@@ -246,7 +249,8 @@ public sealed class EngineHost : IDisposable
             bestGearEquipper: _bestGearEquipper,
             jobChanger: _jobChanger,
             gearsetManager: _gearsetManager,
-            cofferOpener: _cofferOpener);
+            cofferOpener: _cofferOpener,
+            objectInteractor: _objectInteractor);
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
         _onRunStart?.Invoke();
@@ -451,6 +455,16 @@ public sealed class EngineHost : IDisposable
                     await _interactor.AdvanceDialogue(ct);
                 await _interactor.AcceptQuest(_currentQuestId, ct);
                 await _interactor.CompleteQuest(_currentQuestId, ct);
+                break;
+
+            case EngineAction.InteractObject io:
+                DebounceLog($"interactobject:{io.Target.Value}",
+                    $"[InteractObject] interactableId={io.Target.Value}");
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
+                TryCutsceneSkipConfirm();
+                await _objectInteractor.InteractWithObject(io.Target, ct);
+                await _interactor.AdvanceDialogue(ct);
                 break;
 
             case EngineAction.HandOver h:
