@@ -672,13 +672,12 @@ public sealed class TraceReplayFixtureStateTests
             MakeObsLine("GetPlayerPosition",    null,                   """{"x":44.7,"y":4.0,"z":-148.7}"""),
             MakeObsLine("GetPlayerZone",        null,                   """{"value":182}"""),
             MakeObsLine("GetQuestVariables",    """{"value":66130}""",  """[0,0,0,0,0,0]"""),
-            MakeObsLine("GetQuestStatus",       """{"value":66130}""",  """0"""),
-            MakeObsLine("IsQuestAvailable",     """{"value":66130}""",  """true"""),
-            MakeObsLine("IsQuestAccepted",      """{"value":66130}""",  """false"""),
+            MakeObsLine("IsPlayerInCombat",     null,                   """false"""),
             // Extra coverage so the engine doesn't starve on follow-up reads
             MakeObsLine("GetPlayerPosition",    null,                   """{"x":44.7,"y":4.0,"z":-148.7}"""),
             MakeObsLine("GetPlayerZone",        null,                   """{"value":182}"""),
             MakeObsLine("GetQuestVariables",    """{"value":66130}""",  """[0,0,0,0,0,0]"""),
+            MakeObsLine("IsPlayerInCombat",     null,                   """false"""),
         };
 
         var tracePath = WriteTempTrace(obsLines);
