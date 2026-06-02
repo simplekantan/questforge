@@ -48,7 +48,7 @@ public sealed class RecordingGetHostileActorsTests
             HasQuestMarker: false);
 
     private static string FormatObs(FakeTraceWriter trace)
-        => string.Join(", ", trace.RecordedEvents.OfType<ObservationEvent>().Select(e => e.Method));
+        => string.Join(", ", trace.RecordedEvents.OfType<ObservationEvent>().Select(e => e.Data.Method));
 
     // -------------------------------------------------------------------------
     // RH-record-emits — flip: no-record → record
@@ -75,16 +75,16 @@ public sealed class RecordingGetHostileActorsTests
 
         var obs = trace.RecordedEvents.OfType<ObservationEvent>().ToList();
         Assert.Equal(1, obs.Count);
-        Assert.Equal("GetHostileActors", obs[0].Method);
+        Assert.Equal("GetHostileActors", obs[0].Data.Method);
 
         // Argument must encode the radius (30 → serialized as 30)
-        Assert.NotNull(obs[0].Argument);
-        var argText = obs[0].Argument!.Value.GetRawText();
+        Assert.NotNull(obs[0].Data.Argument);
+        var argText = obs[0].Data.Argument!.Value.GetRawText();
         Assert.Equal("30", argText); // float 30f → camelCase opts → "30"
 
         // Value must be a JSON array with one element whose id.value == 9 and dataId == 100
-        Assert.NotNull(obs[0].Value);
-        var val = obs[0].Value!.Value;
+        Assert.NotNull(obs[0].Data.Value);
+        var val = obs[0].Data.Value!.Value;
         Assert.Equal(JsonValueKind.Array, val.ValueKind);
         Assert.Equal(1, val.GetArrayLength());
         var actor0 = val[0];
@@ -119,7 +119,7 @@ public sealed class RecordingGetHostileActorsTests
         await proxy.GetHostileActors(30f, CancellationToken.None); // identical → deduped, no emit
 
         var obsAfterTwo = trace.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetHostileActors")
+            .Where(e => e.Data.Method == "GetHostileActors")
             .ToList();
         Assert.Equal(1, obsAfterTwo.Count);
 
@@ -130,7 +130,7 @@ public sealed class RecordingGetHostileActorsTests
         await proxy.GetHostileActors(30f, CancellationToken.None); // changed → second emits
 
         var obsAfterChange = trace.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetHostileActors")
+            .Where(e => e.Data.Method == "GetHostileActors")
             .ToList();
         Assert.Equal(2, obsAfterChange.Count);
     }
@@ -156,13 +156,16 @@ public sealed class RecordingGetHostileActorsTests
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         });
 
-        var obs = new ObservationEvent(
-            RunId: "run-rh-replay",
-            Method: "GetHostileActors",
-            Argument: JsonSerializer.SerializeToElement(30f, new JsonSerializerOptions
-                { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }),
-            Value: actorJson,
-            At: At);
+        var obs = new ObservationEvent
+        {
+            RunId = "run-rh-replay",
+            Data = new ObservationEvent.ObservationData
+            {
+                Method   = "GetHostileActors",
+                Argument = JsonSerializer.SerializeToElement(30f, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }),
+                Value    = actorJson
+            }
+        };
 
         // Legacy (IReadOnlyList) scanner path
         var replay = new ReplayGameStateProvider(new[] { obs });
@@ -214,7 +217,7 @@ public sealed class RecordingGetHostileActorsTests
 
         // Exactly one observation emitted
         var obs = trace.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetHostileActors")
+            .Where(e => e.Data.Method == "GetHostileActors")
             .ToList();
         Assert.Equal(1, obs.Count);
 
@@ -264,13 +267,16 @@ public sealed class RecordingGetHostileActorsTests
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         });
 
-        var obs = new ObservationEvent(
-            RunId: "run-rh-mismatch",
-            Method: "GetHostileActors",
-            Argument: JsonSerializer.SerializeToElement(30f, new JsonSerializerOptions
-                { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }),
-            Value: actorJson,
-            At: At);
+        var obs = new ObservationEvent
+        {
+            RunId = "run-rh-mismatch",
+            Data = new ObservationEvent.ObservationData
+            {
+                Method   = "GetHostileActors",
+                Argument = JsonSerializer.SerializeToElement(30f, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }),
+                Value    = actorJson
+            }
+        };
 
         var replay = new ReplayGameStateProvider(new[] { obs });
 

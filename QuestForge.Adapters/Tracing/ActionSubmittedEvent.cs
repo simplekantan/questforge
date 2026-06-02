@@ -3,13 +3,16 @@ using System.Text.Json.Serialization;
 
 namespace QuestForge.Adapters.Tracing;
 
-public sealed record ActionSubmittedEvent(
-    string RunId,
-    string ActionType,
-    JsonElement? Parameters,
-    DateTimeOffset At
-) : TraceEvent(At)
+public sealed record ActionSubmittedEvent : TraceEvent
 {
     [JsonIgnore]
     public override string Type => "action.submitted";
+
+    [JsonPropertyOrder(1)] public ActionSubmittedData Data { get; init; } = default!;
+
+    public sealed record ActionSubmittedData
+    {
+        public string ActionType { get; init; } = "";
+        public JsonElement? Parameters { get; init; }
+    }
 }

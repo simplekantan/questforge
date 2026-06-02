@@ -49,12 +49,12 @@ public sealed class ObservationScannerTests
         var result = scanner.Next("GetPlayerZone", null);
 
         // Assert — correct observation returned
-        Assert.Equal("GetPlayerZone", result.Method);
-        Assert.Null(result.Argument);
+        Assert.Equal("GetPlayerZone", result.Data.Method);
+        Assert.Null(result.Data.Argument);
 
         // Assert — cursor advanced: calling Next for the second method should now find obs2
         var result2 = scanner.Next("GetQuestSequence", new QuestId(66130));
-        Assert.Equal("GetQuestSequence", result2.Method);
+        Assert.Equal("GetQuestSequence", result2.Data.Method);
     }
 
     // -------------------------------------------------------------------------
@@ -90,7 +90,7 @@ public sealed class ObservationScannerTests
         var result = scanner.Next("GetQuestSequence", new QuestId(66130));
 
         // Assert
-        Assert.Equal("GetQuestSequence", result.Method);
+        Assert.Equal("GetQuestSequence", result.Data.Method);
 
         // Assert — cursor is now exhausted; asking for GetPlayerZone starvates
         Assert.Throws<ReplayObservationStarvationException>(
@@ -175,10 +175,9 @@ public sealed class ObservationScannerTests
         string method,
         JsonElement? argument,
         JsonElement? value) =>
-        new ObservationEvent(
-            RunId: "test-run",
-            Method: method,
-            Argument: argument,
-            Value: value,
-            At: _at);
+        new ObservationEvent
+        {
+            RunId = "test-run",
+            Data = new ObservationEvent.ObservationData { Method = method, Argument = argument, Value = value }
+        };
 }

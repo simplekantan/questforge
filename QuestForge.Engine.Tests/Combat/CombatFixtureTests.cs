@@ -116,68 +116,55 @@ public sealed class CombatFixtureTests
         string Serialize(TraceEvent e) => JsonSerializer.Serialize(e, ctx);
         JsonElement Elem<T>(T v) => JsonSerializer.SerializeToElement(v, opts);
 
+        ObservationEvent Obs(string method, JsonElement? arg, JsonElement val) =>
+            new ObservationEvent { RunId = runId, Data = new ObservationEvent.ObservationData { Method = method, Argument = arg, Value = val } };
+
         return
         [
             // run.start
-            Serialize(new RunStartEvent(runId, questId, questId, At)),
+            Serialize(new RunStartEvent { RunId = runId, Data = new RunStartEvent.RunStartData { QuestId = questId } }),
 
             // segment-0: quest state observations
-            Serialize(new ObservationEvent(runId, "GetQuestSequence",
-                Elem(new { value = questId }), Elem(0), At)),
-            Serialize(new ObservationEvent(runId, "GetNewGamePlusState",
-                null, Elem(new { isActive = false, currentChapter = (object?)null, isSuspended = false, activeReplayQuestId = (object?)null }), At)),
-            Serialize(new ObservationEvent(runId, "IsQuestComplete",
-                Elem(new { value = questId }), Elem(false), At)),
-            Serialize(new ObservationEvent(runId, "GetUiState",
-                null, Elem(new { value = 0 }), At)),
-            Serialize(new ObservationEvent(runId, "GetPlayerPosition",
-                null, Elem(new WorldPosition(0f, 0f, 0f)), At)),
-            Serialize(new ObservationEvent(runId, "GetPlayerZone",
-                null, Elem(new { value = 182 }), At)),
-            Serialize(new ObservationEvent(runId, "GetQuestVariables",
-                Elem(new { value = questId }), Elem(new[] { 0, 0, 0, 0, 0, 0 }), At)),
-            Serialize(new ObservationEvent(runId, "GetQuestStatus",
-                Elem(new { value = questId }), Elem(0), At)),
+            Serialize(Obs("GetQuestSequence", Elem(new { value = questId }), Elem(0))),
+            Serialize(Obs("GetNewGamePlusState",
+                null, Elem(new { isActive = false, currentChapter = (object?)null, isSuspended = false, activeReplayQuestId = (object?)null }))),
+            Serialize(Obs("IsQuestComplete", Elem(new { value = questId }), Elem(false))),
+            Serialize(Obs("GetUiState", null, Elem(new { value = 0 }))),
+            Serialize(Obs("GetPlayerPosition", null, Elem(new WorldPosition(0f, 0f, 0f)))),
+            Serialize(Obs("GetPlayerZone", null, Elem(new { value = 182 }))),
+            Serialize(Obs("GetQuestVariables", Elem(new { value = questId }), Elem(new[] { 0, 0, 0, 0, 0, 0 }))),
+            Serialize(Obs("GetQuestStatus", Elem(new { value = questId }), Elem(0))),
 
             // IsPlayerInCombat — read by global defense rule before the cursor walk.
             // false here: defense skips (not in combat) and the CombatStep cursor walk
             // dispatches normally. These FX tests verify CombatStep dispatch (Engage with
             // Step=combatStep), not defense behavior. Defense-specific scenarios are
             // covered in GlobalDefenseTests.cs (D1-D13).
-            Serialize(new ObservationEvent(runId, "IsPlayerInCombat",
-                null, Elem(false), At)),
+            Serialize(Obs("IsPlayerInCombat", null, Elem(false))),
 
             // GetHostileActors in segment-0: read by defense (DecideClearAggro) and then
             // again by the cursor CombatStep branch (Decide). ObservationScanner falls back
             // to _lastSeen on repeat reads, so one entry covers both calls.
-            Serialize(new ObservationEvent(runId, "GetHostileActors",
-                Elem(50f), actorsJson, At)),
+            Serialize(Obs("GetHostileActors", Elem(50f), actorsJson)),
 
             // GetCurrentJob — approach-range resolution (added when CombatController gained job-aware ranging)
-            Serialize(new ObservationEvent(runId, "GetCurrentJob",
-                null, Elem(new { value = 2u }), At)),
+            Serialize(Obs("GetCurrentJob", null, Elem(new { value = 2u }))),
 
             // decision: Engage for the combat step
-            Serialize(new DecisionEvent(runId, combatStepId, "Engage", At.AddSeconds(1))),
+            Serialize(new DecisionEvent { RunId = runId, Data = new DecisionEvent.DecisionData { StepId = combatStepId, ActionType = "Engage" } }),
 
             // terminal-tail: IsQuestComplete flips to true (satisfies expect)
-            Serialize(new ObservationEvent(runId, "GetQuestSequence",
-                Elem(new { value = questId }), Elem(1), At.AddSeconds(2))),
-            Serialize(new ObservationEvent(runId, "GetNewGamePlusState",
-                null, Elem(new { isActive = false, currentChapter = (object?)null, isSuspended = false, activeReplayQuestId = (object?)null }), At.AddSeconds(2))),
-            Serialize(new ObservationEvent(runId, "IsQuestComplete",
-                Elem(new { value = questId }), Elem(true), At.AddSeconds(2))),
-            Serialize(new ObservationEvent(runId, "GetUiState",
-                null, Elem(new { value = 0 }), At.AddSeconds(2))),
-            Serialize(new ObservationEvent(runId, "GetPlayerPosition",
-                null, Elem(new WorldPosition(0f, 0f, 0f)), At.AddSeconds(2))),
-            Serialize(new ObservationEvent(runId, "GetPlayerZone",
-                null, Elem(new { value = 182 }), At.AddSeconds(2))),
-            Serialize(new ObservationEvent(runId, "GetQuestVariables",
-                Elem(new { value = questId }), Elem(new[] { 1, 0, 0, 0, 0, 0 }), At.AddSeconds(2))),
+            Serialize(Obs("GetQuestSequence", Elem(new { value = questId }), Elem(1))),
+            Serialize(Obs("GetNewGamePlusState",
+                null, Elem(new { isActive = false, currentChapter = (object?)null, isSuspended = false, activeReplayQuestId = (object?)null }))),
+            Serialize(Obs("IsQuestComplete", Elem(new { value = questId }), Elem(true))),
+            Serialize(Obs("GetUiState", null, Elem(new { value = 0 }))),
+            Serialize(Obs("GetPlayerPosition", null, Elem(new WorldPosition(0f, 0f, 0f)))),
+            Serialize(Obs("GetPlayerZone", null, Elem(new { value = 182 }))),
+            Serialize(Obs("GetQuestVariables", Elem(new { value = questId }), Elem(new[] { 1, 0, 0, 0, 0, 0 }))),
 
             // run.end
-            Serialize(new RunEndEvent(runId, "done", At.AddSeconds(10))),
+            Serialize(new RunEndEvent { RunId = runId, Data = new RunEndEvent.RunEndData { Outcome = "done" } }),
         ];
     }
 
@@ -268,10 +255,10 @@ public sealed class CombatFixtureTests
             "Expected at least one DecisionEvent after an Engage tick, got none. " +
             $"Recorded events: {string.Join(", ", harness.TraceWriter.RecordedEvents.Select(e => e.GetType().Name))}");
 
-        var engageDecision = decisions.FirstOrDefault(d => d.ActionType == "Engage");
+        var engageDecision = decisions.FirstOrDefault(d => d.Data.ActionType == "Engage");
         Assert.NotNull(engageDecision);
-        Assert.Equal("Engage", engageDecision.ActionType);
-        Assert.Equal("fx-combat-decision", engageDecision.StepId);
+        Assert.Equal("Engage", engageDecision.Data.ActionType);
+        Assert.Equal("fx-combat-decision", engageDecision.Data.StepId);
     }
 
     // =========================================================================
@@ -343,7 +330,7 @@ public sealed class CombatFixtureTests
 
                 state.OnTick(action, tick);
 
-                var pair = (newDecision.StepId, ActionTypeString(action));
+                var pair = (newDecision.Data.StepId, ActionTypeString(action));
                 if (actualTransitions.Count == 0 || actualTransitions[^1] != pair)
                 {
                     actualTransitions.Add(pair);

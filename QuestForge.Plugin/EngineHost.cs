@@ -241,7 +241,16 @@ public sealed class EngineHost : IDisposable
         _currentQuestId = new QuestId(quest.Id);
         _timing.Reseed(StableHash(runId));
         _traceSession.OnQuestRunStart(quest.Id);
-        _traceSession.Write(new RunStartEvent(runId, quest.Id, quest.Id, DateTimeOffset.UtcNow));
+        _traceSession.Write(new RunStartEvent
+        {
+            RunId = runId,
+            Data = new RunStartEvent.RunStartData
+            {
+                QuestId      = quest.Id,
+                SchemaVer    = "1.0",
+                WallClockUtc = DateTimeOffset.UtcNow
+            }
+        });
 
         IGameStateProvider gs = new RecordingGameStateProvider(
             _gameStateInner, _traceSession, () => _runId, skipIfNoRunId: true);
@@ -424,16 +433,22 @@ public sealed class EngineHost : IDisposable
                 if (_runId is not null)
                     try
                     {
-                        _traceSession.Write(new QuestForge.Adapters.Tracing.ObservationEvent(
-                            _runId, "UseAethernet",
-                            System.Text.Json.JsonSerializer.SerializeToElement(new
+                        _traceSession.Write(new QuestForge.Adapters.Tracing.ObservationEvent
+                        {
+                            RunId = _runId,
+                            Data = new QuestForge.Adapters.Tracing.ObservationEvent.ObservationData
                             {
-                                destinationShardId = ua.Destination.Value,
-                                sourcePosX = ua.SourcePosition?.X,
-                                sourcePosY = ua.SourcePosition?.Y,
-                                sourcePosZ = ua.SourcePosition?.Z
-                            }),
-                            null, DateTimeOffset.UtcNow));
+                                Method = "UseAethernet",
+                                Argument = System.Text.Json.JsonSerializer.SerializeToElement(new
+                                {
+                                    destinationShardId = ua.Destination.Value,
+                                    sourcePosX = ua.SourcePosition?.X,
+                                    sourcePosY = ua.SourcePosition?.Y,
+                                    sourcePosZ = ua.SourcePosition?.Z
+                                }),
+                                Value = null
+                            }
+                        });
                     }
                     catch { /* trace failures must not block dispatch */ }
                 await _teleporter.TeleportToAethernet(ua.Destination, ct);
@@ -798,7 +813,7 @@ public sealed class EngineHost : IDisposable
             _activeDutyStepId = null;
         }
         if (_runId is not null && !_engineEmittedRunEnd)
-            _traceSession.Write(new RunEndEvent(_runId, "ended", DateTimeOffset.UtcNow));
+            _traceSession.Write(new RunEndEvent { RunId = _runId, Data = new RunEndEvent.RunEndData { Outcome = "ended" } });
         _engine      = null;
         _recordingQs = null;
         _recordingCombat = null;

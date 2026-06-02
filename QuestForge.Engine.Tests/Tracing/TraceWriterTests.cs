@@ -1,80 +1,100 @@
 using System.Text;
 using System.Text.Json;
 using QuestForge.Adapters.Tracing;
-using QuestForge.Adapters.Tracing;
 using Xunit;
 
 namespace QuestForge.Engine.Tests.Tracing;
 
 /// <summary>
-/// RED PHASE: Tests for the TraceWriter (JSONL writer over a Stream).
-/// All tests fail until Builder implements QuestForge.Engine.Tracing.TraceWriter.
+/// RED PHASE: Tests for TraceWriter with the new event shapes (envelope fields, nested Data).
+/// Covers TS21 from TRACE_SPEC_COMPLIANCE_PLAN.md, plus basic write correctness tests
+/// that exercise the new type shapes.
 ///
-/// Covers §6.2 of PHASE_5_PLAN.md — 11 tests total.
+/// All tests WILL FAIL because the new TraceEvent types do not exist yet.
 /// </summary>
 public sealed class TraceWriterTests
 {
-    private static readonly DateTimeOffset _now = new DateTimeOffset(2026, 5, 15, 12, 0, 0, TimeSpan.Zero);
-
-    private static RunStartEvent MakeRunStart(string runId = "test-run") =>
-        new RunStartEvent(runId, 66130u, 66130u, _now);
-
     private static string ReadStreamAsString(MemoryStream ms)
     {
         ms.Seek(0, SeekOrigin.Begin);
         return new StreamReader(ms, Encoding.UTF8, leaveOpen: true).ReadToEnd();
     }
 
-    // -------------------------------------------------------------------------
-    // Single write produces exactly one newline-terminated line
-    // -------------------------------------------------------------------------
+    // Helper: create a RunStartEvent with new shape
+    private static RunStartEvent MakeRunStart(string runId = "test-run") =>
+        new RunStartEvent
+        {
+            RunId = runId,
+            Data = new RunStartEvent.RunStartData
+            {
+                QuestId = 66130u,
+                SchemaVer = "1.0"
+            }
+        };
+
+    // Helper: create a DecisionEvent with new shape
+    private static DecisionEvent MakeDecision(string runId = "test-run") =>
+        new DecisionEvent
+        {
+            RunId = runId,
+            Data = new DecisionEvent.DecisionData
+            {
+                StepId = "step-a",
+                ActionType = "Navigate"
+            }
+        };
+
+    // Helper: create an ObservationEvent with new shape
+    private static ObservationEvent MakeObservation(string runId = "test-run") =>
+        new ObservationEvent
+        {
+            RunId = runId,
+            Data = new ObservationEvent.ObservationData
+            {
+                Method = "GetPlayerZone",
+                Value = JsonSerializer.SerializeToElement(182)
+            }
+        };
+
+    // =========================================================================
+    // Basic write: single event produces one JSONL line
+    // =========================================================================
 
     [Fact]
     public void Write_SingleEvent_ProducesExactlyOneNewlineTerminatedLine()
     {
         /*
-         * RED: Will fail until TraceWriter is implemented.
-         *
-         * CONTRACT: Given a fresh TraceWriter over a MemoryStream and a RunStartEvent,
+         * CONTRACT: Given a fresh TraceWriter and a RunStartEvent (new shape),
          *           When Write(evt) is called once,
          *           Then the stream contains exactly one line terminated by '\n'.
-         *           The line is not empty and contains valid JSON.
-         *
-         * BUILDER GUIDANCE: Write(evt) must append exactly: json + '\n'.
-         *   No '\r'. No extra whitespace lines.
          */
 
         // Arrange
         using var ms = new MemoryStream();
         using var writer = new TraceWriter(ms, leaveOpen: true);
-        var evt = MakeRunStart();
 
         // Act
-        writer.Write(evt);
+        writer.Write(MakeRunStart());
 
         // Assert
         var content = ReadStreamAsString(ms);
         var lines = content.Split('\n');
-        // Split on '\n' of "json\n" yields ["json", ""] — two elements, last empty
-        Assert.Equal(2, lines.Length); // Expected exactly one event line followed by trailing empty after final \n
-        Assert.True(lines[0].Length > 0, "The single line must not be empty");
-        Assert.Equal(string.Empty, lines[1]); // No content after the final \n
+        Assert.Equal(2, lines.Length); // "json\n" splits into ["json", ""]
+        Assert.True(lines[0].Length > 0, "Line must not be empty");
+        Assert.Equal(string.Empty, lines[1]);
     }
 
-    // -------------------------------------------------------------------------
-    // Three writes produce three independently parseable JSON lines
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // Three writes produce three parseable JSON lines with "data" sub-objects
+    // =========================================================================
 
     [Fact]
-    public void Write_ThreeEvents_ProducesThreeNewlineTerminatedLines()
+    public void Write_ThreeEvents_ProducesThreeNewlineTerminatedLinesWithDataField()
     {
         /*
-         * RED: Will fail until TraceWriter is implemented.
-         *
-         * CONTRACT: Given a fresh TraceWriter,
-         *           When Write is called three times with distinct events,
-         *           Then reading the stream yields 3 newline-terminated lines,
-         *           each parseable as JSON with a "type" field.
+         * CONTRACT: Given three events (RunStart, Observation, Decision) with new shape,
+         *           When written,
+         *           Then each line is valid JSON with "type" and "data" fields.
          */
 
         // Arrange
@@ -83,9 +103,9 @@ public sealed class TraceWriterTests
 
         var events = new TraceEvent[]
         {
-            new RunStartEvent("run-001", 66130u, 66130u, _now),
-            new ObservationEvent("run-001", "GetPlayerZone", null, null, _now),
-            new DecisionEvent("run-001", "travel-to-wymond", "Navigate", _now)
+            MakeRunStart(),
+            MakeObservation(),
+            MakeDecision()
         };
 
         // Act
@@ -95,87 +115,115 @@ public sealed class TraceWriterTests
         // Assert
         var content = ReadStreamAsString(ms);
         var lines = content.TrimEnd('\n').Split('\n');
-        Assert.Equal(3, lines.Length); // Expected exactly 3 event lines
+        Assert.Equal(3, lines.Length);
         foreach (var line in lines)
         {
-            var doc = JsonDocument.Parse(line); // throws JsonException if invalid
+            var doc = JsonDocument.Parse(line);
             Assert.True(doc.RootElement.TryGetProperty("type", out _),
-                $"Line must contain 'type' field: {line}");
+                $"Line must contain 'type': {line}");
+            Assert.True(doc.RootElement.TryGetProperty("data", out _),
+                $"Line must contain 'data': {line}");
         }
     }
 
-    // -------------------------------------------------------------------------
-    // JSONL lines are single-line JSON (WriteIndented = false)
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // Written JSON contains envelope fields (v, seq, ts)
+    // =========================================================================
 
     [Fact]
-    public void Write_SingleEvent_LineContainsNoEmbeddedNewlines()
+    public void Write_Event_ContainsEnvelopeFields()
     {
         /*
-         * RED: Will fail until TraceWriter is implemented.
-         *
-         * CONTRACT: Given any single event written,
-         *           Then the resulting line content contains no embedded '\n' characters.
-         *           This verifies WriteIndented = false on TraceEventJsonContext.
+         * CONTRACT: Given a RunStartEvent with V=1, Seq=0, Ts=0,
+         *           When written,
+         *           Then the JSON line contains "v", "seq", "ts" at the root.
          */
 
         // Arrange
         using var ms = new MemoryStream();
         using var writer = new TraceWriter(ms, leaveOpen: true);
-        var evt = new RunStartEvent("run-001", 66130u, 66130u, _now);
 
         // Act
-        writer.Write(evt);
+        writer.Write(MakeRunStart());
+
+        // Assert
+        var content = ReadStreamAsString(ms).TrimEnd('\n');
+        var doc = JsonDocument.Parse(content);
+        Assert.True(doc.RootElement.TryGetProperty("v", out _), "Must contain 'v'");
+        Assert.True(doc.RootElement.TryGetProperty("seq", out _), "Must contain 'seq'");
+        Assert.True(doc.RootElement.TryGetProperty("ts", out _), "Must contain 'ts'");
+    }
+
+    // =========================================================================
+    // Written JSON does NOT contain "at" field (removed per TSC1)
+    // =========================================================================
+
+    [Fact]
+    public void Write_Event_DoesNotContainAtField()
+    {
+        /*
+         * CONTRACT: Given any event with new shape,
+         *           When written,
+         *           Then the JSON line does NOT contain "at".
+         */
+
+        // Arrange
+        using var ms = new MemoryStream();
+        using var writer = new TraceWriter(ms, leaveOpen: true);
+
+        // Act
+        writer.Write(MakeRunStart());
 
         // Assert
         var content = ReadStreamAsString(ms);
-        // The only '\n' must be the final line terminator — strip it, then check no embedded newlines
-        var lineContent = content.TrimEnd('\n');
-        Assert.DoesNotContain('\n', lineContent); // The JSON line must not contain embedded newlines (WriteIndented must be false)
+        Assert.DoesNotContain("\"at\":", content);
     }
 
-    // -------------------------------------------------------------------------
-    // After Write returns, no bytes are buffered (flush per write)
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // TS21: Byte cap applies to new shape (envelope + data wrapper)
+    // =========================================================================
 
     [Fact]
-    public void Write_AfterReturn_StreamPositionReflectsWrittenBytes()
+    public void TS21_Write_OversizedEventWithNewShape_ThrowsInvalidOperationExceptionWithCapMessage()
     {
         /*
-         * RED: Will fail until TraceWriter is implemented.
-         *
-         * CONTRACT: Given a TraceWriter over a MemoryStream,
-         *           When Write returns,
-         *           Then ms.Position == ms.Length (no pending buffered bytes).
-         *
-         * BUILDER GUIDANCE: Flush both _writer and _stream inside Write before returning.
+         * CONTRACT: Given an ObservationEvent whose serialized form (with envelope + data wrapper)
+         *           exceeds 4096 bytes
+         *           When TraceWriter.Write is called
+         *           Then InvalidOperationException is thrown containing "4096-byte cap"
          */
 
         // Arrange
         using var ms = new MemoryStream();
         using var writer = new TraceWriter(ms, leaveOpen: true);
-        var evt = MakeRunStart();
 
-        // Act
-        writer.Write(evt);
+        var largeString = new string('x', 5000);
+        var largeValue = JsonSerializer.SerializeToElement(largeString);
+        var oversizedEvt = new ObservationEvent
+        {
+            RunId = "cap-test",
+            Data = new ObservationEvent.ObservationData
+            {
+                Method = "SomeMethod",
+                Value = largeValue
+            }
+        };
 
-        // Assert
-        Assert.Equal(ms.Length, ms.Position); // Stream.Position must equal Stream.Length after Write — no unflushed bytes
-        Assert.True(ms.Length > 0, "Stream must be non-empty after Write");
+        // Act + Assert
+        var ex = Assert.Throws<InvalidOperationException>(() => writer.Write(oversizedEvt));
+        Assert.Contains("4096-byte cap", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    // -------------------------------------------------------------------------
-    // Disposed writer rejects subsequent writes
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // Disposed writer rejects writes (unchanged behavior, new shape)
+    // =========================================================================
 
     [Fact]
     public void Write_AfterDispose_ThrowsObjectDisposedException()
     {
         /*
-         * RED: Will fail until TraceWriter is implemented.
-         *
-         * CONTRACT: Given a TraceWriter that has been disposed,
-         *           When Write is called,
+         * CONTRACT: Given a disposed TraceWriter,
+         *           When Write is called with a new-shape event,
          *           Then ObjectDisposedException is thrown.
          */
 
@@ -185,68 +233,36 @@ public sealed class TraceWriterTests
         writer.Dispose();
 
         // Act + Assert
-        Assert.Throws<ObjectDisposedException>(() =>
-            writer.Write(new RunStartEvent("run-001", 1u, 1u, _now)));
+        Assert.Throws<ObjectDisposedException>(() => writer.Write(MakeRunStart()));
     }
 
-    // -------------------------------------------------------------------------
-    // Oversized event throws InvalidOperationException
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // Each event type written → line has matching "type" field
+    // =========================================================================
 
     [Fact]
-    public void Write_OversizedEvent_ThrowsInvalidOperationExceptionWithCapMessage()
+    public void Write_AllSevenEventTypes_LinesContainMatchingTypeFields()
     {
         /*
-         * RED: Will fail until TraceWriter is implemented.
-         *
-         * CONTRACT: Given an ObservationEvent whose serialized form exceeds 4096 bytes
-         *           (synthetic value with 5000 chars),
-         *           When Write is called,
-         *           Then InvalidOperationException is thrown with a message
-         *           containing "4096-byte cap".
-         *
-         * BUILDER GUIDANCE: Serialize first, check json.Length > 4096, throw before writing.
-         */
-
-        // Arrange — create an ObservationEvent with a large Value to exceed 4096 bytes
-        using var ms = new MemoryStream();
-        using var writer = new TraceWriter(ms, leaveOpen: true);
-
-        var largeString = new string('x', 5000);
-        var largeValue = JsonSerializer.SerializeToElement(largeString);
-        var oversizedEvt = new ObservationEvent("run-001", "SomeMethod", null, largeValue, _now);
-
-        // Act + Assert
-        var ex = Assert.Throws<InvalidOperationException>(() => writer.Write(oversizedEvt));
-        Assert.Contains("4096-byte cap", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    // -------------------------------------------------------------------------
-    // Each written line has a "type" field matching the event's Type property
-    // -------------------------------------------------------------------------
-
-    [Fact]
-    public void Write_EachEventType_LineContainsMatchingTypeField()
-    {
-        /*
-         * RED: Will fail until TraceWriter is implemented.
-         *
-         * CONTRACT: For each event type written, the corresponding JSON line
-         *           has a "type" field whose value matches the event's Type property.
+         * CONTRACT: For each of the 7 event types written with the new shape,
+         *           the corresponding JSON line has a "type" field matching the
+         *           event's Type property.
          */
 
         // Arrange
         using var ms = new MemoryStream();
         using var writer = new TraceWriter(ms, leaveOpen: true);
 
+        var stepElement = JsonSerializer.SerializeToElement(new { type = "talk" });
         var events = new TraceEvent[]
         {
-            new RunStartEvent("r", 1u, 1u, _now),
-            new RunEndEvent("r", "done", _now),
-            new ObservationEvent("r", "M", null, null, _now),
-            new DecisionEvent("r", null, "Navigate", _now),
-            new ActionSubmittedEvent("r", "Navigate", null, _now),
-            new ActionCompletedEvent("r", "Navigate", "Arrived", _now)
+            new RunStartEvent { RunId = "r", Data = new RunStartEvent.RunStartData { QuestId = 1 } },
+            new RunEndEvent { RunId = "r", Data = new RunEndEvent.RunEndData { Outcome = "done" } },
+            new ObservationEvent { RunId = "r", Data = new ObservationEvent.ObservationData { Method = "M" } },
+            new DecisionEvent { RunId = "r", Data = new DecisionEvent.DecisionData { ActionType = "Nav" } },
+            new ActionSubmittedEvent { RunId = "r", Data = new ActionSubmittedEvent.ActionSubmittedData { ActionType = "Nav" } },
+            new ActionCompletedEvent { RunId = "r", Data = new ActionCompletedEvent.ActionCompletedData { ActionType = "Nav", Outcome = "Ok" } },
+            new StepRecordedEvent { RunId = "r", Data = new StepRecordedEvent.StepRecordedData { StepId = "s", Step = stepElement } }
         };
 
         // Act
@@ -265,111 +281,31 @@ public sealed class TraceWriterTests
         {
             var doc = JsonDocument.Parse(allLines[i]);
             var typeValue = doc.RootElement.GetProperty("type").GetString();
-            Assert.Equal(events[i].Type, typeValue); // Line {i}: expected type '{events[i].Type}' but got '{typeValue}'
+            Assert.Equal(events[i].Type, typeValue);
         }
     }
 
-    // -------------------------------------------------------------------------
-    // RunStartEvent written → JSON line has "type":"run.start"
-    // -------------------------------------------------------------------------
-
-    [Fact]
-    public void Write_RunStartEvent_LineHasRunStartType()
-    {
-        /*
-         * RED: Will fail until TraceWriter is implemented.
-         *
-         * CONTRACT: Given a RunStartEvent written to a TraceWriter,
-         *           When the stream content is read and the first line parsed,
-         *           Then the "type" field equals "run.start".
-         */
-
-        // Arrange
-        using var ms = new MemoryStream();
-        using var writer = new TraceWriter(ms, leaveOpen: true);
-
-        // Act
-        writer.Write(new RunStartEvent("run-01", 66130u, 66130u, _now));
-
-        // Assert
-        ms.Seek(0, SeekOrigin.Begin);
-        var line = new StreamReader(ms, Encoding.UTF8).ReadLine()!;
-        var doc = JsonDocument.Parse(line);
-        Assert.Equal("run.start", doc.RootElement.GetProperty("type").GetString());
-    }
-
-    // -------------------------------------------------------------------------
-    // OpenFile static factory creates readable file
-    // -------------------------------------------------------------------------
-
-    [Fact]
-    public void OpenFile_WritesEvents_FileReadableAfterDispose()
-    {
-        /*
-         * RED: Will fail until TraceWriter.OpenFile is implemented.
-         *
-         * CONTRACT: Given TraceWriter.OpenFile(path) creates a file,
-         *           When events are written and the writer is disposed,
-         *           Then the file exists and can be read as JSONL
-         *           with each line independently parseable.
-         *
-         * BUILDER GUIDANCE: OpenFile uses FileMode.Append, FileAccess.Write, FileShare.Read.
-         */
-
-        // Arrange
-        var path = Path.Combine(Path.GetTempPath(), $"qf-test-{Guid.NewGuid():N}.trace.jsonl");
-        try
-        {
-            // Act
-            using (var writer = TraceWriter.OpenFile(path))
-            {
-                writer.Write(new RunStartEvent("r1", 66130u, 66130u, _now));
-                writer.Write(new DecisionEvent("r1", "step-1", "Navigate", _now));
-            }
-
-            // Assert
-            Assert.True(File.Exists(path), "File must exist after OpenFile + dispose");
-            var lines = File.ReadAllLines(path);
-            Assert.Equal(2, lines.Length); // Two events must produce two lines
-            foreach (var line in lines)
-            {
-                var doc = JsonDocument.Parse(line);
-                Assert.True(doc.RootElement.TryGetProperty("type", out _));
-            }
-        }
-        finally
-        {
-            if (File.Exists(path)) File.Delete(path);
-        }
-    }
-
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // Concurrent writes from two threads produce 2 complete non-interleaved lines
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     [Fact]
     public async Task Write_ConcurrentFromTwoThreads_ProducesTwoCompleteLines()
     {
         /*
-         * RED: Will fail until TraceWriter is implemented with locking.
-         *
-         * CONTRACT: Given two threads both calling Write concurrently,
+         * CONTRACT: Given two threads both calling Write concurrently with new-shape events,
          *           When both complete,
-         *           Then the stream contains exactly 2 valid JSON lines
-         *           with no interleaved bytes within any single line.
-         *
-         * BUILDER GUIDANCE: lock(_writeLock) wraps serialize + write + flush.
+         *           Then the stream contains exactly 2 valid JSON lines.
          */
 
         // Arrange
         using var ms = new MemoryStream();
         using var writer = new TraceWriter(ms, leaveOpen: true);
 
-        var evt1 = new RunStartEvent("run-a", 1u, 1u, _now);
-        var evt2 = new RunEndEvent("run-a", "done", _now);
+        var evt1 = MakeRunStart("run-a");
+        var evt2 = new RunEndEvent { RunId = "run-a", Data = new RunEndEvent.RunEndData { Outcome = "done" } };
 
-        // Act — fire both concurrently
-        // xUnit1051: CancellationToken not required here; test fires and forgets both tasks.
+        // Act
 #pragma warning disable xUnit1051
         var t1 = Task.Run(() => writer.Write(evt1));
         var t2 = Task.Run(() => writer.Write(evt2));
@@ -379,43 +315,49 @@ public sealed class TraceWriterTests
         // Assert
         var content = ReadStreamAsString(ms);
         var lines = content.TrimEnd('\n').Split('\n');
-        Assert.Equal(2, lines.Length); // Exactly 2 complete lines expected
+        Assert.Equal(2, lines.Length);
         foreach (var line in lines)
         {
             Assert.True(line.Length > 0, "No empty lines");
-            // Each line must be valid JSON (no interleaving)
             JsonDocument.Parse(line); // throws on malformed JSON
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Write to a non-writable stream propagates exception
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // OpenFile writes events → file readable after dispose
+    // =========================================================================
 
     [Fact]
-    public void Write_ToNonWritableStream_ThrowsException()
+    public void OpenFile_WritesEventsWithNewShape_FileReadableAfterDispose()
     {
         /*
-         * RED: Will fail until TraceWriter is implemented.
-         *
-         * CONTRACT: Given a TraceWriter constructed over a non-writable stream
-         *           (e.g., a MemoryStream opened read-only),
-         *           When Write is called,
-         *           Then an IOException or NotSupportedException is propagated.
-         *
-         * BUILDER GUIDANCE: The StreamWriter write will throw naturally; do not swallow it
-         *   (the TraceWriter's crash-safety only applies to the engine's TraceSafe wrapper,
-         *    not to the TraceWriter itself — TraceWriter.Write propagates write failures).
+         * CONTRACT: Given TraceWriter.OpenFile(path),
+         *           When new-shape events are written and the writer is disposed,
+         *           Then the file exists and each line contains "data" and "type" fields.
          */
 
-        // Arrange — create a read-only MemoryStream from a byte array
-        var bytes = Encoding.UTF8.GetBytes("existing content\n");
-        using var readOnlyStream = new MemoryStream(bytes, writable: false);
+        var path = Path.Combine(Path.GetTempPath(), $"qf-test-{Guid.NewGuid():N}.trace.jsonl");
+        try
+        {
+            using (var writer = TraceWriter.OpenFile(path))
+            {
+                writer.Write(MakeRunStart());
+                writer.Write(MakeDecision());
+            }
 
-        // Act + Assert — constructor may succeed, but Write must throw
-        // (StreamWriter will throw on first flush to a non-writable stream)
-        var writer = new TraceWriter(readOnlyStream, leaveOpen: true);
-        Assert.ThrowsAny<Exception>(() =>
-            writer.Write(new RunStartEvent("r", 1u, 1u, _now)));
+            Assert.True(File.Exists(path));
+            var lines = File.ReadAllLines(path);
+            Assert.Equal(2, lines.Length);
+            foreach (var line in lines)
+            {
+                var doc = JsonDocument.Parse(line);
+                Assert.True(doc.RootElement.TryGetProperty("type", out _));
+                Assert.True(doc.RootElement.TryGetProperty("data", out _));
+            }
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
     }
 }

@@ -368,27 +368,27 @@ public sealed class QuestEngine
             if (action is EngineAction.Done)
             {
                 // Done terminates the run Ã¢â‚¬â€ emit run.end instead of a decision event.
-                TraceSafe(new RunEndEvent(_runId, Outcome: "done", DateTimeOffset.UtcNow));
+                TraceSafe(new RunEndEvent { RunId = _runId, Data = new RunEndEvent.RunEndData { Outcome = "done" } });
                 _runStartEmitted = false;
             }
             else if (action is EngineAction.AwaitUser)
             {
                 // AwaitUser terminates the run Ã¢â‚¬â€ emit run.end.
                 // Also emit the decision so the caller knows why we stopped.
-                TraceSafe(new DecisionEvent(
-                    RunId: _runId,
-                    StepId: stepId,
-                    ActionType: action.GetType().Name,
-                    At: DateTimeOffset.UtcNow));
-                TraceSafe(new RunEndEvent(_runId, Outcome: "awaitUser", DateTimeOffset.UtcNow));
+                TraceSafe(new DecisionEvent
+                {
+                    RunId = _runId,
+                    Data = new DecisionEvent.DecisionData { StepId = stepId, ActionType = action.GetType().Name }
+                });
+                TraceSafe(new RunEndEvent { RunId = _runId, Data = new RunEndEvent.RunEndData { Outcome = "awaitUser" } });
             }
             else
             {
-                TraceSafe(new DecisionEvent(
-                    RunId: _runId,
-                    StepId: stepId,
-                    ActionType: action.GetType().Name,
-                    At: DateTimeOffset.UtcNow));
+                TraceSafe(new DecisionEvent
+                {
+                    RunId = _runId,
+                    Data = new DecisionEvent.DecisionData { StepId = stepId, ActionType = action.GetType().Name }
+                });
             }
         }
 
@@ -398,11 +398,11 @@ public sealed class QuestEngine
     private void EmitRunStartIfNeeded()
     {
         if (_runStartEmitted || _runId is null || _quest is null) return;
-        TraceSafe(new RunStartEvent(
-            RunId: _runId,
-            QuestId: _quest.Id,
-            QuestSchemaId: _quest.Id,
-            At: DateTimeOffset.UtcNow));
+        TraceSafe(new RunStartEvent
+        {
+            RunId = _runId,
+            Data = new RunStartEvent.RunStartData { QuestId = _quest.Id, SchemaVer = "1.0" }
+        });
         _runStartEmitted = true;
     }
 

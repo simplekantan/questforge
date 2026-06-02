@@ -13,9 +13,6 @@ namespace QuestForge.Engine.Tests.Replay;
 /// </summary>
 public sealed class TraceReaderTests
 {
-    private static readonly DateTimeOffset _at = new DateTimeOffset(2026, 5, 15, 12, 0, 0, TimeSpan.Zero);
-    private static readonly string _atStr = _at.ToString("O");
-
     // -------------------------------------------------------------------------
     // §8.1 Happy path — 7 events in document order
     // -------------------------------------------------------------------------
@@ -41,13 +38,13 @@ public sealed class TraceReaderTests
         // Arrange
         var lines = new[]
         {
-            $$$"""{"type":"run.start","runId":"run-001","questId":66130,"questSchemaId":66130,"at":"{{{_atStr}}}"}""",
-            $$$"""{"type":"observation","runId":"run-001","method":"GetPlayerZone","argument":null,"value":{"value":182},"at":"{{{_atStr}}}"}""",
-            $$$"""{"type":"observation","runId":"run-001","method":"GetPlayerPosition","argument":null,"value":{"x":0.0,"y":0.0,"z":0.0},"at":"{{{_atStr}}}"}""",
-            $$$"""{"type":"observation","runId":"run-001","method":"IsQuestComplete","argument":{"value":66130},"value":false,"at":"{{{_atStr}}}"}""",
-            $$$"""{"type":"observation","runId":"run-001","method":"GetQuestSequence","argument":{"value":66130},"value":0,"at":"{{{_atStr}}}"}""",
-            $$$"""{"type":"decision","runId":"run-001","stepId":"travel-to-wymond","actionType":"Navigate","at":"{{{_atStr}}}"}""",
-            $$$"""{"type":"run.end","runId":"run-001","outcome":"done","at":"{{{_atStr}}}"}""",
+            """{"type":"run.start","v":1,"seq":0,"ts":0,"runId":"run-001","data":{"questId":66130,"schemaVer":"1.0"}}""",
+            """{"type":"observation","v":1,"seq":1,"ts":0,"runId":"run-001","data":{"method":"GetPlayerZone","argument":null,"value":{"value":182}}}""",
+            """{"type":"observation","v":1,"seq":2,"ts":0,"runId":"run-001","data":{"method":"GetPlayerPosition","argument":null,"value":{"x":0.0,"y":0.0,"z":0.0}}}""",
+            """{"type":"observation","v":1,"seq":3,"ts":0,"runId":"run-001","data":{"method":"IsQuestComplete","argument":{"value":66130},"value":false}}""",
+            """{"type":"observation","v":1,"seq":4,"ts":0,"runId":"run-001","data":{"method":"GetQuestSequence","argument":{"value":66130},"value":0}}""",
+            """{"type":"decision","v":1,"seq":5,"ts":0,"runId":"run-001","data":{"stepId":"travel-to-wymond","actionType":"Navigate"}}""",
+            """{"type":"run.end","v":1,"seq":6,"ts":0,"runId":"run-001","data":{"outcome":"done"}}""",
         };
         var path = WriteTempFile(lines);
 
@@ -68,11 +65,11 @@ public sealed class TraceReaderTests
 
         // Assert — field spot-checks
         Assert.Equal("run-001", ((RunStartEvent)events[0]).RunId);
-        Assert.Equal(66130u, ((RunStartEvent)events[0]).QuestId);
-        Assert.Equal("GetPlayerZone", ((ObservationEvent)events[1]).Method);
-        Assert.Equal("Navigate", ((DecisionEvent)events[5]).ActionType);
-        Assert.Equal("travel-to-wymond", ((DecisionEvent)events[5]).StepId);
-        Assert.Equal("done", ((RunEndEvent)events[6]).Outcome);
+        Assert.Equal(66130u, ((RunStartEvent)events[0]).Data.QuestId);
+        Assert.Equal("GetPlayerZone", ((ObservationEvent)events[1]).Data.Method);
+        Assert.Equal("Navigate", ((DecisionEvent)events[5]).Data.ActionType);
+        Assert.Equal("travel-to-wymond", ((DecisionEvent)events[5]).Data.StepId);
+        Assert.Equal("done", ((RunEndEvent)events[6]).Data.Outcome);
     }
 
     // -------------------------------------------------------------------------
@@ -122,8 +119,8 @@ public sealed class TraceReaderTests
         // Arrange — two events followed by a blank line
         var lines = new[]
         {
-            $$$"""{"type":"run.start","runId":"run-002","questId":66130,"questSchemaId":66130,"at":"{{{_atStr}}}"}""",
-            $$$"""{"type":"run.end","runId":"run-002","outcome":"done","at":"{{{_atStr}}}"}""",
+            """{"type":"run.start","v":1,"seq":0,"ts":0,"runId":"run-002","data":{"questId":66130,"schemaVer":"1.0"}}""",
+            """{"type":"run.end","v":1,"seq":1,"ts":0,"runId":"run-002","data":{"outcome":"done"}}""",
             "",   // trailing blank line
         };
         var path = WriteTempFile(lines);
@@ -159,8 +156,8 @@ public sealed class TraceReaderTests
         // Arrange
         var lines = new[]
         {
-            $$$"""{"type":"run.start","runId":"run-003","questId":66130,"questSchemaId":66130,"at":"{{{_atStr}}}"}""",
-            $$$"""{"type":"observation","runId":"run-003","method":"GetPlayerZone","argument":null,"value":{"value":182},"at":"{{{_atStr}}}"}""",
+            """{"type":"run.start","v":1,"seq":0,"ts":0,"runId":"run-003","data":{"questId":66130,"schemaVer":"1.0"}}""",
+            """{"type":"observation","v":1,"seq":1,"ts":0,"runId":"run-003","data":{"method":"GetPlayerZone","value":{"value":182}}}""",
             "{not valid json",
         };
         var path = WriteTempFile(lines);
@@ -191,7 +188,7 @@ public sealed class TraceReaderTests
         // Arrange
         var lines = new[]
         {
-            $$$"""{"type":"unknown.event","runId":"run-004","at":"{{{_atStr}}}"}""",
+            """{"type":"unknown.event","v":1,"seq":0,"ts":0,"runId":"run-004","data":{}}""",
         };
         var path = WriteTempFile(lines);
 

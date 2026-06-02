@@ -119,18 +119,18 @@ public sealed class SegmentedObservationScannerTests
         var r1 = scanner.Next("IsQuestComplete", questId);
         // xUnit v3 does not support 3-arg Assert.Equal with a string message for string values;
         // use Assert.True for message-bearing equality checks.
-        Assert.True("false" == r1.Value?.GetRawText(),
-            $"S2 first read in segment 0 — expected false, got {r1.Value?.GetRawText()}. Segment={scanner.CurrentSegment}/{scanner.SegmentCount}");
+        Assert.True("false" == r1.Data.Value?.GetRawText(),
+            $"S2 first read in segment 0 — expected false, got {r1.Data.Value?.GetRawText()}. Segment={scanner.CurrentSegment}/{scanner.SegmentCount}");
 
         // Second read in same segment: must still pin to false (NOT advance to true)
         var r2 = scanner.Next("IsQuestComplete", questId);
-        Assert.True("false" == r2.Value?.GetRawText(),
-            $"S2 second read in segment 0 — must still pin false. Got {r2.Value?.GetRawText()}. Segment={scanner.CurrentSegment}/{scanner.SegmentCount}");
+        Assert.True("false" == r2.Data.Value?.GetRawText(),
+            $"S2 second read in segment 0 — must still pin false. Got {r2.Data.Value?.GetRawText()}. Segment={scanner.CurrentSegment}/{scanner.SegmentCount}");
 
         // Third read: still false
         var r3 = scanner.Next("IsQuestComplete", questId);
-        Assert.True("false" == r3.Value?.GetRawText(),
-            $"S2 third read in segment 0 — still pinned false. Got {r3.Value?.GetRawText()}. Segment={scanner.CurrentSegment}/{scanner.SegmentCount}");
+        Assert.True("false" == r3.Data.Value?.GetRawText(),
+            $"S2 third read in segment 0 — still pinned false. Got {r3.Data.Value?.GetRawText()}. Segment={scanner.CurrentSegment}/{scanner.SegmentCount}");
 
         // --- Advance through segment 1 (no IsQuestComplete there) ---
         scanner.AdvanceSegment(); // now at segment 1
@@ -138,8 +138,8 @@ public sealed class SegmentedObservationScannerTests
 
         // Segment 1 has no IsQuestComplete obs → should pin to last-at-or-before window = false
         var r4 = scanner.Next("IsQuestComplete", questId);
-        Assert.True("false" == r4.Value?.GetRawText(),
-            $"S2 read in segment 1 — must pin false (no IsQuestComplete in this window). Got {r4.Value?.GetRawText()}. Segment={scanner.CurrentSegment}/{scanner.SegmentCount}");
+        Assert.True("false" == r4.Data.Value?.GetRawText(),
+            $"S2 read in segment 1 — must pin false (no IsQuestComplete in this window). Got {r4.Data.Value?.GetRawText()}. Segment={scanner.CurrentSegment}/{scanner.SegmentCount}");
 
         // --- Advance to terminal tail ---
         scanner.AdvanceSegment(); // now at segment 2 = terminal tail
@@ -147,8 +147,8 @@ public sealed class SegmentedObservationScannerTests
 
         // Terminal tail contains IsQuestComplete=true → must return true now
         var r5 = scanner.Next("IsQuestComplete", questId);
-        Assert.True("true" == r5.Value?.GetRawText(),
-            $"S2 read in terminal tail — must return true. Got {r5.Value?.GetRawText()}. Segment={scanner.CurrentSegment}/{scanner.SegmentCount}");
+        Assert.True("true" == r5.Data.Value?.GetRawText(),
+            $"S2 read in terminal tail — must return true. Got {r5.Data.Value?.GetRawText()}. Segment={scanner.CurrentSegment}/{scanner.SegmentCount}");
     }
 
     // =========================================================================
@@ -192,17 +192,17 @@ public sealed class SegmentedObservationScannerTests
         // All three reads in segment 0 must return p3 (the deciding value).
         // The walk model (p1 → p2 → p3) is WRONG under the new model.
         var r1 = scanner.Next("GetPlayerPosition", null);
-        Assert.True(P3 == r1.Value?.GetRawText(),
-            $"S3 first read: expected deciding value p3, got {r1.Value?.GetRawText()}. " +
+        Assert.True(P3 == r1.Data.Value?.GetRawText(),
+            $"S3 first read: expected deciding value p3, got {r1.Data.Value?.GetRawText()}. " +
             "If this returns p1, the per-read walk model is still active (RED expected).");
 
         var r2 = scanner.Next("GetPlayerPosition", null);
-        Assert.True(P3 == r2.Value?.GetRawText(),
-            $"S3 second read: expected deciding value p3 (stable), got {r2.Value?.GetRawText()}.");
+        Assert.True(P3 == r2.Data.Value?.GetRawText(),
+            $"S3 second read: expected deciding value p3 (stable), got {r2.Data.Value?.GetRawText()}.");
 
         var r3 = scanner.Next("GetPlayerPosition", null);
-        Assert.True(P3 == r3.Value?.GetRawText(),
-            $"S3 third read: expected deciding value p3 (stable), got {r3.Value?.GetRawText()}.");
+        Assert.True(P3 == r3.Data.Value?.GetRawText(),
+            $"S3 third read: expected deciding value p3 (stable), got {r3.Data.Value?.GetRawText()}.");
     }
 
     // =========================================================================
@@ -246,31 +246,31 @@ public sealed class SegmentedObservationScannerTests
 
         // --- Segment 0: deciding value = p1; p2 must NOT leak ---
         var r1 = scanner.Next("GetPlayerPosition", null);
-        Assert.True(P1 == r1.Value?.GetRawText(),
-            $"S4 first read segment 0: expected p1, got {r1.Value?.GetRawText()}.");
+        Assert.True(P1 == r1.Data.Value?.GetRawText(),
+            $"S4 first read segment 0: expected p1, got {r1.Data.Value?.GetRawText()}.");
 
         // Second read: still p1 (stable, no walk)
         var r2 = scanner.Next("GetPlayerPosition", null);
-        Assert.True(P1 == r2.Value?.GetRawText(),
-            $"S4 second read segment 0: expected p1 (stable deciding value, no leak of p2). Got {r2.Value?.GetRawText()}.");
+        Assert.True(P1 == r2.Data.Value?.GetRawText(),
+            $"S4 second read segment 0: expected p1 (stable deciding value, no leak of p2). Got {r2.Data.Value?.GetRawText()}.");
 
         // Third read: still p1
         var r3 = scanner.Next("GetPlayerPosition", null);
-        Assert.True(P1 == r3.Value?.GetRawText(),
-            $"S4 third read segment 0: still p1. Got {r3.Value?.GetRawText()}.");
+        Assert.True(P1 == r3.Data.Value?.GetRawText(),
+            $"S4 third read segment 0: still p1. Got {r3.Data.Value?.GetRawText()}.");
 
         // --- Advance to segment 1: deciding value updates to p2 ---
         scanner.AdvanceSegment();
         Assert.Equal(1, scanner.CurrentSegment);
 
         var r4 = scanner.Next("GetPlayerPosition", null);
-        Assert.True(P2 == r4.Value?.GetRawText(),
-            $"S4 first read segment 1: expected deciding value p2, got {r4.Value?.GetRawText()}.");
+        Assert.True(P2 == r4.Data.Value?.GetRawText(),
+            $"S4 first read segment 1: expected deciding value p2, got {r4.Data.Value?.GetRawText()}.");
 
         // Second read in segment 1: still p2 (stable)
         var r5 = scanner.Next("GetPlayerPosition", null);
-        Assert.True(P2 == r5.Value?.GetRawText(),
-            $"S4 second read segment 1: expected p2 (stable), got {r5.Value?.GetRawText()}.");
+        Assert.True(P2 == r5.Data.Value?.GetRawText(),
+            $"S4 second read segment 1: expected p2 (stable), got {r5.Data.Value?.GetRawText()}.");
     }
 
     // =========================================================================
@@ -311,8 +311,8 @@ public sealed class SegmentedObservationScannerTests
 
         // Must return 1, not 0 (LastAtOrBefore returns the most recent)
         var result = scanner.Next("GetQuestSequence", questId);
-        Assert.True("1" == result.Value?.GetRawText(),
-            $"S5: in segment 2, GetQuestSequence must return 1 (most recent at-or-before window end). Got {result.Value?.GetRawText()}");
+        Assert.True("1" == result.Data.Value?.GetRawText(),
+            $"S5: in segment 2, GetQuestSequence must return 1 (most recent at-or-before window end). Got {result.Data.Value?.GetRawText()}");
     }
 
     // =========================================================================
@@ -357,8 +357,8 @@ public sealed class SegmentedObservationScannerTests
 
         // Even after over-advancing, terminal tail values remain accessible
         var result = scanner.Next("IsQuestComplete", questId);
-        Assert.True("true" == result.Value?.GetRawText(),
-            $"S6: after clamped AdvanceSegment, IsQuestComplete must still return true. Got {result.Value?.GetRawText()}");
+        Assert.True("true" == result.Data.Value?.GetRawText(),
+            $"S6: after clamped AdvanceSegment, IsQuestComplete must still return true. Got {result.Data.Value?.GetRawText()}");
 
         // Another over-advance: still no throw, still no change
         Exception? ex2 = null;
@@ -401,7 +401,7 @@ public sealed class SegmentedObservationScannerTests
 
         // Contrast: GetPlayerZone IS in the trace; exhausting it within the window pins, no throw
         var r1 = scanner.Next("GetPlayerZone", null);
-        Assert.Equal("""{"value":181}""", r1.Value?.GetRawText());
+        Assert.Equal("""{"value":181}""", r1.Data.Value?.GetRawText());
 
         // Second read: exhausted in window but pair was recorded → pins (no starvation)
         Exception? noEx = null;
@@ -441,8 +441,8 @@ public sealed class SegmentedObservationScannerTests
         var r8  = scanner.Next("IsAetheryteAttuned", aetheryte8);
         var r42 = scanner.Next("IsAetheryteAttuned", aetheryte42);
 
-        Assert.Equal("false", r8.Value?.GetRawText());
-        Assert.Equal("true",  r42.Value?.GetRawText());
+        Assert.Equal("false", r8.Data.Value?.GetRawText());
+        Assert.Equal("true",  r42.Data.Value?.GetRawText());
     }
 
     // =========================================================================
@@ -453,19 +453,23 @@ public sealed class SegmentedObservationScannerTests
         => events.ToList();
 
     private static RunStartEvent RunStart(string runId, uint questId)
-        => new(RunId: runId, QuestId: questId, QuestSchemaId: questId, At: At);
+        => new RunStartEvent { RunId = runId, Data = new RunStartEvent.RunStartData { QuestId = questId } };
 
     private static RunEndEvent RunEnd(string runId, string outcome)
-        => new(RunId: runId, Outcome: outcome, At: At.AddSeconds(60));
+        => new RunEndEvent { RunId = runId, Data = new RunEndEvent.RunEndData { Outcome = outcome } };
 
     private static DecisionEvent Decision(string runId, string stepId, string actionType)
-        => new(RunId: runId, StepId: stepId, ActionType: actionType, At: At.AddSeconds(1));
+        => new DecisionEvent { RunId = runId, Data = new DecisionEvent.DecisionData { StepId = stepId, ActionType = actionType } };
 
     private static ObservationEvent Obs(string method, string? argJson, string valueJson)
-        => new(
-            RunId: "run1",
-            Method: method,
-            Argument: argJson is null ? null : JsonDocument.Parse(argJson).RootElement,
-            Value: JsonDocument.Parse(valueJson).RootElement,
-            At: At);
+        => new ObservationEvent
+        {
+            RunId = "run1",
+            Data = new ObservationEvent.ObservationData
+            {
+                Method   = method,
+                Argument = argJson is null ? null : JsonDocument.Parse(argJson).RootElement,
+                Value    = JsonDocument.Parse(valueJson).RootElement
+            }
+        };
 }

@@ -2,13 +2,16 @@ using System.Text.Json.Serialization;
 
 namespace QuestForge.Adapters.Tracing;
 
-public sealed record ActionCompletedEvent(
-    string RunId,
-    string ActionType,
-    string Outcome,
-    DateTimeOffset At
-) : TraceEvent(At)
+public sealed record ActionCompletedEvent : TraceEvent
 {
     [JsonIgnore]
     public override string Type => "action.completed";
+
+    [JsonPropertyOrder(1)] public ActionCompletedData Data { get; init; } = default!;
+
+    public sealed record ActionCompletedData
+    {
+        public string ActionType { get; init; } = "";
+        public string Outcome { get; init; } = "";
+    }
 }

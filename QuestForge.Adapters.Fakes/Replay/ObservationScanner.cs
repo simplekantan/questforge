@@ -48,8 +48,8 @@ public sealed class ObservationScanner
         for (var i = _cursor; i < _observations.Count; i++)
         {
             var obs = _observations[i];
-            if (obs.Method != method) continue;
-            if (!ArgumentEquals(obs.Argument, requestedArg)) continue;
+            if (obs.Data.Method != method) continue;
+            if (!ArgumentEquals(obs.Data.Argument, requestedArg)) continue;
             _cursor = i + 1;
             _lastSeen[key] = obs;
             return obs;

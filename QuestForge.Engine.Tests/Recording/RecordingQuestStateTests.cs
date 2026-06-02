@@ -58,10 +58,10 @@ public sealed class RecordingQuestStateTests
 
         // Assert — argument captured
         var evt = Assert.IsType<ObservationEvent>(trace.RecordedEvents[0]);
-        Assert.Equal("GetQuestSequence", evt.Method);
-        Assert.NotNull(evt.Argument);
+        Assert.Equal("GetQuestSequence", evt.Data.Method);
+        Assert.NotNull(evt.Data.Argument);
         // The argument JSON should contain 66130
-        Assert.Contains("66130", evt.Argument!.Value.GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("66130", evt.Data.Argument!.Value.GetRawText(), StringComparison.Ordinal);
     }
 
     // -------------------------------------------------------------------------
@@ -88,7 +88,7 @@ public sealed class RecordingQuestStateTests
 
         // Assert
         var evt = Assert.IsType<ObservationEvent>(trace.RecordedEvents[0]);
-        Assert.Equal("IsQuestComplete", evt.Method);
+        Assert.Equal("IsQuestComplete", evt.Data.Method);
     }
 
     // -------------------------------------------------------------------------
@@ -117,9 +117,9 @@ public sealed class RecordingQuestStateTests
 
         // Assert
         var evt = Assert.IsType<ObservationEvent>(trace.RecordedEvents[0]);
-        Assert.NotNull(evt.Value);
-        Assert.Contains("failure", evt.Value!.Value.GetRawText(), StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("db unavailable", evt.Value.Value.GetRawText(), StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(evt.Data.Value);
+        Assert.Contains("failure", evt.Data.Value!.Value.GetRawText(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("db unavailable", evt.Data.Value.Value.GetRawText(), StringComparison.OrdinalIgnoreCase);
     }
 
     // -------------------------------------------------------------------------
@@ -206,8 +206,8 @@ public sealed class RecordingQuestStateTests
         Assert.Equal(2, trace.Count);
         var first = Assert.IsType<ObservationEvent>(trace.RecordedEvents[0]);
         var second = Assert.IsType<ObservationEvent>(trace.RecordedEvents[1]);
-        Assert.Equal("GetQuestSequence", first.Method);
-        Assert.Equal("IsQuestComplete", second.Method);
+        Assert.Equal("GetQuestSequence", first.Data.Method);
+        Assert.Equal("IsQuestComplete", second.Data.Method);
     }
 
     // -------------------------------------------------------------------------
@@ -270,7 +270,7 @@ public sealed class RecordingQuestStateTests
         // Assert — zero ObservationEvents with Method=="IsAcceptableNow"
         var count = trace.RecordedEvents
             .OfType<ObservationEvent>()
-            .Count(e => e.Method == "IsAcceptableNow");
+            .Count(e => e.Data.Method == "IsAcceptableNow");
         Assert.Equal(0, count);
     }
 
@@ -360,7 +360,7 @@ public sealed class RecordingQuestStateTests
 
         // And confirm it is the IsQuestComplete one
         var evt = trace.RecordedEvents.OfType<ObservationEvent>().Single();
-        Assert.Equal("IsQuestComplete", evt.Method);
+        Assert.Equal("IsQuestComplete", evt.Data.Method);
     }
 
     // -------------------------------------------------------------------------
@@ -391,8 +391,8 @@ public sealed class RecordingQuestStateTests
 
         // Assert
         var evt = Assert.IsType<ObservationEvent>(trace.RecordedEvents[0]);
-        Assert.NotNull(evt.Value);
-        Assert.Equal(JsonValueKind.Array, evt.Value!.Value.ValueKind);
+        Assert.NotNull(evt.Data.Value);
+        Assert.Equal(JsonValueKind.Array, evt.Data.Value!.Value.ValueKind);
     }
 }
 

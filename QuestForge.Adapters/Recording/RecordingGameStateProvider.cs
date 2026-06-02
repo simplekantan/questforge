@@ -55,12 +55,16 @@ public sealed class RecordingGameStateProvider : IGameStateProvider
             if (_lastEmitted.TryGetValue(dedupKey, out var prev) && prev == valJson) return;
             _lastEmitted[dedupKey] = valJson;
 
-            _trace.Write(new ObservationEvent(
-                runId,
-                method,
-                argEl,
-                valEl,
-                _clock.GetUtcNow()));
+            _trace.Write(new ObservationEvent
+            {
+                RunId = runId ?? "",
+                Data = new ObservationEvent.ObservationData
+                {
+                    Method   = method,
+                    Argument = argEl,
+                    Value    = valEl
+                }
+            });
         }
         catch
         {

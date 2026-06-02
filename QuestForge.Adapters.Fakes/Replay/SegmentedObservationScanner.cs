@@ -105,7 +105,7 @@ public sealed class SegmentedObservationScanner
         for (var i = 0; i < exclusiveEnd && i < _observations.Count; i++)
         {
             var obs = _observations[i];
-            if (obs.Method == method && ArgumentEquals(obs.Argument, requestedArg))
+            if (obs.Data.Method == method && ArgumentEquals(obs.Data.Argument, requestedArg))
                 result = obs;
         }
         return result;

@@ -786,26 +786,26 @@ A minimal complete trace for a hypothetical two-step quest:
 
 ## Known divergences from this spec (Phase 5–6 implementation, current as of Phase 11)
 
-The trace recorder produces a structurally simpler output than the full spec above. These divergences originate in Phase 5–6 and most remain intentionally in place through Phase 10. Phase 10 (`qf-trace`) explicitly accepts and reads the flat Phase 7+ shape.
+The trace recorder originally produced a structurally simpler output than the full spec above. Most divergences from Phase 5–6 have now been reconciled.
 
 | Spec field / feature | Current behaviour | Status |
 |---|---|---|
-| `seq` (monotonic sequence number per event) | **Not emitted.** Line order in the file is the implicit sequence. | Deferred — `qf-trace` uses event order. |
-| `ts` (monotonic offset in ms from `run.start`) | **Not emitted.** Each event carries `at` (absolute UTC `DateTimeOffset`). | Deferred. |
-| `data` sub-object wrapper | **Not used.** Payload fields are flattened at the top level. E.g. spec shows `{"type":"decision","data":{"stepId":"..."}}` but the recorder emits `{"type":"decision","stepId":"..."}`. Phase 10 reads the flat shape. | Intentionally flat; spec example is aspirational. |
-| `v` (format version) | **Not emitted.** Each event has no `v` field. | Deferred. |
-| `runId` in every event | **Emitted** as a top-level field. | Matches spec intent — no change needed. |
-| `run.start` metadata fields (`pluginVer`, `dataVer`, `dataHash`, `patchVer`, `engineConfig`, `precedingRunId`) | **Not emitted.** `run.start` carries `runId`, `questId`, `questSchemaId`, `at` only. | Deferred — add as plugin config layer matures. |
+| `seq` (monotonic sequence number per event) | **Emitted.** `TraceSession` stamps monotonic seq starting at 0 per file. | ✅ Reconciled. |
+| `ts` (monotonic offset in ms from `run.start`) | **Emitted.** `TraceSession` stamps from `Stopwatch` started at file open. | ✅ Reconciled. |
+| `data` sub-object wrapper | **Emitted.** All event types use nested `Data` records; payload is inside `"data":{...}`. | ✅ Reconciled. |
+| `v` (format version) | **Emitted.** Every event carries `v: 1`. | ✅ Reconciled. |
+| `runId` in every event | **Emitted** as a base-class property at the envelope level. | ✅ Reconciled. |
+| `run.start` metadata fields | **Partially emitted.** `pluginVer`, `patchVer`, `wallClockUtc` emitted from EngineHost. `engineConfig`, `precedingRunId`, `newGamePlus` always null. `dataVer`/`dataHash` not yet emitted (no data repo). | Partially reconciled. |
 | Cutscene skip confirmation | **Not recorded.** Deterministic from `IsRunActive` so does not affect replay. | No change needed. |
-| `action.submitted` / `action.completed` pairs | **Now emitted** (added Phase 7) from `EngineHost.DispatchAction`. Phase 10 `extract-quest` reads these to recover navigate destinations and NPC IDs. | ✅ Reconciled in Phase 7. |
+| `action.submitted` / `action.completed` pairs | **Emitted** (added Phase 7) from `EngineHost.DispatchAction`. | ✅ Reconciled in Phase 7. |
 
 **Observation deduplication (added Phase 7):** `RecordingGameStateProvider` and `RecordingQuestState` emit an `observation` event only when the value changes from the previous emission for that `(method, argument)` pair. This is also the reason Phase 10 `SnapshotState` uses last-value-wins semantics.
 
 **Ambient quest flag polling (added Phase 8):** `EngineHost.TickAsync` proactively calls `GetQuestFlags` on the active quest after each dispatch when tracing is enabled, so flag-bit transitions appear in traces without requiring `questFlag()` predicates in quest files.
 
-**Phase 10 reading contract:** `qf-trace` reads traces produced by the Phase 7+ recorder — top-level `type` discriminator, `runId` at top level, flat payload fields, `action.submitted`/`action.completed` pairs present. Traces from Phase 5–6 (no action pairs, no type discriminator on some events) are not supported by Phase 10 tooling.
+**Phase 10 reading contract:** `qf-trace` reads traces produced by the Phase 7+ recorder. **Note:** Phase 10 tooling must be updated to read the new envelope+data shape (paired PR required). Traces from Phase 5–6 are not supported.
 
-**Phase 11A CLI wiring:** All four `qf-trace` subcommands (`extract-fixture`, `validate-fixture`, `list-fixtures`, `extract-quest`) are now fully implemented and wired in the `qf-trace` CLI. The divergences listed above that were tooling-only (i.e. existed only because the CLI was not yet built) are resolved. The remaining divergences — `seq`, `ts`, `v`, and the `data` sub-object — are still deferred implementation details in the recorder itself.
+**Phase 11A CLI wiring:** All four `qf-trace` subcommands (`extract-fixture`, `validate-fixture`, `list-fixtures`, `extract-quest`) are fully implemented and wired in the `qf-trace` CLI.
 
 **`inventory.changed` event (added Phase 11):** When `InventoryChangedEvent` fires (FNV-1a hash-based key-item inventory change detection), the trace recorder emits an `inventory.changed` diagnostic event. This event carries a `KeyItemDelta` payload listing which item IDs were added and which were removed. It is a diagnostic event (not replay-verified) and serves as the signal that `StepInferenceEngine` Rule 2.6 uses to infer `HandOverItemStep` during authoring.
 

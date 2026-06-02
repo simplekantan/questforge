@@ -187,11 +187,11 @@ public sealed class NewGamePlusStateS1Tests
         // Then: exactly one observation
         var obs = trace.RecordedEvents.OfType<ObservationEvent>().ToList();
         Assert.Equal(1, obs.Count);
-        Assert.Equal("GetNewGamePlusState", obs[0].Method);
+        Assert.Equal("GetNewGamePlusState", obs[0].Data.Method);
 
         // Value must be present and contain activeReplayQuestId == 70123
-        Assert.NotNull(obs[0].Value);
-        var valueJson = obs[0].Value!.Value.GetRawText();
+        Assert.NotNull(obs[0].Data.Value);
+        var valueJson = obs[0].Data.Value!.Value.GetRawText();
         Assert.Contains("activeReplayQuestId", valueJson, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("70123", valueJson, StringComparison.Ordinal);
     }
@@ -224,7 +224,7 @@ public sealed class NewGamePlusStateS1Tests
 
         // Then: dedup suppresses the second — exactly ONE observation
         var ngpObs = trace.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetNewGamePlusState")
+            .Where(e => e.Data.Method == "GetNewGamePlusState")
             .ToList();
         Assert.Equal(1, ngpObs.Count);
     }
@@ -258,7 +258,7 @@ public sealed class NewGamePlusStateS1Tests
 
         // Then: both observations emitted
         var ngpObs = trace.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetNewGamePlusState")
+            .Where(e => e.Data.Method == "GetNewGamePlusState")
             .ToList();
         Assert.Equal(2, ngpObs.Count);
     }
@@ -288,12 +288,11 @@ public sealed class NewGamePlusStateS1Tests
         var recordedState = new NewGamePlusState(true, new NewGamePlusChapter(2, "Ch2"), false, new QuestId(70123)); // compile-fails
         var valueJson = JsonSerializer.SerializeToElement(recordedState, CamelCase);
 
-        var obs = new ObservationEvent(
-            RunId: "run-s1-replay",
-            Method: "GetNewGamePlusState",
-            Argument: null,
-            Value: valueJson,
-            At: At);
+        var obs = new ObservationEvent
+        {
+            RunId = "run-s1-replay",
+            Data = new ObservationEvent.ObservationData { Method = "GetNewGamePlusState", Value = valueJson }
+        };
 
         var replay = new ReplayGameStateProvider(new[] { obs });
 
@@ -339,7 +338,7 @@ public sealed class NewGamePlusStateS1Tests
 
         // Retrieve the observation
         var recorded = trace.RecordedEvents.OfType<ObservationEvent>()
-            .Single(e => e.Method == "GetNewGamePlusState");
+            .Single(e => e.Data.Method == "GetNewGamePlusState");
 
         // Replay
         var replay = new ReplayGameStateProvider(new[] { recorded });
@@ -377,12 +376,11 @@ public sealed class NewGamePlusStateS1Tests
 
         // Confirm the serialized form includes activeReplayQuestId null once field exists
         // (this assertion only activates after the builder adds the field)
-        var obs = new ObservationEvent(
-            RunId: "run-s1-null",
-            Method: "GetNewGamePlusState",
-            Argument: null,
-            Value: valueJson,
-            At: At);
+        var obs = new ObservationEvent
+        {
+            RunId = "run-s1-null",
+            Data = new ObservationEvent.ObservationData { Method = "GetNewGamePlusState", Value = valueJson }
+        };
 
         var replay = new ReplayGameStateProvider(new[] { obs });
 
@@ -417,7 +415,7 @@ public sealed class NewGamePlusStateS1Tests
         await proxy.GetNewGamePlusState(CancellationToken.None);
 
         var recorded = trace.RecordedEvents.OfType<ObservationEvent>()
-            .Single(e => e.Method == "GetNewGamePlusState");
+            .Single(e => e.Data.Method == "GetNewGamePlusState");
 
         // Replay
         var replay = new ReplayGameStateProvider(new[] { recorded });
