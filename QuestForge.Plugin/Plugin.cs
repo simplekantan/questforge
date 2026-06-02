@@ -26,6 +26,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly IDalamudPluginInterface _pi;
     private readonly WindowSystem _windowSystem = new("QuestForge");
     private readonly UI.MainWindow _mainWindow;
+    private readonly UI.ConfigWindow _configWindow;
     private readonly AuthoringSessionPanel _authoringSessionPanel;
     private readonly InteractionPanel _interactionPanel;
     private readonly PlayerStatePanel _playerStatePanel;
@@ -87,8 +88,11 @@ public sealed class Plugin : IDalamudPlugin
             new QuestForge.Engine.Scheduling.SchedulerOptions([], config.EnableCraftGatherQuests, config.EnableSideQuests, config.EnableBlueQuests),
             new QuestForge.Plugin.Logging.DalamudLogger<QuestForge.Engine.Scheduling.QuestScheduler>(log));
 
-        _mainWindow = new UI.MainWindow(_host, _scheduler, config, pi, _traceSession);
+        _configWindow = new UI.ConfigWindow(config, pi, _traceSession, _host);
+        _mainWindow = new UI.MainWindow(_host, _scheduler, config);
+        _mainWindow.SetConfigWindow(_configWindow);
         _windowSystem.AddWindow(_mainWindow);
+        _windowSystem.AddWindow(_configWindow);
 
         // Authoring infrastructure
         var draftsDir = Path.Combine(pi.GetPluginConfigDirectory(), "drafts");
@@ -100,7 +104,7 @@ public sealed class Plugin : IDalamudPlugin
         var editModal = new StepEditModal(_authoringHost);
         editModal.SetRecordModal(recordModal);
         var exportDialog = new ExportDialog(_authoringHost, pi, dataManager);
-        _authoringSessionPanel = new AuthoringSessionPanel(_authoringHost, recordModal, editModal, exportDialog, config, pi);
+        _authoringSessionPanel = new AuthoringSessionPanel(_authoringHost, recordModal, editModal, exportDialog);
 
         _windowSystem.AddWindow(_authoringSessionPanel);
         _windowSystem.AddWindow(recordModal);
@@ -115,6 +119,7 @@ public sealed class Plugin : IDalamudPlugin
 
         pi.UiBuilder.Draw += _windowSystem.Draw;
         pi.UiBuilder.OpenMainUi += _mainWindow.Toggle;
+        pi.UiBuilder.OpenConfigUi += _configWindow.Toggle;
 
         _command = new QfCommand(_host, _authoringHost, _authoringSessionPanel, _interactionPanel, _playerStatePanel, _questStatePanel, _scheduler, _mainWindow, _questData, dataManager, gameGui, commandManager, chatGui, log, pi, config, objectTable, framework, hooks);
 
@@ -186,6 +191,7 @@ public sealed class Plugin : IDalamudPlugin
         _cts.Cancel();
         _pi.UiBuilder.Draw -= _windowSystem.Draw;
         _pi.UiBuilder.OpenMainUi -= _mainWindow.Toggle;
+        _pi.UiBuilder.OpenConfigUi -= _configWindow.Toggle;
         _command.Dispose();
         _responder.Dispose();
         _host.Dispose();
