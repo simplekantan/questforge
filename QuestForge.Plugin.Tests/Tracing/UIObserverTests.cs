@@ -571,7 +571,7 @@ public sealed class UIObserverTests
         // Assert — no spurious "closed" observation written
         var newEvents = writer.RecordedEvents.Skip(countBefore)
             .OfType<ObservationEvent>()
-            .Where(e => e.Method == "AethernetTeleportCompleted")
+            .Where(e => e.Data.Method == "AethernetTeleportCompleted")
             .ToList();
         Assert.Empty(newEvents);
 
@@ -669,7 +669,7 @@ public sealed class UIObserverTests
         // Assert — no spurious "DialogueOptionSelected" written from stale state
         var newEvents = writer.RecordedEvents.Skip(countBefore)
             .OfType<ObservationEvent>()
-            .Where(e => e.Method == "DialogueOptionSelected")
+            .Where(e => e.Data.Method == "DialogueOptionSelected")
             .ToList();
         Assert.Empty(newEvents);
 
@@ -737,7 +737,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .FirstOrDefault(e => e.Method == "GetQuestSequence");
+            .FirstOrDefault(e => e.Data.Method == "GetQuestSequence");
         Assert.NotNull(obs);
 
         observer.Dispose();
@@ -763,7 +763,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .FirstOrDefault(e => e.Method == "GetQuestFlags");
+            .FirstOrDefault(e => e.Data.Method == "GetQuestFlags");
         Assert.NotNull(obs);
 
         observer.Dispose();
@@ -789,7 +789,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .FirstOrDefault(e => e.Method == "IsQuestAccepted");
+            .FirstOrDefault(e => e.Data.Method == "IsQuestAccepted");
         Assert.NotNull(obs);
 
         observer.Dispose();
@@ -815,7 +815,7 @@ public sealed class UIObserverTests
 
         framework.Tick();
         var countAfterFirst = writer.RecordedEvents.Count(e =>
-            e is ObservationEvent { Method: "GetQuestSequence" });
+            e is ObservationEvent obs && obs.Data.Method == "GetQuestSequence");
 
         // Advance past heartbeat threshold
         clock.Advance(TimeSpan.FromMilliseconds(300));
@@ -825,7 +825,7 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var countAfterSecond = writer.RecordedEvents.Count(e =>
-            e is ObservationEvent { Method: "GetQuestSequence" });
+            e is ObservationEvent obs2 && obs2.Data.Method == "GetQuestSequence");
 
         // Assert
         Assert.Equal(countAfterFirst, countAfterSecond);
@@ -858,7 +858,7 @@ public sealed class UIObserverTests
 
         // Assert — at least 2 GetQuestSequence observations written total
         var seqObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetQuestSequence")
+            .Where(e => e.Data.Method == "GetQuestSequence")
             .ToList();
         Assert.True(seqObs.Count >= 2,
             $"Expected >=2 GetQuestSequence observations (seq 1 then 255), got {seqObs.Count}");
@@ -891,7 +891,7 @@ public sealed class UIObserverTests
 
         // Assert
         var flagObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetQuestFlags")
+            .Where(e => e.Data.Method == "GetQuestFlags")
             .ToList();
         Assert.True(flagObs.Count >= 2,
             $"Expected >=2 GetQuestFlags observations (0 then 0x08), got {flagObs.Count}");
@@ -923,7 +923,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .FirstOrDefault(e => e.Method == "IsQuestComplete");
+            .FirstOrDefault(e => e.Data.Method == "IsQuestComplete");
         Assert.NotNull(obs);
 
         observer.Dispose();
@@ -949,7 +949,7 @@ public sealed class UIObserverTests
 
         // Assert
         var questObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetQuestSequence" || e.Method == "IsQuestAccepted")
+            .Where(e => e.Data.Method == "GetQuestSequence" || e.Data.Method == "IsQuestAccepted")
             .ToList();
         Assert.All(questObs, e => Assert.Equal(PassiveRunId, e.RunId));
 
@@ -980,7 +980,7 @@ public sealed class UIObserverTests
 
         // Assert
         var questObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetQuestSequence" || e.Method == "IsQuestAccepted")
+            .Where(e => e.Data.Method == "GetQuestSequence" || e.Data.Method == "IsQuestAccepted")
             .ToList();
         Assert.NotEmpty(questObs);
         Assert.All(questObs, e => Assert.Equal("active-001", e.RunId));
@@ -1183,9 +1183,9 @@ public sealed class UIObserverTests
 
         // Assert — no quest observations
         var questObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetQuestSequence"
-                     || e.Method == "GetQuestFlags"
-                     || e.Method == "IsQuestAccepted")
+            .Where(e => e.Data.Method == "GetQuestSequence"
+                     || e.Data.Method == "GetQuestFlags"
+                     || e.Data.Method == "IsQuestAccepted")
             .ToList();
         Assert.Empty(questObs);
 
@@ -1212,7 +1212,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetQuestSequence" || e.Method == "IsQuestAccepted")
+            .Where(e => e.Data.Method == "GetQuestSequence" || e.Data.Method == "IsQuestAccepted")
             .ToList();
         Assert.Empty(obs);
 
@@ -1240,7 +1240,7 @@ public sealed class UIObserverTests
 
         // Assert
         var seqObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetQuestSequence")
+            .Where(e => e.Data.Method == "GetQuestSequence")
             .ToList();
         Assert.Equal(2, seqObs.Count);
 
@@ -1308,7 +1308,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .FirstOrDefault(e => e.Method == "IsAetheryteAttuned");
+            .FirstOrDefault(e => e.Data.Method == "IsAetheryteAttuned");
         Assert.NotNull(obs);
 
         observer.Dispose();
@@ -1322,7 +1322,7 @@ public sealed class UIObserverTests
          *
          * CONTRACT: Given an aggregator is set and aetheryte 42 becomes unlocked,
          *           When a tick fires,
-         *           Then aggregator.Current.LastAttuned.Value == 42.
+         *           Then aggregator.Current.LastAttuned.Data.Value == 42.
          */
 
         // Arrange
@@ -1359,7 +1359,7 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var countAfterFirst = writer.RecordedEvents.Count(e =>
-            e is ObservationEvent { Method: "IsAetheryteAttuned" });
+            e is ObservationEvent obsM && obsM.Data.Method == "IsAetheryteAttuned");
 
         clock.Advance(TimeSpan.FromMilliseconds(300));
         observer.ResetHeartbeatState();
@@ -1369,7 +1369,7 @@ public sealed class UIObserverTests
 
         // Assert
         var countAfterSecond = writer.RecordedEvents.Count(e =>
-            e is ObservationEvent { Method: "IsAetheryteAttuned" });
+            e is ObservationEvent obsM && obsM.Data.Method == "IsAetheryteAttuned");
         Assert.Equal(countAfterFirst, countAfterSecond);
 
         observer.Dispose();
@@ -1401,7 +1401,7 @@ public sealed class UIObserverTests
 
         // Assert — no attunement observations
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "IsAetheryteAttuned")
+            .Where(e => e.Data.Method == "IsAetheryteAttuned")
             .ToList();
         Assert.Empty(obs);
 
@@ -1431,7 +1431,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "IsAetheryteAttuned")
+            .Where(e => e.Data.Method == "IsAetheryteAttuned")
             .ToList();
         Assert.Empty(obs);
 
@@ -1460,7 +1460,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "IsAetheryteAttuned")
+            .Where(e => e.Data.Method == "IsAetheryteAttuned")
             .ToList();
         Assert.Equal(3, obs.Count);
 
@@ -1487,7 +1487,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .First(e => e.Method == "IsAetheryteAttuned");
+            .First(e => e.Data.Method == "IsAetheryteAttuned");
         Assert.Equal(PassiveRunId, obs.RunId);
 
         observer.Dispose();
@@ -1514,7 +1514,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .First(e => e.Method == "IsAetheryteAttuned");
+            .First(e => e.Data.Method == "IsAetheryteAttuned");
         Assert.Equal("active-001", obs.RunId);
 
         observer.Dispose();
@@ -1528,7 +1528,7 @@ public sealed class UIObserverTests
          *
          * CONTRACT: Given aetheryte rowId=42 becomes unlocked,
          *           When tick fires,
-         *           Then the ObservationEvent.Argument (or Value) encodes 42.
+         *           Then the ObservationEvent.Data.Argument (or Value) encodes 42.
          *
          * BUILDER GUIDANCE: Use the rowId as the argument to WriteObservation
          *   (mirroring WriteObservationDeduped("IsAetheryteAttuned", row.RowId, 1)).
@@ -1543,11 +1543,11 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .First(e => e.Method == "IsAetheryteAttuned");
+            .First(e => e.Data.Method == "IsAetheryteAttuned");
         // The argument should encode 42 (as a JSON number)
         Assert.True(
-            (obs.Argument?.GetRawText() == "42") || (obs.Value?.GetRawText() == "42"),
-            $"Expected 42 in Argument or Value. Argument={obs.Argument?.GetRawText()}, Value={obs.Value?.GetRawText()}");
+            (obs.Data.Argument?.GetRawText() == "42") || (obs.Data.Value?.GetRawText() == "42"),
+            $"Expected 42 in Argument or Value. Argument={obs.Data.Argument?.GetRawText()}, Value={obs.Data.Value?.GetRawText()}");
 
         observer.Dispose();
     }
@@ -1614,8 +1614,8 @@ public sealed class UIObserverTests
 
         // Assert
         var obsFor99 = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "IsAetheryteAttuned")
-            .Where(e => (e.Argument?.GetRawText() == "99") || (e.Value?.GetRawText() == "99"))
+            .Where(e => e.Data.Method == "IsAetheryteAttuned")
+            .Where(e => (e.Data.Argument?.GetRawText() == "99") || (e.Data.Value?.GetRawText() == "99"))
             .ToList();
         Assert.NotEmpty(obsFor99);
 
@@ -1683,7 +1683,7 @@ public sealed class UIObserverTests
         // Assert — no new attunement observations
         var newObs = writer.RecordedEvents.Skip(countAfterFirst)
             .OfType<ObservationEvent>()
-            .Where(e => e.Method == "IsAetheryteAttuned")
+            .Where(e => e.Data.Method == "IsAetheryteAttuned")
             .ToList();
         Assert.Empty(newObs);
 
@@ -1715,7 +1715,7 @@ public sealed class UIObserverTests
 
         // Assert
         Assert.Empty(writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "InventoryChanged"));
+            .Where(e => e.Data.Method == "InventoryChanged"));
 
         observer.Dispose();
     }
@@ -1739,7 +1739,7 @@ public sealed class UIObserverTests
 
         // Assert — an ObservationEvent with Method="InventoryChanged" is written
         var changed = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "InventoryChanged")
+            .Where(e => e.Data.Method == "InventoryChanged")
             .ToList();
         Assert.NotEmpty(changed);
 
@@ -1832,7 +1832,7 @@ public sealed class UIObserverTests
 
         // Assert
         var changed = writer.RecordedEvents.OfType<ObservationEvent>()
-            .FirstOrDefault(e => e.Method == "InventoryChanged");
+            .FirstOrDefault(e => e.Data.Method == "InventoryChanged");
         if (changed != null)
             Assert.Equal("active-001", changed.RunId);
 
@@ -1865,7 +1865,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "AethernetTeleportCompleted")
+            .Where(e => e.Data.Method == "AethernetTeleportCompleted")
             .ToList();
         Assert.Empty(obs);
 
@@ -1901,7 +1901,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .FirstOrDefault(e => e.Method == "AethernetTeleportCompleted");
+            .FirstOrDefault(e => e.Data.Method == "AethernetTeleportCompleted");
         Assert.NotNull(obs);
 
         observer.Dispose();
@@ -1932,7 +1932,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "AethernetTeleportCompleted")
+            .Where(e => e.Data.Method == "AethernetTeleportCompleted")
             .ToList();
         Assert.Empty(obs);
 
@@ -1963,7 +1963,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "AethernetTeleportCompleted")
+            .Where(e => e.Data.Method == "AethernetTeleportCompleted")
             .ToList();
         Assert.Empty(obs);
 
@@ -1998,7 +1998,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "DialogueOptionSelected")
+            .Where(e => e.Data.Method == "DialogueOptionSelected")
             .ToList();
         Assert.Empty(obs);
 
@@ -2064,7 +2064,7 @@ public sealed class UIObserverTests
         // Assert — DialogueNpcCaptured observation may or may not fire (depends on target)
         // but must not throw
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "DialogueNpcCaptured")
+            .Where(e => e.Data.Method == "DialogueNpcCaptured")
             .ToList();
         Assert.True(obs.Count <= 1,
             "DialogueNpcCaptured must fire at most once when the menu opens");
@@ -2098,7 +2098,7 @@ public sealed class UIObserverTests
 
         // Assert
         var obs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "DialogueOptionSelected")
+            .Where(e => e.Data.Method == "DialogueOptionSelected")
             .ToList();
         Assert.Empty(obs);
 
@@ -2313,7 +2313,7 @@ public sealed class UIObserverTests
         // Assert
         var newInvEvents = writer2.RecordedEvents.Skip(countAfterFirst)
             .OfType<ObservationEvent>()
-            .Where(e => e.Method == "InventoryChanged")
+            .Where(e => e.Data.Method == "InventoryChanged")
             .ToList();
         Assert.Empty(newInvEvents);
 
@@ -2551,7 +2551,7 @@ public sealed class UIObserverTests
 
         // Assert — both outputs fired
         var traceObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "IsQuestAccepted" || e.Method == "GetQuestSequence")
+            .Where(e => e.Data.Method == "IsQuestAccepted" || e.Data.Method == "GetQuestSequence")
             .ToList();
         Assert.NotEmpty(traceObs);
         Assert.True(aggregator.Current.QuestAccepted,
@@ -2581,7 +2581,7 @@ public sealed class UIObserverTests
         gameProbe.AddQuest(0x200u, 1, 0);
         framework.Tick();
         var seqCountAfterFirst = writer.RecordedEvents.Count(e =>
-            e is ObservationEvent { Method: "GetQuestSequence" });
+            e is ObservationEvent obsM && obsM.Data.Method == "GetQuestSequence");
 
         clock.Advance(TimeSpan.FromMilliseconds(300));
         observer.ResetHeartbeatState();
@@ -2590,7 +2590,7 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var seqCountAfterSecond = writer.RecordedEvents.Count(e =>
-            e is ObservationEvent { Method: "GetQuestSequence" });
+            e is ObservationEvent obsM && obsM.Data.Method == "GetQuestSequence");
 
         // Assert — TraceSession dedup suppressed the repeat
         Assert.Equal(seqCountAfterFirst, seqCountAfterSecond);
@@ -2669,7 +2669,7 @@ public sealed class UIObserverTests
 
         // Assert
         var varObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetQuestVariables")
+            .Where(e => e.Data.Method == "GetQuestVariables")
             .ToList();
 
         Assert.NotEmpty(varObs);
@@ -2689,7 +2689,7 @@ public sealed class UIObserverTests
          *           Then the GetQuestVariables ObservationEvent:
          *             - Value is a JSON array (NOT base64) with those six bytes.
          *             - Argument encodes the public quest id (0x200 | 0x10000 = 0x10200).
-         *           (Mirrors GetQuestSequence arg handling: publicId.Value as the argument.)
+         *           (Mirrors GetQuestSequence arg handling: publicId.Data.Value as the argument.)
          */
 
         // Arrange
@@ -2703,21 +2703,21 @@ public sealed class UIObserverTests
 
         // Assert
         var varObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .FirstOrDefault(e => e.Method == "GetQuestVariables");
+            .FirstOrDefault(e => e.Data.Method == "GetQuestVariables");
 
         Assert.NotNull(varObs);
 
         // Value must be a JSON array, not a base64 string.
-        Assert.NotNull(varObs!.Value);
-        Assert.Equal(JsonValueKind.Array, varObs.Value!.Value.ValueKind);
+        Assert.NotNull(varObs!.Data.Value);
+        Assert.Equal(JsonValueKind.Array, varObs.Data.Value!.Value.ValueKind);
 
         // The six bytes must be present in the array.
-        var elements = varObs.Value.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
+        var elements = varObs.Data.Value.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
         Assert.Equal(new byte[] { 0x10, 0x00, 0x00, 0x05, 0x00, 0x00 }, elements);
 
         // Argument must encode the public quest id (0x200 | 0x10000 = 0x10200 = 66048 decimal).
-        Assert.NotNull(varObs.Argument);
-        var argText = varObs.Argument!.Value.GetRawText();
+        Assert.NotNull(varObs.Data.Argument);
+        var argText = varObs.Data.Argument!.Value.GetRawText();
         Assert.Contains("66048", argText, StringComparison.Ordinal);
 
         observer.Dispose();
@@ -2745,7 +2745,7 @@ public sealed class UIObserverTests
         // Tick 1 — writes initial observations
         framework.Tick();
         var countAfterFirst = writer.RecordedEvents.Count(e =>
-            e is ObservationEvent { Method: "GetQuestVariables" });
+            e is ObservationEvent obsM && obsM.Data.Method == "GetQuestVariables");
 
         // Advance past heartbeat threshold
         clock.Advance(TimeSpan.FromMilliseconds(300));
@@ -2755,7 +2755,7 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var countAfterSecond = writer.RecordedEvents.Count(e =>
-            e is ObservationEvent { Method: "GetQuestVariables" });
+            e is ObservationEvent obsM && obsM.Data.Method == "GetQuestVariables");
 
         // Assert — no new observation (dedup in TraceSession)
         Assert.Equal(countAfterFirst, countAfterSecond);
@@ -2784,7 +2784,7 @@ public sealed class UIObserverTests
         // Tick 1 — writes initial all-zero variables observation
         framework.Tick();
         var countAfterFirst = writer.RecordedEvents.Count(e =>
-            e is ObservationEvent { Method: "GetQuestVariables" });
+            e is ObservationEvent obsM && obsM.Data.Method == "GetQuestVariables");
 
         // Change the variables
         // RED compile-error: SetQuestVariables does not exist on FakeGameProbe yet.
@@ -2798,7 +2798,7 @@ public sealed class UIObserverTests
 
         // Assert — at least 2 GetQuestVariables observations total (initial + changed)
         var allVarObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetQuestVariables")
+            .Where(e => e.Data.Method == "GetQuestVariables")
             .ToList();
 
         Assert.True(allVarObs.Count >= 2,
@@ -2807,8 +2807,8 @@ public sealed class UIObserverTests
 
         // The second observation must carry the changed bytes.
         var secondObs = allVarObs.Last();
-        Assert.NotNull(secondObs.Value);
-        var changedElements = secondObs.Value!.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
+        Assert.NotNull(secondObs.Data.Value);
+        var changedElements = secondObs.Data.Value!.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
         Assert.Equal(new byte[] { 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 }, changedElements);
 
         observer.Dispose();
@@ -2991,7 +2991,7 @@ public sealed class UIObserverTests
 
         // Assert
         var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ActionCompleted")
+            .Where(e => e.Data.Method == "ActionCompleted")
             .ToList();
         Assert.Empty(actionObs);
         Assert.Null(aggregator.Current.ActionCompleted);
@@ -3023,7 +3023,7 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ActionCompleted")
+            .Where(e => e.Data.Method == "ActionCompleted")
             .ToList();
         Assert.Empty(actionObs);
         Assert.Null(aggregator.Current.ActionCompleted);
@@ -3057,12 +3057,12 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ActionCompleted")
+            .Where(e => e.Data.Method == "ActionCompleted")
             .ToList();
         Assert.Single(actionObs);
         Assert.True(
-            actionObs[0].Argument?.GetRawText() == "31",
-            $"Expected Argument=31 but got {actionObs[0].Argument?.GetRawText()}");
+            actionObs[0].Data.Argument?.GetRawText() == "31",
+            $"Expected Argument=31 but got {actionObs[0].Data.Argument?.GetRawText()}");
 
         Assert.NotNull(aggregator.Current.ActionCompleted);
         Assert.Equal(QuestForge.Schema.ActionType.Action, aggregator.Current.ActionCompleted!.ActionType);
@@ -3093,13 +3093,13 @@ public sealed class UIObserverTests
         gameProbe.SetLastActionEffect(102u, 1u, 35u); framework.Tick(); // event 2
 
         var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ActionCompleted")
+            .Where(e => e.Data.Method == "ActionCompleted")
             .ToList();
         Assert.Equal(2, actionObs.Count);
-        Assert.True(actionObs[0].Argument?.GetRawText() == "31",
-            $"First observation Argument should be 31, got {actionObs[0].Argument?.GetRawText()}");
-        Assert.True(actionObs[1].Argument?.GetRawText() == "35",
-            $"Second observation Argument should be 35, got {actionObs[1].Argument?.GetRawText()}");
+        Assert.True(actionObs[0].Data.Argument?.GetRawText() == "31",
+            $"First observation Argument should be 31, got {actionObs[0].Data.Argument?.GetRawText()}");
+        Assert.True(actionObs[1].Data.Argument?.GetRawText() == "35",
+            $"Second observation Argument should be 35, got {actionObs[1].Data.Argument?.GetRawText()}");
 
         Assert.NotNull(aggregator.Current.ActionCompleted);
         Assert.Equal(35u, aggregator.Current.ActionCompleted!.ActionId);
@@ -3132,11 +3132,11 @@ public sealed class UIObserverTests
         gameProbe.SetLastActionEffect(102u, 1u, 31u);  framework.Tick(); // supported — ONE event
 
         var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ActionCompleted")
+            .Where(e => e.Data.Method == "ActionCompleted")
             .ToList();
         Assert.Single(actionObs);
-        Assert.True(actionObs[0].Argument?.GetRawText() == "31",
-            $"Expected Argument=31 (supported action), got {actionObs[0].Argument?.GetRawText()}");
+        Assert.True(actionObs[0].Data.Argument?.GetRawText() == "31",
+            $"Expected Argument=31 (supported action), got {actionObs[0].Data.Argument?.GetRawText()}");
 
         Assert.NotNull(aggregator.Current.ActionCompleted);
         Assert.Equal(31u, aggregator.Current.ActionCompleted!.ActionId);
@@ -3172,7 +3172,7 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ActionCompleted")
+            .Where(e => e.Data.Method == "ActionCompleted")
             .ToList();
         Assert.Empty(actionObs);
         Assert.Null(aggregator.Current.ActionCompleted);
@@ -3211,7 +3211,7 @@ public sealed class UIObserverTests
         Assert.Null(ex);
 
         var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ActionCompleted")
+            .Where(e => e.Data.Method == "ActionCompleted")
             .ToList();
         Assert.Empty(actionObs);
 
@@ -3245,7 +3245,7 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ActionCompleted")
+            .Where(e => e.Data.Method == "ActionCompleted")
             .ToList();
         Assert.Single(actionObs);
 
@@ -3281,11 +3281,11 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ActionCompleted")
+            .Where(e => e.Data.Method == "ActionCompleted")
             .ToList();
         Assert.Single(actionObs);
-        Assert.True(actionObs[0].Argument?.GetRawText() == "4",
-            $"Expected Argument=4 (Sprint id), got {actionObs[0].Argument?.GetRawText()}");
+        Assert.True(actionObs[0].Data.Argument?.GetRawText() == "4",
+            $"Expected Argument=4 (Sprint id), got {actionObs[0].Data.Argument?.GetRawText()}");
 
         Assert.NotNull(aggregator.Current.ActionCompleted);
         Assert.Null(aggregator.Current.ActionCompleted!.TargetBaseId);
@@ -3374,12 +3374,12 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "EmoteCompleted")
+            .Where(e => e.Data.Method == "EmoteCompleted")
             .ToList();
         Assert.Single(emoteObs);
         Assert.True(
-            emoteObs[0].Argument?.GetRawText() == "17",
-            $"Expected Argument=17 but got {emoteObs[0].Argument?.GetRawText()}");
+            emoteObs[0].Data.Argument?.GetRawText() == "17",
+            $"Expected Argument=17 but got {emoteObs[0].Data.Argument?.GetRawText()}");
 
         Assert.NotNull(aggregator.Current.EmoteCompleted);
         Assert.Equal(17u, aggregator.Current.EmoteCompleted!.EmoteId);
@@ -3412,7 +3412,7 @@ public sealed class UIObserverTests
         framework.Tick(); // still 17 — no new event
 
         var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "EmoteCompleted")
+            .Where(e => e.Data.Method == "EmoteCompleted")
             .ToList();
         Assert.Single(emoteObs); // still exactly 1
         Assert.NotNull(aggregator.Current.EmoteCompleted);
@@ -3448,7 +3448,7 @@ public sealed class UIObserverTests
         framework.Tick(); // tick 2: 17 → 0, silent reset
 
         var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "EmoteCompleted")
+            .Where(e => e.Data.Method == "EmoteCompleted")
             .ToList();
         Assert.Single(emoteObs); // still just 1
 
@@ -3460,12 +3460,12 @@ public sealed class UIObserverTests
         framework.Tick(); // tick 3: 0 → 22, event 2 fires
 
         var emoteObs2 = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "EmoteCompleted")
+            .Where(e => e.Data.Method == "EmoteCompleted")
             .ToList();
         Assert.Equal(2, emoteObs2.Count);
         Assert.True(
-            emoteObs2[1].Argument?.GetRawText() == "22",
-            $"Expected second Argument=22 but got {emoteObs2[1].Argument?.GetRawText()}");
+            emoteObs2[1].Data.Argument?.GetRawText() == "22",
+            $"Expected second Argument=22 but got {emoteObs2[1].Data.Argument?.GetRawText()}");
         Assert.Equal(22u, aggregator.Current.EmoteCompleted!.EmoteId);
 
         observer.Dispose();
@@ -3495,12 +3495,12 @@ public sealed class UIObserverTests
         framework.Tick(); // event 2: id=22 (X=17 → Y=22)
 
         var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "EmoteCompleted")
+            .Where(e => e.Data.Method == "EmoteCompleted")
             .ToList();
         Assert.Equal(2, emoteObs.Count);
         Assert.True(
-            emoteObs[1].Argument?.GetRawText() == "22",
-            $"Expected second Argument=22 but got {emoteObs[1].Argument?.GetRawText()}");
+            emoteObs[1].Data.Argument?.GetRawText() == "22",
+            $"Expected second Argument=22 but got {emoteObs[1].Data.Argument?.GetRawText()}");
         Assert.Equal(22u, aggregator.Current.EmoteCompleted!.EmoteId);
 
         observer.Dispose();
@@ -3536,7 +3536,7 @@ public sealed class UIObserverTests
         framework.Tick(); // event 2 fires (0 → 22 because reset cleared to 0)
 
         var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "EmoteCompleted")
+            .Where(e => e.Data.Method == "EmoteCompleted")
             .ToList();
         Assert.Equal(2, emoteObs.Count);
         Assert.Equal(22u, aggregator.Current.EmoteCompleted!.EmoteId);
@@ -3563,12 +3563,12 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "EmoteCompleted")
+            .Where(e => e.Data.Method == "EmoteCompleted")
             .ToList();
         Assert.Single(emoteObs);
         Assert.True(
-            emoteObs[0].Argument?.GetRawText() == "17",
-            $"Expected Argument=17 but got {emoteObs[0].Argument?.GetRawText()}");
+            emoteObs[0].Data.Argument?.GetRawText() == "17",
+            $"Expected Argument=17 but got {emoteObs[0].Data.Argument?.GetRawText()}");
 
         Assert.NotNull(aggregator.Current.EmoteCompleted);
         Assert.Null(aggregator.Current.EmoteCompleted!.TargetBaseId);
@@ -3595,7 +3595,7 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "EmoteCompleted")
+            .Where(e => e.Data.Method == "EmoteCompleted")
             .ToList();
         Assert.Single(emoteObs);
         Assert.NotNull(aggregator.Current.EmoteCompleted);
@@ -3635,7 +3635,7 @@ public sealed class UIObserverTests
         Assert.Null(ex);
 
         var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "EmoteCompleted")
+            .Where(e => e.Data.Method == "EmoteCompleted")
             .ToList();
         Assert.Empty(emoteObs);
 
@@ -3695,7 +3695,7 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "EmoteCompleted")
+            .Where(e => e.Data.Method == "EmoteCompleted")
             .ToList();
         Assert.Empty(emoteObs);
         Assert.Null(aggregator.Current.EmoteCompleted);
@@ -3729,12 +3729,12 @@ public sealed class UIObserverTests
         framework.Tick(); // tick 4: 50 == 50, no-op
 
         var emoteObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "EmoteCompleted")
+            .Where(e => e.Data.Method == "EmoteCompleted")
             .ToList();
         Assert.Single(emoteObs);
         Assert.True(
-            emoteObs[0].Argument?.GetRawText() == "50",
-            $"Expected Argument=50 but got {emoteObs[0].Argument?.GetRawText()}");
+            emoteObs[0].Data.Argument?.GetRawText() == "50",
+            $"Expected Argument=50 but got {emoteObs[0].Data.Argument?.GetRawText()}");
         Assert.NotNull(aggregator.Current.EmoteCompleted);
         Assert.Equal(50u, aggregator.Current.EmoteCompleted!.EmoteId);
 
@@ -3788,7 +3788,7 @@ public sealed class UIObserverTests
 
         // Assert
         var chatObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "SayChatMessageSent")
+            .Where(e => e.Data.Method == "SayChatMessageSent")
             .ToList();
         Assert.Empty(chatObs);
         Assert.Null(aggregator.Current.SayChatMessageSent);
@@ -3821,7 +3821,7 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var chatObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "SayChatMessageSent")
+            .Where(e => e.Data.Method == "SayChatMessageSent")
             .ToList();
         Assert.Empty(chatObs);
         Assert.Null(aggregator.Current.SayChatMessageSent);
@@ -3860,15 +3860,15 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var chatObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "SayChatMessageSent")
+            .Where(e => e.Data.Method == "SayChatMessageSent")
             .ToList();
         Assert.Single(chatObs);
         Assert.True(
-            chatObs[0].Argument?.GetRawText() == "0",
-            $"Expected Argument=0 but got {chatObs[0].Argument?.GetRawText()}");
+            chatObs[0].Data.Argument?.GetRawText() == "0",
+            $"Expected Argument=0 but got {chatObs[0].Data.Argument?.GetRawText()}");
 
         // Verify value object contains expected fields
-        var valueJson = chatObs[0].Value?.GetRawText() ?? "";
+        var valueJson = chatObs[0].Data.Value?.GetRawText() ?? "";
         Assert.Contains("\"message\"", valueJson, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Open Sesame", valueJson, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("\"targetBaseId\"", valueJson, StringComparison.OrdinalIgnoreCase);
@@ -3908,7 +3908,7 @@ public sealed class UIObserverTests
         framework.Tick(); // count=1, non-matching → no fire
 
         var chatObsAfterPhase1 = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "SayChatMessageSent")
+            .Where(e => e.Data.Method == "SayChatMessageSent")
             .ToList();
         Assert.Empty(chatObsAfterPhase1);
         Assert.Null(aggregator.Current.SayChatMessageSent);
@@ -3919,12 +3919,12 @@ public sealed class UIObserverTests
         framework.Tick(); // count=2, idx=1 matches → fires
 
         var chatObsAfterPhase2 = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "SayChatMessageSent")
+            .Where(e => e.Data.Method == "SayChatMessageSent")
             .ToList();
         Assert.Single(chatObsAfterPhase2);
         Assert.True(
-            chatObsAfterPhase2[0].Argument?.GetRawText() == "1",
-            $"Expected Argument=1 (index into log) but got {chatObsAfterPhase2[0].Argument?.GetRawText()}");
+            chatObsAfterPhase2[0].Data.Argument?.GetRawText() == "1",
+            $"Expected Argument=1 (index into log) but got {chatObsAfterPhase2[0].Data.Argument?.GetRawText()}");
 
         observer.Dispose();
     }
@@ -3959,7 +3959,7 @@ public sealed class UIObserverTests
 
         // After re-baseline, no shrink-triggered events
         var chatObsAfterShrink = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "SayChatMessageSent")
+            .Where(e => e.Data.Method == "SayChatMessageSent")
             .ToList();
         Assert.Empty(chatObsAfterShrink);
 
@@ -3969,10 +3969,10 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var chatObsAfterWrap = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "SayChatMessageSent")
+            .Where(e => e.Data.Method == "SayChatMessageSent")
             .ToList();
         Assert.Single(chatObsAfterWrap);
-        var valueJson = chatObsAfterWrap[0].Value?.GetRawText() ?? "";
+        var valueJson = chatObsAfterWrap[0].Data.Value?.GetRawText() ?? "";
         Assert.Contains("After Wrap", valueJson, StringComparison.OrdinalIgnoreCase);
 
         observer.Dispose();
@@ -4015,19 +4015,19 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var chatObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "SayChatMessageSent")
+            .Where(e => e.Data.Method == "SayChatMessageSent")
             .ToList();
         Assert.Equal(2, chatObs.Count);
         Assert.True(
-            chatObs[0].Argument?.GetRawText() == "0",
-            $"First obs Argument should be 0, got {chatObs[0].Argument?.GetRawText()}");
+            chatObs[0].Data.Argument?.GetRawText() == "0",
+            $"First obs Argument should be 0, got {chatObs[0].Data.Argument?.GetRawText()}");
         Assert.True(
-            chatObs[1].Argument?.GetRawText() == "2",
-            $"Second obs Argument should be 2, got {chatObs[1].Argument?.GetRawText()}");
+            chatObs[1].Data.Argument?.GetRawText() == "2",
+            $"Second obs Argument should be 2, got {chatObs[1].Data.Argument?.GetRawText()}");
 
         // Value payloads contain the correct messages
-        Assert.Contains("\"A\"", chatObs[0].Value?.GetRawText() ?? "", StringComparison.Ordinal);
-        Assert.Contains("\"C\"", chatObs[1].Value?.GetRawText() ?? "", StringComparison.Ordinal);
+        Assert.Contains("\"A\"", chatObs[0].Data.Value?.GetRawText() ?? "", StringComparison.Ordinal);
+        Assert.Contains("\"C\"", chatObs[1].Data.Value?.GetRawText() ?? "", StringComparison.Ordinal);
 
         // Last-write-wins in the aggregator
         Assert.NotNull(aggregator.Current.SayChatMessageSent);
@@ -4066,7 +4066,7 @@ public sealed class UIObserverTests
         Assert.Null(ex);
 
         var chatObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "SayChatMessageSent")
+            .Where(e => e.Data.Method == "SayChatMessageSent")
             .ToList();
         Assert.Empty(chatObs);
         Assert.Null(aggregator.Current.SayChatMessageSent);
@@ -4102,11 +4102,11 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var chatObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "SayChatMessageSent")
+            .Where(e => e.Data.Method == "SayChatMessageSent")
             .ToList();
         Assert.Single(chatObs);
 
-        var valueJson = chatObs[0].Value?.GetRawText() ?? "";
+        var valueJson = chatObs[0].Data.Value?.GetRawText() ?? "";
         Assert.Contains("1000789", valueJson, StringComparison.OrdinalIgnoreCase);
 
         Assert.NotNull(aggregator.Current.SayChatMessageSent);
@@ -4149,7 +4149,7 @@ public sealed class UIObserverTests
         // Phase 3: tick with count still=1 → silent re-baseline (no new event)
         framework.Tick();
         var chatObsAfterReset = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "SayChatMessageSent")
+            .Where(e => e.Data.Method == "SayChatMessageSent")
             .ToList();
         Assert.Single(chatObsAfterReset); // still only 1 total
 
@@ -4159,14 +4159,14 @@ public sealed class UIObserverTests
         framework.Tick();
 
         var chatObsFinal = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "SayChatMessageSent")
+            .Where(e => e.Data.Method == "SayChatMessageSent")
             .ToList();
         Assert.Equal(2, chatObsFinal.Count);
         Assert.True(
-            chatObsFinal[1].Argument?.GetRawText() == "1",
-            $"Second event Argument should be 1, got {chatObsFinal[1].Argument?.GetRawText()}");
+            chatObsFinal[1].Data.Argument?.GetRawText() == "1",
+            $"Second event Argument should be 1, got {chatObsFinal[1].Data.Argument?.GetRawText()}");
 
-        var valueJson = chatObsFinal[1].Value?.GetRawText() ?? "";
+        var valueJson = chatObsFinal[1].Data.Value?.GetRawText() ?? "";
         Assert.Contains("Second", valueJson, StringComparison.OrdinalIgnoreCase);
 
         Assert.NotNull(aggregator.Current.SayChatMessageSent);
@@ -4217,14 +4217,14 @@ public sealed class UIObserverTests
         Assert.Null(aggregator.Current.ActionCompleted);
 
         var itemObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ItemUsed")
+            .Where(e => e.Data.Method == "ItemUsed")
             .ToList();
         Assert.Single(itemObs);
-        Assert.True(itemObs[0].Argument?.GetRawText() == "4554",
-            $"Expected Argument=4554, got {itemObs[0].Argument?.GetRawText()}");
+        Assert.True(itemObs[0].Data.Argument?.GetRawText() == "4554",
+            $"Expected Argument=4554, got {itemObs[0].Data.Argument?.GetRawText()}");
 
         var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ActionCompleted")
+            .Where(e => e.Data.Method == "ActionCompleted")
             .ToList();
         Assert.Empty(actionObs);
 
@@ -4256,7 +4256,7 @@ public sealed class UIObserverTests
         Assert.Null(aggregator.Current.ActionCompleted);
 
         var itemObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ItemUsed")
+            .Where(e => e.Data.Method == "ItemUsed")
             .ToList();
         Assert.Single(itemObs);
 
@@ -4287,7 +4287,7 @@ public sealed class UIObserverTests
         Assert.Null(aggregator.Current.ItemUsed);
 
         var actionObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ActionCompleted")
+            .Where(e => e.Data.Method == "ActionCompleted")
             .ToList();
         Assert.Single(actionObs);
 
@@ -4993,7 +4993,7 @@ public sealed class UIObserverTests
 
         // Verify trace observation was written
         var objObs = writer.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "ObjectInteracted")
+            .Where(e => e.Data.Method == "ObjectInteracted")
             .ToList();
         Assert.Single(objObs);
 

@@ -137,7 +137,11 @@ public sealed class AuthoringHost : IDisposable
 
         _authoringRunId = $"author-{target.Value}-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
         _traceSession.OnEnterAuthorMode(target.Value);
-        _traceSession.Write(new RunStartEvent(_authoringRunId, target.Value, target.Value, DateTimeOffset.UtcNow));
+        _traceSession.Write(new RunStartEvent
+        {
+            RunId = _authoringRunId,
+            Data = new RunStartEvent.RunStartData { QuestId = target.Value, SchemaVer = "1.0" }
+        });
 
         _uiObserver.ResetHeartbeatState();
         _uiObserver.SetAggregator(_aggregator, _authoringRunId);
@@ -163,7 +167,7 @@ public sealed class AuthoringHost : IDisposable
     {
         if (_authoringRunId is not null)
         {
-            _traceSession.Write(new RunEndEvent(_authoringRunId, "authored", DateTimeOffset.UtcNow));
+            _traceSession.Write(new RunEndEvent { RunId = _authoringRunId, Data = new RunEndEvent.RunEndData { Outcome = "authored" } });
             _authoringRunId = null;
         }
         _uiObserver.SetAggregator(null, null);
@@ -249,20 +253,32 @@ public sealed class AuthoringHost : IDisposable
         if (_authoringRunId is not null)
         {
             var stepParams = JsonSerializer.SerializeToElement(new { stepId = finalStepId, stepType = inference.StepType }, _jsonOpts);
-            _traceSession.Write(new ActionSubmittedEvent(_authoringRunId, inference.StepType, stepParams, DateTimeOffset.UtcNow));
-            _traceSession.Write(new ActionCompletedEvent(_authoringRunId, inference.StepType, "recorded", DateTimeOffset.UtcNow));
+            _traceSession.Write(new ActionSubmittedEvent
+            {
+                RunId = _authoringRunId,
+                Data = new ActionSubmittedEvent.ActionSubmittedData { ActionType = inference.StepType, Parameters = stepParams }
+            });
+            _traceSession.Write(new ActionCompletedEvent
+            {
+                RunId = _authoringRunId,
+                Data = new ActionCompletedEvent.ActionCompletedData { ActionType = inference.StepType, Outcome = "recorded" }
+            });
 
             // Serialize the step to JSON using the quest file options and emit step.recorded
             // so qf-trace extract-quest can reconstruct quest definitions from the trace.
             var stepJson = JsonSerializer.SerializeToElement(
                 rawStep,
                 QuestForge.Schema.QuestForgeJsonContext.QuestFileOptions);
-            _traceSession.Write(new StepRecordedEvent(
-                RunId:          _authoringRunId,
-                StepId:         finalStepId,
-                SequenceNumber: draftStep.SequenceNumber,
-                Step:           stepJson,
-                At:             DateTimeOffset.UtcNow));
+            _traceSession.Write(new StepRecordedEvent
+            {
+                RunId = _authoringRunId,
+                Data = new StepRecordedEvent.StepRecordedData
+                {
+                    StepId         = finalStepId,
+                    SequenceNumber = draftStep.SequenceNumber,
+                    Step           = stepJson
+                }
+            });
         }
         _traceSession.OnConfirmRecordStep();
 
@@ -303,16 +319,28 @@ public sealed class AuthoringHost : IDisposable
         {
             var stepParams = JsonSerializer.SerializeToElement(
                 new { stepId = finalStepId, replacedStepId = originalStepId, stepType = inference.StepType }, _jsonOpts);
-            _traceSession.Write(new ActionSubmittedEvent(_authoringRunId, inference.StepType, stepParams, DateTimeOffset.UtcNow));
-            _traceSession.Write(new ActionCompletedEvent(_authoringRunId, inference.StepType, "replaced", DateTimeOffset.UtcNow));
+            _traceSession.Write(new ActionSubmittedEvent
+            {
+                RunId = _authoringRunId,
+                Data = new ActionSubmittedEvent.ActionSubmittedData { ActionType = inference.StepType, Parameters = stepParams }
+            });
+            _traceSession.Write(new ActionCompletedEvent
+            {
+                RunId = _authoringRunId,
+                Data = new ActionCompletedEvent.ActionCompletedData { ActionType = inference.StepType, Outcome = "replaced" }
+            });
 
             var stepJson = JsonSerializer.SerializeToElement(rawStep, QuestForge.Schema.QuestForgeJsonContext.QuestFileOptions);
-            _traceSession.Write(new StepRecordedEvent(
-                RunId:          _authoringRunId,
-                StepId:         finalStepId,
-                SequenceNumber: sequenceNumber,
-                Step:           stepJson,
-                At:             DateTimeOffset.UtcNow));
+            _traceSession.Write(new StepRecordedEvent
+            {
+                RunId = _authoringRunId,
+                Data = new StepRecordedEvent.StepRecordedData
+                {
+                    StepId         = finalStepId,
+                    SequenceNumber = sequenceNumber,
+                    Step           = stepJson
+                }
+            });
         }
         _traceSession.OnConfirmRecordStep();
 
@@ -457,7 +485,7 @@ public sealed class AuthoringHost : IDisposable
         _services.Framework.Update -= OnFrameworkUpdate;
         _uiObserver.Dispose();
         if (_authoringRunId is not null)
-            _traceSession.Write(new RunEndEvent(_authoringRunId, "disposed", DateTimeOffset.UtcNow));
+            _traceSession.Write(new RunEndEvent { RunId = _authoringRunId, Data = new RunEndEvent.RunEndData { Outcome = "disposed" } });
         // TraceSession lifecycle (OnExitAuthoring / Dispose) is managed by Plugin.cs.
     }
 

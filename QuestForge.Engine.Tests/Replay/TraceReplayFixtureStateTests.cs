@@ -830,11 +830,11 @@ public sealed class TraceReplayFixtureStateTests
         // --- One run.start for quest 65644 ---
         var runStarts = allEvents.OfType<RunStartEvent>().ToList();
         Assert.Single(runStarts);
-        Assert.Equal(65644u, runStarts[0].QuestId);
+        Assert.Equal(65644u, runStarts[0].Data.QuestId);
 
         // --- run.end with outcome "done" ---
         var runEnds = allEvents.OfType<RunEndEvent>().ToList();
-        Assert.Contains(runEnds, e => e.Outcome == "done");
+        Assert.Contains(runEnds, e => e.Data.Outcome == "done");
 
         // --- Exactly 26 DecisionEvents ---
         var decisions = allEvents.OfType<DecisionEvent>().ToList();
@@ -843,13 +843,13 @@ public sealed class TraceReplayFixtureStateTests
         // --- IsQuestComplete(65644) recorded as [false, true] in order ---
         var isQuestCompleteObs = allEvents
             .OfType<ObservationEvent>()
-            .Where(o => o.Method == "IsQuestComplete"
-                && o.Argument?.GetRawText() == """{"value":65644}""")
+            .Where(o => o.Data.Method == "IsQuestComplete"
+                && o.Data.Argument?.GetRawText() == """{"value":65644}""")
             .ToList();
 
         Assert.Equal(2, isQuestCompleteObs.Count);
-        Assert.Equal("false", isQuestCompleteObs[0].Value?.GetRawText());
-        Assert.Equal("true",  isQuestCompleteObs[1].Value?.GetRawText());
+        Assert.Equal("false", isQuestCompleteObs[0].Data.Value?.GetRawText());
+        Assert.Equal("true",  isQuestCompleteObs[1].Data.Value?.GetRawText());
     }
 
     // =====================================================================
@@ -1272,34 +1272,41 @@ public sealed class TraceReplayFixtureStateTests
 
     private static string MakeObsLine(string method, string? argJson, string valueJson)
     {
-        var obs = new ObservationEvent(
-            RunId: "test-run",
-            Method: method,
-            Argument: argJson is null ? null : JsonDocument.Parse(argJson).RootElement,
-            Value: JsonDocument.Parse(valueJson).RootElement,
-            At: At);
+        var obs = new ObservationEvent
+        {
+            RunId = "test-run",
+            Data = new ObservationEvent.ObservationData
+            {
+                Method   = method,
+                Argument = argJson is null ? null : JsonDocument.Parse(argJson).RootElement,
+                Value    = JsonDocument.Parse(valueJson).RootElement
+            }
+        };
         return JsonSerializer.Serialize(
             (TraceEvent)obs, TraceEventJsonContext.Default.TraceEvent);
     }
 
     private static string MakeRunStartLine(string runId, uint questId)
     {
-        var evt = new RunStartEvent(RunId: runId, QuestId: questId, QuestSchemaId: 1, At: At);
+        var evt = new RunStartEvent { RunId = runId, Data = new RunStartEvent.RunStartData { QuestId = questId } };
         return JsonSerializer.Serialize(
             (TraceEvent)evt, TraceEventJsonContext.Default.TraceEvent);
     }
 
     private static string MakeDecisionLine(string runId, string stepId, string actionType)
     {
-        var evt = new DecisionEvent(
-            RunId: runId, StepId: stepId, ActionType: actionType, At: At.AddSeconds(1));
+        var evt = new DecisionEvent
+        {
+            RunId = runId,
+            Data = new DecisionEvent.DecisionData { StepId = stepId, ActionType = actionType }
+        };
         return JsonSerializer.Serialize(
             (TraceEvent)evt, TraceEventJsonContext.Default.TraceEvent);
     }
 
     private static string MakeRunEndLine(string runId, string outcome)
     {
-        var evt = new RunEndEvent(RunId: runId, Outcome: outcome, At: At.AddSeconds(10));
+        var evt = new RunEndEvent { RunId = runId, Data = new RunEndEvent.RunEndData { Outcome = outcome } };
         return JsonSerializer.Serialize(
             (TraceEvent)evt, TraceEventJsonContext.Default.TraceEvent);
     }

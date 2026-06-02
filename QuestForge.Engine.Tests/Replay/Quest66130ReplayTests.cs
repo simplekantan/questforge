@@ -159,7 +159,7 @@ public sealed class EngineFixtureTests
 
             state.OnTick(action, tick); // advance state machine every tick
 
-            var pair = (newDecision.StepId, ActionTypeString(action));
+            var pair = (newDecision.Data.StepId, ActionTypeString(action));
             if (actualTransitions.Count == 0 || actualTransitions[^1] != pair)
             {
                 actualTransitions.Add(pair);

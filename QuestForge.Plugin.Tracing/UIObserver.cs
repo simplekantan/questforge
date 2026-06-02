@@ -472,12 +472,11 @@ public sealed class UIObserver : IDisposable
             new { gained = gained.ToArray(), lost = lost.ToArray(), newHash = hash },
             JsonOpts);
         // Write directly (not via WriteObservation dedup cache) — inventory changes are events, not polled state.
-        _traceSession.Write(new ObservationEvent(
-            RunId:    CurrentRunId,
-            Method:   "InventoryChanged",
-            Argument: null,
-            Value:    valueEl,
-            At:       now));
+        _traceSession.Write(new ObservationEvent
+        {
+            RunId = CurrentRunId ?? "",
+            Data = new ObservationEvent.ObservationData { Method = "InventoryChanged", Value = valueEl }
+        });
     }
 
     private void PollCombat()
@@ -493,12 +492,11 @@ public sealed class UIObserver : IDisposable
         {
             _lastInCombat = inCombat;
             var valueEl = JsonSerializer.SerializeToElement(new { value = inCombat }, JsonOpts);
-            _traceSession.Write(new ObservationEvent(
-                RunId:    runId,
-                Method:   "InCombat",
-                Argument: null,
-                Value:    valueEl,
-                At:       now));
+            _traceSession.Write(new ObservationEvent
+            {
+                RunId = runId ?? "",
+                Data = new ObservationEvent.ObservationData { Method = "InCombat", Value = valueEl }
+            });
             _aggregator?.OnInCombatChanged(inCombat);
         }
 
@@ -512,12 +510,11 @@ public sealed class UIObserver : IDisposable
             if (isDead && !wasDead && hadPrior && wasInCombat)
             {
                 var valueEl = JsonSerializer.SerializeToElement(new { dataId }, JsonOpts);
-                _traceSession.Write(new ObservationEvent(
-                    RunId:    runId,
-                    Method:   "EnemyKilled",
-                    Argument: null,
-                    Value:    valueEl,
-                    At:       now));
+                _traceSession.Write(new ObservationEvent
+                {
+                    RunId = runId ?? "",
+                    Data = new ObservationEvent.ObservationData { Method = "EnemyKilled", Value = valueEl }
+                });
                 // D9: EnemyKilled is kept as a presence corroborator but is no longer forwarded
                 // to the aggregator — attribution uses the hostile target, not the kill event.
             }
@@ -570,12 +567,11 @@ public sealed class UIObserver : IDisposable
             var valueEl = JsonSerializer.SerializeToElement(
                 new { value = open, activeGcCategory = activeCat, activeGcRankTier = activeTier },
                 JsonOpts);
-            _traceSession.Write(new ObservationEvent(
-                RunId:    runId,
-                Method:   "ShopOpened",
-                Argument: null,
-                Value:    valueEl,
-                At:       now));
+            _traceSession.Write(new ObservationEvent
+            {
+                RunId = runId ?? "",
+                Data = new ObservationEvent.ObservationData { Method = "ShopOpened", Value = valueEl }
+            });
             _aggregator?.OnShopOpened(open, activeCat, activeTier);
         }
 
@@ -591,12 +587,11 @@ public sealed class UIObserver : IDisposable
             _lastGil   = gil;
             _lastSeals = seals;
             var valueEl = JsonSerializer.SerializeToElement(new { gil, seals }, JsonOpts);
-            _traceSession.Write(new ObservationEvent(
-                RunId:    runId,
-                Method:   "CurrencyBalance",
-                Argument: null,
-                Value:    valueEl,
-                At:       now));
+            _traceSession.Write(new ObservationEvent
+            {
+                RunId = runId ?? "",
+                Data = new ObservationEvent.ObservationData { Method = "CurrencyBalance", Value = valueEl }
+            });
             _aggregator?.OnCurrencyChanged(gil, seals);
         }
 
@@ -604,12 +599,11 @@ public sealed class UIObserver : IDisposable
         foreach (var (itemId, count) in _vendorProbe.GetChangedItemCounts())
         {
             var valueEl = JsonSerializer.SerializeToElement(new { itemId, count }, JsonOpts);
-            _traceSession.Write(new ObservationEvent(
-                RunId:    runId,
-                Method:   "VendorItemCount",
-                Argument: null,
-                Value:    valueEl,
-                At:       now));
+            _traceSession.Write(new ObservationEvent
+            {
+                RunId = runId ?? "",
+                Data = new ObservationEvent.ObservationData { Method = "VendorItemCount", Value = valueEl }
+            });
             _aggregator?.OnVendorItemCountChanged(itemId, count);
         }
     }

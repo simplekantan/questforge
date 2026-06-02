@@ -121,7 +121,7 @@ public sealed class TraceEndToEndTests
         var runEnd = docs
             .Where(d => d.RootElement.GetProperty("type").GetString() == "run.end")
             .Single();
-        Assert.Equal("done", runEnd.RootElement.GetProperty("outcome").GetString());
+        Assert.Equal("done", runEnd.RootElement.GetProperty("data").GetProperty("outcome").GetString());
 
         // run.end must be the last line
         var lastDoc = docs[docs.Count - 1];

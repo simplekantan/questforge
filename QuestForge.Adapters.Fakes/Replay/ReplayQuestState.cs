@@ -36,67 +36,67 @@ public sealed class ReplayQuestState : IQuestState
     public Task<Result<QuestStatus>> GetQuestStatus(QuestId quest, CancellationToken ct)
     {
         var obs = ScanNext(nameof(GetQuestStatus), quest);
-        return Task.FromResult(Materialize<QuestStatus>(obs.Value));
+        return Task.FromResult(Materialize<QuestStatus>(obs.Data.Value));
     }
 
     public Task<Result<int>> GetQuestSequence(QuestId quest, CancellationToken ct)
     {
         var obs = ScanNext(nameof(GetQuestSequence), quest);
-        return Task.FromResult(Materialize<int>(obs.Value));
+        return Task.FromResult(Materialize<int>(obs.Data.Value));
     }
 
     public Task<Result<uint>> GetQuestFlags(QuestId quest, CancellationToken ct)
     {
         var obs = ScanNext(nameof(GetQuestFlags), quest);
-        return Task.FromResult(Materialize<uint>(obs.Value));
+        return Task.FromResult(Materialize<uint>(obs.Data.Value));
     }
 
     public Task<Result<bool>> IsQuestFlagSet(QuestId quest, int flagBit, CancellationToken ct)
     {
         var obs = ScanNext(nameof(IsQuestFlagSet), new { quest, flagBit });
-        return Task.FromResult(Materialize<bool>(obs.Value));
+        return Task.FromResult(Materialize<bool>(obs.Data.Value));
     }
 
     public Task<Result<bool>> IsQuestAccepted(QuestId quest, CancellationToken ct)
     {
         var obs = ScanNext(nameof(IsQuestAccepted), quest);
-        return Task.FromResult(Materialize<bool>(obs.Value));
+        return Task.FromResult(Materialize<bool>(obs.Data.Value));
     }
 
     public Task<Result<bool>> IsQuestComplete(QuestId quest, CancellationToken ct)
     {
         var obs = ScanNext(nameof(IsQuestComplete), quest);
-        return Task.FromResult(Materialize<bool>(obs.Value));
+        return Task.FromResult(Materialize<bool>(obs.Data.Value));
     }
 
     public Task<Result<bool>> IsQuestAvailable(QuestId quest, CancellationToken ct)
     {
         var obs = ScanNext(nameof(IsQuestAvailable), quest);
-        return Task.FromResult(Materialize<bool>(obs.Value));
+        return Task.FromResult(Materialize<bool>(obs.Data.Value));
     }
 
     public Task<Result<QuestUnlockReason?>> WhyUnavailable(QuestId quest, CancellationToken ct)
     {
         var obs = ScanNext(nameof(WhyUnavailable), quest);
-        return Task.FromResult(Materialize<QuestUnlockReason?>(obs.Value));
+        return Task.FromResult(Materialize<QuestUnlockReason?>(obs.Data.Value));
     }
 
     public Task<Result<IReadOnlyList<QuestId>>> GetAcceptedQuests(CancellationToken ct)
     {
         var obs = ScanNext(nameof(GetAcceptedQuests), null);
-        return Task.FromResult(Materialize<IReadOnlyList<QuestId>>(obs.Value));
+        return Task.FromResult(Materialize<IReadOnlyList<QuestId>>(obs.Data.Value));
     }
 
     public Task<Result<IReadOnlyList<QuestReward>>> GetAvailableQuestRewards(CancellationToken ct)
     {
         var obs = ScanNext(nameof(GetAvailableQuestRewards), null);
-        return Task.FromResult(Materialize<IReadOnlyList<QuestReward>>(obs.Value));
+        return Task.FromResult(Materialize<IReadOnlyList<QuestReward>>(obs.Data.Value));
     }
 
     public Task<Result<IReadOnlyList<byte>>> GetQuestVariables(QuestId quest, CancellationToken ct)
     {
         var obs = ScanNext(nameof(GetQuestVariables), quest);
-        return Task.FromResult(Materialize<IReadOnlyList<byte>>(obs.Value));
+        return Task.FromResult(Materialize<IReadOnlyList<byte>>(obs.Data.Value));
     }
 
     // Authoring-only signal; never recorded, never replayed. Do NOT ScanNext — that would starve every fixture.

@@ -295,7 +295,7 @@ public sealed class QuestVariablesTraceEngineTests
 
         // Assert: exactly one ObservationEvent for GetQuestVariables
         var varObs = trace.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetQuestVariables")
+            .Where(e => e.Data.Method == "GetQuestVariables")
             .ToList();
 
         Assert.Single(varObs);
@@ -303,11 +303,11 @@ public sealed class QuestVariablesTraceEngineTests
         var obs = varObs[0];
 
         // Value must be non-null and a JSON ARRAY (not a base64 string).
-        Assert.NotNull(obs.Value);
-        Assert.Equal(JsonValueKind.Array, obs.Value!.Value.ValueKind);
+        Assert.NotNull(obs.Data.Value);
+        Assert.Equal(JsonValueKind.Array, obs.Data.Value!.Value.ValueKind);
 
         // The array must have 6 elements with the correct byte values.
-        var elements = obs.Value.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
+        var elements = obs.Data.Value.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
         Assert.Equal(new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 }, elements);
     }
 
@@ -332,7 +332,7 @@ public sealed class QuestVariablesTraceEngineTests
 
         // Assert: only 1 ObservationEvent (second suppressed by _lastEmitted dedup)
         var varObs = trace.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetQuestVariables")
+            .Where(e => e.Data.Method == "GetQuestVariables")
             .ToList();
 
         Assert.Single(varObs);
@@ -366,17 +366,17 @@ public sealed class QuestVariablesTraceEngineTests
 
         // Assert: exactly 2 ObservationEvents for GetQuestVariables
         var varObs = trace.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetQuestVariables")
+            .Where(e => e.Data.Method == "GetQuestVariables")
             .ToList();
 
         Assert.Equal(2, varObs.Count);
 
         // First observation: all-zero
-        var first = varObs[0].Value!.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
+        var first = varObs[0].Data.Value!.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
         Assert.Equal(new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }, first);
 
         // Second observation: changed
-        var second = varObs[1].Value!.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
+        var second = varObs[1].Data.Value!.Value.EnumerateArray().Select(e => e.GetByte()).ToArray();
         Assert.Equal(new byte[] { 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 }, second);
     }
 
@@ -409,13 +409,13 @@ public sealed class QuestVariablesTraceEngineTests
 
         // Capture the emitted observation
         var obs = trace.RecordedEvents.OfType<ObservationEvent>()
-            .Single(e => e.Method == "GetQuestVariables");
+            .Single(e => e.Data.Method == "GetQuestVariables");
 
         // Verify it is stored as a JSON array (not base64 string)
-        Assert.Equal(JsonValueKind.Array, obs.Value!.Value.ValueKind);
+        Assert.Equal(JsonValueKind.Array, obs.Data.Value!.Value.ValueKind);
 
         // --- Replay ---
-        var replayState = new ReplayQuestState(new[] { obs });
+        var replayState = new ReplayQuestState(new List<ObservationEvent> { obs });
         var result = await replayState.GetQuestVariables(new QuestId(12345u), CancellationToken.None);
 
         // Assert: Success with the identical 6 bytes
@@ -442,14 +442,14 @@ public sealed class QuestVariablesTraceEngineTests
 
         // Capture the observation — the proxy must have written one (failure is still recorded)
         var obs = trace.RecordedEvents.OfType<ObservationEvent>()
-            .Single(e => e.Method == "GetQuestVariables");
+            .Single(e => e.Data.Method == "GetQuestVariables");
 
-        Assert.NotNull(obs.Value);
+        Assert.NotNull(obs.Data.Value);
         // The failure serialization includes a "failure" key
-        Assert.Contains("failure", obs.Value!.Value.GetRawText(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("failure", obs.Data.Value!.Value.GetRawText(), StringComparison.OrdinalIgnoreCase);
 
         // --- Replay ---
-        var replayState = new ReplayQuestState(new[] { obs });
+        var replayState = new ReplayQuestState(new List<ObservationEvent> { obs });
         var result = await replayState.GetQuestVariables(new QuestId(12345u), CancellationToken.None);
 
         // Assert: Failure result (not Success)
@@ -477,19 +477,23 @@ public sealed class QuestVariablesTraceEngineTests
         // Serialize the value as an array (the STJ-with-IReadOnlyList<byte> form)
         var valueJson = JsonDocument.Parse($"[{string.Join(",", bytes)}]").RootElement;
 
-        var obs = new ObservationEvent(
-            RunId: "run-rt3",
-            Method: "GetQuestVariables",
-            Argument: argJson,
-            Value: valueJson,
-            At: At);
+        var obs = new ObservationEvent
+        {
+            RunId = "run-rt3",
+            Data = new ObservationEvent.ObservationData
+            {
+                Method   = "GetQuestVariables",
+                Argument = argJson,
+                Value    = valueJson
+            }
+        };
 
         var trace = new List<TraceEvent>
         {
-            new RunStartEvent(RunId: "run-rt3", QuestId: 12345u, QuestSchemaId: 12345u, At: At),
+            new RunStartEvent { RunId = "run-rt3", Data = new RunStartEvent.RunStartData { QuestId = 12345u } },
             obs,
-            new DecisionEvent(RunId: "run-rt3", StepId: "talk-npc", ActionType: "Interact", At: At.AddSeconds(1)),
-            new RunEndEvent(RunId: "run-rt3", Outcome: "done", At: At.AddSeconds(60))
+            new DecisionEvent { RunId = "run-rt3", Data = new DecisionEvent.DecisionData { StepId = "talk-npc", ActionType = "Interact" } },
+            new RunEndEvent { RunId = "run-rt3", Data = new RunEndEvent.RunEndData { Outcome = "done" } }
         };
 
         // Build scanner and replay state

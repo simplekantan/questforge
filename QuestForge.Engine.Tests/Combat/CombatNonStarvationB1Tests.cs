@@ -139,7 +139,7 @@ public sealed class CombatNonStarvationB1Tests
         // The trace should contain NO GetHostileActors observation (step-gated)
         var hostileObs = harness.TraceWriter.RecordedEvents
             .OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetHostileActors")
+            .Where(e => e.Data.Method == "GetHostileActors")
             .ToList();
 
         Assert.Empty(hostileObs);
@@ -195,7 +195,7 @@ public sealed class CombatNonStarvationB1Tests
 
         var hostileObs = harness.TraceWriter.RecordedEvents
             .OfType<ObservationEvent>()
-            .Where(e => e.Method == "GetHostileActors")
+            .Where(e => e.Data.Method == "GetHostileActors")
             .ToList();
 
         Assert.Empty(hostileObs);

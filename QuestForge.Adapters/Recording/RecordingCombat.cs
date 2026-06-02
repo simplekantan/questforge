@@ -59,12 +59,16 @@ public sealed class RecordingCombat : ICombat
             if (_skipIfNoRunId && runId is null or "") return;
             var argEl = argument is null ? (JsonElement?)null
                 : JsonSerializer.SerializeToElement(argument, _jsonOpts);
-            _trace.Write(new ObservationEvent(
-                runId,
-                method,
-                argEl,
-                null,
-                _clock.GetUtcNow()));
+            _trace.Write(new ObservationEvent
+            {
+                RunId = runId ?? "",
+                Data = new ObservationEvent.ObservationData
+                {
+                    Method   = method,
+                    Argument = argEl,
+                    Value    = null
+                }
+            });
         }
         catch
         {

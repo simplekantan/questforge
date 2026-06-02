@@ -20,7 +20,7 @@ namespace QuestForge.Adapters.Tests.Recording;
 public sealed class RecordingCombatTests
 {
     private static string FormatEvents(FakeTraceWriter trace)
-        => string.Join(", ", trace.RecordedEvents.OfType<ObservationEvent>().Select(e => e.Method));
+        => string.Join(", ", trace.RecordedEvents.OfType<ObservationEvent>().Select(e => e.Data.Method));
 
     private static RecordingCombat BuildProxy(
         FakeCombat inner,
@@ -57,12 +57,12 @@ public sealed class RecordingCombatTests
         // Exactly one observation written
         var obs = trace.RecordedEvents.OfType<ObservationEvent>().ToList();
         Assert.Equal(1, obs.Count);
-        Assert.Equal("SetTarget", obs[0].Method);
+        Assert.Equal("SetTarget", obs[0].Data.Method);
 
         // Argument encodes actorId = 9 (as {"actorId":9} or {"value":9} — builder decides shape;
         // the test checks it is non-null and contains "9")
-        Assert.NotNull(obs[0].Argument);
-        var argText = obs[0].Argument!.Value.GetRawText();
+        Assert.NotNull(obs[0].Data.Argument);
+        var argText = obs[0].Data.Argument!.Value.GetRawText();
         Assert.Contains("9", argText, StringComparison.Ordinal);
 
         // Inner received the call
@@ -100,9 +100,9 @@ public sealed class RecordingCombatTests
 
         var obs = trace.RecordedEvents.OfType<ObservationEvent>().ToList();
         Assert.Equal(3, obs.Count);
-        Assert.Equal("ClearTarget",    obs[0].Method);
-        Assert.Equal("StartRotation",  obs[1].Method);
-        Assert.Equal("StopRotation",   obs[2].Method);
+        Assert.Equal("ClearTarget",    obs[0].Data.Method);
+        Assert.Equal("StartRotation",  obs[1].Data.Method);
+        Assert.Equal("StopRotation",   obs[2].Data.Method);
 
         // Inner delegate-through: one clear target
         var clears = inner.RecordedTargets.Snapshot().Where(t => t.IsClear).ToList();
@@ -140,7 +140,7 @@ public sealed class RecordingCombatTests
         await proxy.SetTarget(new ActorId(9), CancellationToken.None);
 
         var obs = trace.RecordedEvents.OfType<ObservationEvent>()
-            .Where(e => e.Method == "SetTarget")
+            .Where(e => e.Data.Method == "SetTarget")
             .ToList();
 
         Assert.Equal(2, obs.Count);

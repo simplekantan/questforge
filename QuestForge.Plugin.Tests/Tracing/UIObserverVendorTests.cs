@@ -138,28 +138,28 @@ public sealed class UIObserverVendorTests
     private static string FormatEvents(FakeTraceWriter writer)
         => string.Join("; ", writer.RecordedEvents
             .OfType<ObservationEvent>()
-            .Select(e => $"[{e.Method}] value={e.Value?.GetRawText()}"));
+            .Select(e => $"[{e.Data.Method}] value={e.Data.Value?.GetRawText()}"));
 
     private static List<ObservationEvent> ShopOpenedEvents(FakeTraceWriter writer)
         => writer.RecordedEvents.OfType<ObservationEvent>()
-                 .Where(e => e.Method == "ShopOpened")
+                 .Where(e => e.Data.Method == "ShopOpened")
                  .ToList();
 
     private static List<ObservationEvent> VendorItemCountEvents(FakeTraceWriter writer)
         => writer.RecordedEvents.OfType<ObservationEvent>()
-                 .Where(e => e.Method == "VendorItemCount")
+                 .Where(e => e.Data.Method == "VendorItemCount")
                  .ToList();
 
     private static List<ObservationEvent> CurrencyBalanceEvents(FakeTraceWriter writer)
         => writer.RecordedEvents.OfType<ObservationEvent>()
-                 .Where(e => e.Method == "CurrencyBalance")
+                 .Where(e => e.Data.Method == "CurrencyBalance")
                  .ToList();
 
     private static bool GetShopOpenedValue(ObservationEvent e)
     {
-        Assert.NotNull(e.Value);
-        Assert.True(e.Value!.Value.TryGetProperty("value", out var el),
-            $"ShopOpened value must have 'value'. Got: {e.Value.Value.GetRawText()}");
+        Assert.NotNull(e.Data.Value);
+        Assert.True(e.Data.Value!.Value.TryGetProperty("value", out var el),
+            $"ShopOpened value must have 'value'. Got: {e.Data.Value.Value.GetRawText()}");
         return el.GetBoolean();
     }
 
@@ -219,8 +219,8 @@ public sealed class UIObserverVendorTests
         Assert.True(events.Count == 1,
             $"Expected exactly 1 VendorItemCount, got {events.Count}. Events: {FormatEvents(writer)}");
 
-        Assert.NotNull(events[0].Value);
-        var val = events[0].Value!.Value;
+        Assert.NotNull(events[0].Data.Value);
+        var val = events[0].Data.Value!.Value;
         Assert.True(val.TryGetProperty("itemId", out var itemIdEl),
             $"VendorItemCount must have 'itemId'. Got: {val.GetRawText()}");
         Assert.Equal(Item, itemIdEl.GetUInt32());
@@ -229,7 +229,7 @@ public sealed class UIObserverVendorTests
             $"VendorItemCount must have 'count'. Got: {val.GetRawText()}");
         Assert.Equal(1, countEl.GetInt32());
 
-        Assert.Null(events[0].Argument);
+        Assert.Null(events[0].Data.Argument);
 
         observer.Dispose();
     }
@@ -258,12 +258,12 @@ public sealed class UIObserverVendorTests
         var events = CurrencyBalanceEvents(writer);
         var dropEvent = events.LastOrDefault(e =>
         {
-            if (e.Value is null) return false;
-            if (!e.Value.Value.TryGetProperty("gil", out var g)) return false;
+            if (e.Data.Value is null) return false;
+            if (!e.Data.Value.Value.TryGetProperty("gil", out var g)) return false;
             return g.GetInt64() == 9000L;
         });
 
-        Assert.True(dropEvent.Method == "CurrencyBalance",
+        Assert.True(dropEvent.Data.Method == "CurrencyBalance",
             $"Expected a CurrencyBalance with gil=9000 after drop. Events: {FormatEvents(writer)}");
 
         observer.Dispose();
@@ -298,7 +298,7 @@ public sealed class UIObserverVendorTests
 
         var vendorObs = writer.RecordedEvents
             .OfType<ObservationEvent>()
-            .Where(e => e.Method is "ShopOpened" or "CurrencyBalance" or "VendorItemCount")
+            .Where(e => e.Data.Method is "ShopOpened" or "CurrencyBalance" or "VendorItemCount")
             .ToList();
 
         Assert.Empty(vendorObs);
@@ -382,8 +382,8 @@ public sealed class UIObserverVendorTests
             $"Expected at least one ShopOpened event. Events: {FormatEvents(writer)}");
 
         var ev = events[0];
-        Assert.NotNull(ev.Value);
-        var val = ev.Value!.Value;
+        Assert.NotNull(ev.Data.Value);
+        var val = ev.Data.Value!.Value;
 
         // value==true
         Assert.True(val.TryGetProperty("value", out var valueEl),
@@ -428,7 +428,7 @@ public sealed class UIObserverVendorTests
         Assert.True(events.Count >= 1,
             $"Expected at least one ShopOpened event. Events: {FormatEvents(writer)}");
 
-        var val = events[0].Value!.Value;
+        var val = events[0].Data.Value!.Value;
 
         // activeGcCategory key present, value null — RED: Builder must emit key with null value
         Assert.True(val.TryGetProperty("activeGcCategory", out var catEl),

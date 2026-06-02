@@ -31,6 +31,10 @@ public sealed class TraceSession : ITraceWriter, IDisposable
     // ── run.start dedup: last RunStartEvent RunId written to the current file ─
     private string? _lastRunStart;
 
+    // ── seq/ts stamping ──────────────────────────────────────────────────────
+    private long _nextSeq;
+    private System.Diagnostics.Stopwatch? _stopwatch;
+
     // ────────────────────────────────────────────────────────────────────────
     // Construction
     // ────────────────────────────────────────────────────────────────────────
@@ -141,19 +145,20 @@ public sealed class TraceSession : ITraceWriter, IDisposable
 
             if (evt is DecisionEvent d)
             {
-                var key = (d.RunId, d.StepId ?? "", d.ActionType);
+                var key = (d.RunId, d.Data.StepId ?? "", d.Data.ActionType);
                 if (_lastDecision == key) return;
                 _lastDecision = key;
             }
-            else if (evt is RunStartEvent rs)
+            else if (evt is RunStartEvent)
             {
-                if (_lastRunStart == rs.RunId) return;
-                _lastRunStart = rs.RunId;
+                if (_lastRunStart == evt.RunId) return;
+                _lastRunStart = evt.RunId;
             }
 
             try
             {
-                _writer.Write(evt);
+                var stamped = evt with { Seq = (int)_nextSeq++, Ts = _stopwatch?.ElapsedMilliseconds ?? 0 };
+                _writer.Write(stamped);
             }
             catch
             {
@@ -193,12 +198,16 @@ public sealed class TraceSession : ITraceWriter, IDisposable
             _dedup[key] = valueRaw;
 
             // Already inside _lock — use WriteUnderLock to avoid re-entering.
-            WriteUnderLock(new ObservationEvent(
-                RunId:    runId,
-                Method:   method,
-                Argument: argument is { ValueKind: not JsonValueKind.Undefined } ? argument : null,
-                Value:    value,
-                At:       at));
+            WriteUnderLock(new ObservationEvent
+            {
+                RunId = runId,
+                Data = new ObservationEvent.ObservationData
+                {
+                    Method   = method,
+                    Argument = argument is { ValueKind: not JsonValueKind.Undefined } ? argument : null,
+                    Value    = value
+                }
+            });
         }
     }
 
@@ -399,6 +408,8 @@ public sealed class TraceSession : ITraceWriter, IDisposable
             _writer          = writer;
             _currentFilePath = fullPath;
             _isWriteGateOpen = true;
+            _nextSeq         = 0;
+            _stopwatch       = System.Diagnostics.Stopwatch.StartNew();
 
             if (clearDedup)
             {
@@ -425,6 +436,8 @@ public sealed class TraceSession : ITraceWriter, IDisposable
         _writer          = null;
         _currentFilePath = null;
         _isWriteGateOpen = false;
+        _stopwatch?.Stop();
+        _stopwatch = null;
     }
 
     /// <summary>
@@ -438,7 +451,8 @@ public sealed class TraceSession : ITraceWriter, IDisposable
 
         try
         {
-            _writer.Write(evt);
+            var stamped = evt with { Seq = (int)_nextSeq++, Ts = _stopwatch?.ElapsedMilliseconds ?? 0 };
+            _writer.Write(stamped);
         }
         catch
         {

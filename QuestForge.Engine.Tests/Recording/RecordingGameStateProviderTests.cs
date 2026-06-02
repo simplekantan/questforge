@@ -82,7 +82,7 @@ public sealed class RecordingGameStateProviderTests
         // Assert
         Assert.Equal(1, trace.Count);
         var evt = Assert.IsType<ObservationEvent>(trace.RecordedEvents[0]);
-        Assert.Equal("GetPlayerZone", evt.Method);
+        Assert.Equal("GetPlayerZone", evt.Data.Method);
         Assert.Equal("test-run", evt.RunId);
     }
 
@@ -115,8 +115,8 @@ public sealed class RecordingGameStateProviderTests
 
         // Assert
         var evt = Assert.IsType<ObservationEvent>(trace.RecordedEvents[0]);
-        Assert.NotNull(evt.Value);
-        var valueJson = evt.Value!.Value.GetRawText();
+        Assert.NotNull(evt.Data.Value);
+        var valueJson = evt.Data.Value!.Value.GetRawText();
         Assert.Contains("182", valueJson, StringComparison.Ordinal);
     }
 
@@ -179,8 +179,8 @@ public sealed class RecordingGameStateProviderTests
 
         // Assert
         var evt = Assert.IsType<ObservationEvent>(trace.RecordedEvents[0]);
-        Assert.NotNull(evt.Value);
-        var valueJson = evt.Value!.Value.GetRawText();
+        Assert.NotNull(evt.Data.Value);
+        var valueJson = evt.Data.Value!.Value.GetRawText();
         Assert.Contains("failure", valueJson, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("not ready", valueJson, StringComparison.OrdinalIgnoreCase);
     }
@@ -344,8 +344,8 @@ public sealed class RecordingGameStateProviderTests
 
         // Assert
         var evt = Assert.IsType<ObservationEvent>(trace.RecordedEvents[0]);
-        Assert.NotNull(evt.Value);
-        Assert.Equal(JsonValueKind.Array, evt.Value!.Value.ValueKind);
+        Assert.NotNull(evt.Data.Value);
+        Assert.Equal(JsonValueKind.Array, evt.Data.Value!.Value.ValueKind);
     }
 
     // -------------------------------------------------------------------------
@@ -372,7 +372,7 @@ public sealed class RecordingGameStateProviderTests
 
         // Assert
         var evt = Assert.IsType<ObservationEvent>(trace.RecordedEvents[0]);
-        Assert.Equal("IsPlayerInCombat", evt.Method);
+        Assert.Equal("IsPlayerInCombat", evt.Data.Method);
     }
 }
 

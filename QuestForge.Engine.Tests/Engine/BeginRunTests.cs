@@ -212,7 +212,7 @@ public sealed class BeginRunTests
         // run.start must be first
         var first = Assert.IsType<RunStartEvent>(events[0]);
         Assert.Equal("test-run-1", first.RunId);
-        Assert.Equal(66130u, first.QuestId);
+        Assert.Equal(66130u, first.Data.QuestId);
 
         // last event must be decision
         Assert.IsType<DecisionEvent>(events[events.Count - 1]);
@@ -254,8 +254,8 @@ public sealed class BeginRunTests
         // Assert
         var events = harness.TraceWriter.RecordedEvents;
         var decision = events.OfType<DecisionEvent>().Single();
-        Assert.Equal("Navigate", decision.ActionType);
-        Assert.Equal("travel-to-wymond", decision.StepId);
+        Assert.Equal("Navigate", decision.Data.ActionType);
+        Assert.Equal("travel-to-wymond", decision.Data.StepId);
     }
 
     // -------------------------------------------------------------------------
@@ -292,7 +292,7 @@ public sealed class BeginRunTests
         Assert.True(events.Count >= 1, "Expected at least run.start event");
         var last = events[events.Count - 1];
         var runEnd = Assert.IsType<RunEndEvent>(last);
-        Assert.Equal("done", runEnd.Outcome);
+        Assert.Equal("done", runEnd.Data.Outcome);
     }
 
     // -------------------------------------------------------------------------
@@ -332,7 +332,7 @@ public sealed class BeginRunTests
         Assert.True(events.Count >= 1);
         var last = events[events.Count - 1];
         var runEnd = Assert.IsType<RunEndEvent>(last);
-        Assert.Equal("awaitUser", runEnd.Outcome);
+        Assert.Equal("awaitUser", runEnd.Data.Outcome);
     }
 
     // -------------------------------------------------------------------------

@@ -123,10 +123,9 @@ public sealed class ReplayGameStateProviderTests
         string method,
         JsonElement? argument,
         JsonElement? value) =>
-        new ObservationEvent(
-            RunId: "test-run",
-            Method: method,
-            Argument: argument,
-            Value: value,
-            At: _at);
+        new ObservationEvent
+        {
+            RunId = "test-run",
+            Data = new ObservationEvent.ObservationData { Method = method, Argument = argument, Value = value }
+        };
 }

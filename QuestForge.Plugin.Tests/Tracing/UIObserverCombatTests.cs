@@ -125,33 +125,33 @@ public sealed class UIObserverCombatTests
     private static string FormatEvents(FakeTraceWriter writer)
         => string.Join("; ", writer.RecordedEvents
             .OfType<ObservationEvent>()
-            .Select(e => $"[{e.Method}] value={e.Value?.GetRawText()}"));
+            .Select(e => $"[{e.Data.Method}] value={e.Data.Value?.GetRawText()}"));
 
     private static List<ObservationEvent> KilledEvents(FakeTraceWriter writer)
         => writer.RecordedEvents
             .OfType<ObservationEvent>()
-            .Where(e => e.Method == "EnemyKilled")
+            .Where(e => e.Data.Method == "EnemyKilled")
             .ToList();
 
     private static List<ObservationEvent> InCombatEvents(FakeTraceWriter writer)
         => writer.RecordedEvents
             .OfType<ObservationEvent>()
-            .Where(e => e.Method == "InCombat")
+            .Where(e => e.Data.Method == "InCombat")
             .ToList();
 
     private static uint GetDataId(ObservationEvent e)
     {
-        Assert.NotNull(e.Value);
-        Assert.True(e.Value!.Value.TryGetProperty("dataId", out var el),
-            $"EnemyKilled value must have 'dataId'. Got: {e.Value.Value.GetRawText()}");
+        Assert.NotNull(e.Data.Value);
+        Assert.True(e.Data.Value!.Value.TryGetProperty("dataId", out var el),
+            $"EnemyKilled value must have 'dataId'. Got: {e.Data.Value.Value.GetRawText()}");
         return el.GetUInt32();
     }
 
     private static bool GetInCombatValue(ObservationEvent e)
     {
-        Assert.NotNull(e.Value);
-        Assert.True(e.Value!.Value.TryGetProperty("value", out var el),
-            $"InCombat value must have 'value'. Got: {e.Value.Value.GetRawText()}");
+        Assert.NotNull(e.Data.Value);
+        Assert.True(e.Data.Value!.Value.TryGetProperty("value", out var el),
+            $"InCombat value must have 'value'. Got: {e.Data.Value.Value.GetRawText()}");
         return el.GetBoolean();
     }
 
@@ -193,7 +193,7 @@ public sealed class UIObserverCombatTests
             $"Expected exactly 1 EnemyKilled after alive→dead transition, got {killed.Count}. Events: {FormatEvents(writer)}");
 
         Assert.Equal(347u, GetDataId(killed[0]));
-        Assert.Null(killed[0].Argument);
+        Assert.Null(killed[0].Data.Argument);
 
         observer.Dispose();
     }
@@ -436,7 +436,7 @@ public sealed class UIObserverCombatTests
         Assert.False(GetInCombatValue(inCombatEvents[1]),
             "Second InCombat event must be {value:false}");
 
-        Assert.All(inCombatEvents, e => Assert.Null(e.Argument));
+        Assert.All(inCombatEvents, e => Assert.Null(e.Data.Argument));
 
         observer.Dispose();
     }
@@ -611,7 +611,7 @@ public sealed class UIObserverCombatTests
 
         var combatObs = writer.RecordedEvents
             .OfType<ObservationEvent>()
-            .Where(e => e.Method == "EnemyKilled" || e.Method == "InCombat")
+            .Where(e => e.Data.Method == "EnemyKilled" || e.Data.Method == "InCombat")
             .ToList();
 
         Assert.Empty(combatObs);

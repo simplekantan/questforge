@@ -172,12 +172,12 @@ public sealed class UIObserverCombatForwardingTests
 
     private static List<ObservationEvent> GetTargetEvents(FakeTraceWriter writer)
         => writer.RecordedEvents.OfType<ObservationEvent>()
-                 .Where(e => e.Method == "GetTarget")
+                 .Where(e => e.Data.Method == "GetTarget")
                  .ToList();
 
     private static List<ObservationEvent> EnemyKilledEvents(FakeTraceWriter writer)
         => writer.RecordedEvents.OfType<ObservationEvent>()
-                 .Where(e => e.Method == "EnemyKilled")
+                 .Where(e => e.Data.Method == "EnemyKilled")
                  .ToList();
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -280,11 +280,11 @@ public sealed class UIObserverCombatForwardingTests
 
         var getTargetEvents = GetTargetEvents(writer);
         Assert.True(getTargetEvents.Count == 1,
-            $"Expected exactly one GetTarget event. Got: {string.Join("; ", getTargetEvents.Select(e => e.Value?.GetRawText()))}");
+            $"Expected exactly one GetTarget event. Got: {string.Join("; ", getTargetEvents.Select(e => e.Data.Value?.GetRawText()))}");
 
         var evt = getTargetEvents[0];
-        Assert.NotNull(evt.Value);
-        var val = evt.Value!.Value;
+        Assert.NotNull(evt.Data.Value);
+        var val = evt.Data.Value!.Value;
 
         Assert.True(val.TryGetProperty("baseId", out var baseIdEl),
             $"GetTarget value must have 'baseId'. Got: {val.GetRawText()}");
@@ -329,11 +329,11 @@ public sealed class UIObserverCombatForwardingTests
 
         var getTargetEvents = GetTargetEvents(writer2);
         Assert.True(getTargetEvents.Count == 1,
-            $"Expected exactly one GetTarget. Got: {string.Join("; ", getTargetEvents.Select(e => e.Value?.GetRawText()))}");
+            $"Expected exactly one GetTarget. Got: {string.Join("; ", getTargetEvents.Select(e => e.Data.Value?.GetRawText()))}");
 
         var evt = getTargetEvents[0];
-        Assert.NotNull(evt.Value);
-        var val = evt.Value!.Value;
+        Assert.NotNull(evt.Data.Value);
+        var val = evt.Data.Value!.Value;
 
         // Bare uint shape — must be a plain number, NOT a JSON object
         var rawText = val.GetRawText();
@@ -437,7 +437,7 @@ public sealed class UIObserverCombatForwardingTests
         Assert.True(killedEvents.Count == 1,
             $"EnemyKilled must still be emitted by PollCombat even though attribution is severed. " +
             $"Got: {killedEvents.Count} events");
-        var dataId = killedEvents[0].Value!.Value.GetProperty("dataId").GetUInt32();
+        var dataId = killedEvents[0].Data.Value!.Value.GetProperty("dataId").GetUInt32();
         Assert.Equal(347u, dataId);
 
         // KillCorrelatedTargets must be null — the kill must NOT create an entry
