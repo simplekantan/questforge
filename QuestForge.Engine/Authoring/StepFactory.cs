@@ -225,6 +225,12 @@ public static class StepFactory
                     : npcPos
             },
             "purchase-item" => BuildPurchaseItemStep(stepId, expectValue, zoneStr, zone, npcPos, after),
+            "wait" => new WaitStep { Id = stepId, Expect = expectValue, Seconds = 5 },
+            "cutscene" => new CutsceneStep { Id = stepId, Expect = expectValue },
+            "await-user" => new AwaitUserStep { Id = stepId, Expect = expectValue },
+            "equip-best-gear" => new EquipBestGearStep { Id = stepId, Expect = expectValue },
+            "open-coffers" => new OpenCoffersStep { Id = stepId, Expect = expectValue },
+            "duty" => new DutyStep { Id = stepId, Expect = expectValue, Kind = "spd" },
             _ => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, RequiredZone = zoneStr, Target = npcLoc, DialogueChoices = dialogueChoices }
         };
     }
