@@ -51,6 +51,7 @@ internal sealed class SimpleLinearAcceptanceState : IFixtureState
     public IMinigameSkipper Minigames { get; } = new FakeMinigameSkipper();
     public IDialogueResolver Dialogue { get; } = new FakeDialogueResolver();
     public ITimingProfile Timing { get; } = new FakeTimingProfile();
+    public TimeProvider? Clock => null;
 
     IGameStateProvider IFixtureState.GameState => GameState;
     IQuestState IFixtureState.QuestState => QuestState;

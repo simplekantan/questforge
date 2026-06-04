@@ -132,7 +132,8 @@ public sealed class EngineFixtureTests
             state.Combat,
             state.Minigames, state.Dialogue,
             state.Timing,
-            capturingTrace, NullLogger<QuestEngine>.Instance);
+            capturingTrace, NullLogger<QuestEngine>.Instance,
+            clock: state.Clock);
 
         engine.StartQuest(quest);
         engine.BeginRun("fixture-run");

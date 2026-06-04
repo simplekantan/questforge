@@ -1248,6 +1248,7 @@ public sealed class TraceReplayFixtureStateTests
         public IMinigameSkipper   Minigames       { get; } = null!;
         public IDialogueResolver  Dialogue   { get; } = null!;
         public ITimingProfile     Timing     { get; } = null!;
+        public TimeProvider?      Clock      => null;
 
         public void OnTick(EngineAction action, int tick)
             => OnTickCount++;

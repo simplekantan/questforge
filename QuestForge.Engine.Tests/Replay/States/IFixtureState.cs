@@ -27,6 +27,7 @@ internal interface IFixtureState
     IMinigameSkipper    Minigames       { get; }
     IDialogueResolver   Dialogue        { get; }
     ITimingProfile      Timing          { get; }
+    TimeProvider?       Clock           { get; }
 
     /// <summary>
     /// Called after the engine produces <paramref name="action"/> on tick <paramref name="tick"/>.
