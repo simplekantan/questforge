@@ -41,6 +41,12 @@ public sealed class InteractionPanel : Window
             ImGui.SameLine();
             if (ImGui.Button("Copy NPC Pos"))
                 ImGui.SetClipboardText($"{{\"x\": {npcPos.X:F2}, \"y\": {npcPos.Y:F2}, \"z\": {npcPos.Z:F2}}}");
+
+            var dx = snapshot.Position.X - npcPos.X;
+            var dy = snapshot.Position.Y - npcPos.Y;
+            var dz = snapshot.Position.Z - npcPos.Z;
+            var dist = MathF.Sqrt(dx * dx + dy * dy + dz * dz);
+            ImGui.TextUnformatted($"Distance to Target: {dist:F1}y");
         }
 
         ImGui.Spacing();
