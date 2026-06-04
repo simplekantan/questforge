@@ -126,7 +126,7 @@ public sealed class ConfigWindow : Window
         ImGui.Spacing();
 
         ImGui.SetNextItemWidth(110f);
-        var traceModeNames = new[] { "Off", "Always", "Authoring", "Recording" };
+        var traceModeNames = new[] { "Off", "Always", "Authoring", "Recording", "Quest Run" };
         var traceModeIdx = (int)_config.TraceMode;
         if (ImGui.Combo("Trace mode", ref traceModeIdx, traceModeNames, traceModeNames.Length))
         {
