@@ -13,6 +13,7 @@ using QuestForge.Adapters.State;
 using QuestForge.Adapters.Timing;
 using QuestForge.Adapters.Tracing;
 using QuestForge.Engine;
+using QuestForge.Engine.Tests.Engine;
 
 namespace QuestForge.Engine.Tests.Replay;
 
@@ -27,6 +28,7 @@ namespace QuestForge.Engine.Tests.Replay;
 internal sealed class TraceReplayFixtureState : IFixtureState
 {
     private readonly SegmentedObservationScanner _scanner;
+    private readonly ManualTimeProvider _clock;
 
     public IGameStateProvider  GameState       { get; }
     public IQuestState         QuestState      { get; }
@@ -40,9 +42,13 @@ internal sealed class TraceReplayFixtureState : IFixtureState
     public IMinigameSkipper    Minigames       { get; } = new FakeMinigameSkipper();
     public IDialogueResolver   Dialogue        { get; } = new FakeDialogueResolver();
     public ITimingProfile      Timing          { get; } = new FakeTimingProfile();
+    public TimeProvider?       Clock           { get; }
 
     private TraceReplayFixtureState(IReadOnlyList<TraceEvent> trace)
     {
+        var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        Clock      = clock;
+        _clock     = clock;
         _scanner   = new SegmentedObservationScanner(trace);
         GameState  = new ReplayGameStateProvider(_scanner);
         QuestState = new ReplayQuestState(_scanner);
@@ -59,8 +65,8 @@ internal sealed class TraceReplayFixtureState : IFixtureState
         return new TraceReplayFixtureState(trace);
     }
 
-    /// <summary>Per-tick callback — no-op. Segment advancement is driven by OnTransitionRecorded.</summary>
-    public void OnTick(EngineAction action, int tick) { }
+    /// <summary>Advance the fake clock each tick so WaitSteps complete without real-time delay.</summary>
+    public void OnTick(EngineAction action, int tick) => _clock.Advance(TimeSpan.FromSeconds(1));
 
     /// <summary>Called by the harness once per new distinct transition. Advances the replay segment.</summary>
     public void OnTransitionRecorded(EngineAction action, int tick)
