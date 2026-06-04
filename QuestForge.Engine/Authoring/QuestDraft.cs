@@ -63,14 +63,16 @@ public sealed class QuestDraft
     public bool MoveStepUp(string stepId, DateTimeOffset now)
     {
         var index = _steps.FindIndex(s => s.StepId == stepId);
-        if (index < 1) return false;
+        if (index < 0) return false;
 
         var step = _steps[index];
-        var above = _steps[index - 1];
-        if (step.SequenceNumber != above.SequenceNumber) return false;
+        var sameSeqIndices = SameSequenceIndices(step.SequenceNumber);
+        var pos = sameSeqIndices.IndexOf(index);
+        if (pos < 1) return false;
 
-        _steps[index] = above;
-        _steps[index - 1] = step;
+        var swapIndex = sameSeqIndices[pos - 1];
+        _steps[index] = _steps[swapIndex];
+        _steps[swapIndex] = step;
         LastModifiedAt = now;
         return true;
     }
@@ -78,16 +80,27 @@ public sealed class QuestDraft
     public bool MoveStepDown(string stepId, DateTimeOffset now)
     {
         var index = _steps.FindIndex(s => s.StepId == stepId);
-        if (index < 0 || index >= _steps.Count - 1) return false;
+        if (index < 0) return false;
 
         var step = _steps[index];
-        var below = _steps[index + 1];
-        if (step.SequenceNumber != below.SequenceNumber) return false;
+        var sameSeqIndices = SameSequenceIndices(step.SequenceNumber);
+        var pos = sameSeqIndices.IndexOf(index);
+        if (pos < 0 || pos >= sameSeqIndices.Count - 1) return false;
 
-        _steps[index] = below;
-        _steps[index + 1] = step;
+        var swapIndex = sameSeqIndices[pos + 1];
+        _steps[index] = _steps[swapIndex];
+        _steps[swapIndex] = step;
         LastModifiedAt = now;
         return true;
+    }
+
+    private List<int> SameSequenceIndices(int sequenceNumber)
+    {
+        var indices = new List<int>();
+        for (var i = 0; i < _steps.Count; i++)
+            if (_steps[i].SequenceNumber == sequenceNumber)
+                indices.Add(i);
+        return indices;
     }
 
     /// <summary>
