@@ -86,7 +86,8 @@ QuestForge suggests an Expect based on what changed in the game state. Common pa
 | `isPlayerJob(19)` | Player is on a specific job | After changing jobs (19 = Paladin) |
 | `isAetherCurrentAttuned(2818049)` | Aether current is unlocked | After attuning to an aether current |
 | `not inventoryHasCoffers()` | No coffers left in inventory | After opening all coffers |
-| `npcExistsNearby(1234)` | An NPC has spawned | After an interaction triggers an NPC spawn |
+| `objectExists(1234)` | An object (NPC, EventObj, aetheryte) exists in the world | After an interaction triggers a spawn |
+| `objectExistsInRange(1234, 10)` | An object exists within range (yalms) of the player | After warping near a specific NPC or object |
 | `jobGearsetExists(19)` | A gearset exists for a job | After registering a gearset |
 
 You can edit the Expect field if the suggestion is wrong. If no Expect is needed (the step has an implicit postcondition, like equip-gear-for-quest), leave it empty.

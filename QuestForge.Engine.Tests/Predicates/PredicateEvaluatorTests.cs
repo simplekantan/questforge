@@ -1367,6 +1367,104 @@ public sealed class PredicateEvaluatorTests
         Assert.False(result, "Nothing with ID 9999999 exists — npcExistsNearby(9999999) should be false");
     }
 
+    // =========================================================================
+    // objectExists predicate tests (renamed from npcExistsNearby)
+    // =========================================================================
+
+    [Fact]
+    public async Task ObjectExists_NpcExists_ReturnsTrue()
+    {
+        var gameState = new FakeGameStateProvider();
+        gameState.AddNpc(new NpcReference(new NpcId(1000789), new WorldPosition(10f, 0f, 10f), DistanceToPlayer: 5f));
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("objectExists(1000789)").Ast!;
+
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task ObjectExists_NeitherExists_ReturnsFalse()
+    {
+        var gameState = new FakeGameStateProvider();
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("objectExists(9999999)").Ast!;
+
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        Assert.False(result);
+    }
+
+    // =========================================================================
+    // objectExistsInRange predicate tests
+    // =========================================================================
+
+    [Fact]
+    public async Task ObjectExistsInRange_NpcWithinRange_ReturnsTrue()
+    {
+        var gameState = new FakeGameStateProvider();
+        gameState.AddNpc(new NpcReference(new NpcId(1000789), new WorldPosition(10f, 0f, 10f), DistanceToPlayer: 5f));
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("objectExistsInRange(1000789, 10)").Ast!;
+
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task ObjectExistsInRange_NpcOutOfRange_ReturnsFalse()
+    {
+        var gameState = new FakeGameStateProvider();
+        gameState.AddNpc(new NpcReference(new NpcId(1000789), new WorldPosition(10f, 0f, 10f), DistanceToPlayer: 50f));
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("objectExistsInRange(1000789, 10)").Ast!;
+
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task ObjectExistsInRange_InteractableWithinRange_ReturnsTrue()
+    {
+        var gameState = new FakeGameStateProvider();
+        gameState.AddInteractable(new InteractableReference(
+            new InteractableId(2001234), new WorldPosition(5f, 0f, 5f), DistanceToPlayer: 3f, Kind: InteractableKind.EventTrigger));
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("objectExistsInRange(2001234, 5)").Ast!;
+
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task ObjectExistsInRange_NeitherExists_ReturnsFalse()
+    {
+        var gameState = new FakeGameStateProvider();
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("objectExistsInRange(9999999, 100)").Ast!;
+
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task ObjectExistsInRange_ExactlyAtRange_ReturnsTrue()
+    {
+        var gameState = new FakeGameStateProvider();
+        gameState.AddNpc(new NpcReference(new NpcId(100), new WorldPosition(0f, 0f, 0f), DistanceToPlayer: 10f));
+        var evaluator = CreateEvaluator(gameState, new FakeQuestState());
+        var ast = PredicateParser.Parse("objectExistsInRange(100, 10)").Ast!;
+
+        var result = await evaluator.Evaluate(ast, CancellationToken.None);
+
+        Assert.True(result);
+    }
+
     // -------------------------------------------------------------------------
     // Factory helpers
     // -------------------------------------------------------------------------
