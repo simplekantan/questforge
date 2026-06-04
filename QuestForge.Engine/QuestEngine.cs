@@ -488,6 +488,9 @@ public sealed class QuestEngine
             ? uiValue
             : new UiState(false, false, false, false, false, false, false, false, null);
 
+        if (ui.LoadingZone)
+            return (new EngineAction.Wait("loading zone"), null);
+
         // Read player position once per tick for implied navigation distance checks.
         // On adapter failure: use null so distance checks fail-open (emit Interact, not Navigate).
         var posResult = await _gameState.GetPlayerPosition(ct);
