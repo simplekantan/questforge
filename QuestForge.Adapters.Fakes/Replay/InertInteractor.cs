@@ -84,4 +84,7 @@ public sealed class InertInteractor : IInteractor
 
     public Task<Result<HandOverOutcome>> HandOverItem(ItemId[] items, NpcId target, CancellationToken ct)
         => Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.HandedOver));
+
+    public Task<Result<HandOverOutcome>> TryFillRequestAddon(CancellationToken ct)
+        => Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
 }

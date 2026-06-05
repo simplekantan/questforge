@@ -57,6 +57,9 @@ public interface IInteractor
 
     // Item hand-over (Quest Request addon)
     Task<Result<HandOverOutcome>> HandOverItem(ItemId[] items, NpcId target, CancellationToken ct);
+
+    // Auto-fill Request addon from key items inventory (no item IDs needed)
+    Task<Result<HandOverOutcome>> TryFillRequestAddon(CancellationToken ct);
 }
 
 public enum InteractOutcome

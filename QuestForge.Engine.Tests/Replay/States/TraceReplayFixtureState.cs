@@ -30,6 +30,15 @@ internal sealed class TraceReplayFixtureState : IFixtureState
     private readonly SegmentedObservationScanner _scanner;
     private readonly ManualTimeProvider _clock;
 
+    public IReadOnlyList<string> ScannerDebugLog => _scanner.DebugLog;
+
+    /// <summary>
+    /// Try to advance the scanner by matching a decision against the trace's sequence.
+    /// Returns true if the segment was advanced.
+    /// </summary>
+    public bool TryAdvanceForDecision(string? stepId, string actionType)
+        => _scanner.TryAdvanceForDecision(stepId, actionType);
+
     public IGameStateProvider  GameState       { get; }
     public IQuestState         QuestState      { get; }
     public INavigator          Navigator       { get; } = new InertNavigator();

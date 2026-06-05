@@ -263,6 +263,9 @@ public sealed class FakeInteractor : IInteractor
         return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(outcome));
     }
 
+    public Task<Result<HandOverOutcome>> TryFillRequestAddon(CancellationToken ct)
+        => Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
+
     private InteractOutcome ConsumeInteractResult()
     {
         if (_nextInteractResult.HasValue)
