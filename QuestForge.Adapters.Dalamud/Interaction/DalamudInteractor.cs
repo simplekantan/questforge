@@ -294,35 +294,37 @@ public sealed class DalamudInteractor : IInteractor
         var placedCount   = addon->AtkValues[0].Int;
         var requiredCount = (int)addon->AtkValues[3].UInt;
 
-        if (placedCount >= requiredCount)
+        // Fill all empty slots in one pass
+        if (placedCount < requiredCount)
         {
-            var focusNode = addon->FocusNode;
-            if (focusNode != null)
+            var mgr = InventoryManager.Instance();
+            if (mgr == null)
+                return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
+
+            var container = mgr->GetInventoryContainer(InventoryType.KeyItems);
+            if (container == null)
+                return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
+
+            for (var i = 0; i < container->Size && placedCount < requiredCount; i++)
             {
-                var evt = focusNode->AtkEventManager.Event;
-                if (evt != null)
-                    addon->ReceiveEvent(AtkEventType.ButtonClick, (int)evt->Param, evt);
+                var slot = container->GetInventorySlot(i);
+                if (slot == null || slot->ItemId == 0) continue;
+                mgr->MoveItemSlot(InventoryType.KeyItems, (ushort)i, InventoryType.HandIn, (ushort)placedCount);
+                placedCount++;
             }
-            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.HandedOver));
         }
 
-        var mgr = InventoryManager.Instance();
-        if (mgr == null)
-            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
-
-        var container = mgr->GetInventoryContainer(InventoryType.KeyItems);
-        if (container == null)
-            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
-
-        for (var i = 0; i < container->Size; i++)
+        // Click Hand Over button
+        var focusNode = addon->FocusNode;
+        if (focusNode != null)
         {
-            var slot = container->GetInventorySlot(i);
-            if (slot == null || slot->ItemId == 0) continue;
-            mgr->MoveItemSlot(InventoryType.KeyItems, (ushort)i, InventoryType.HandIn, (ushort)placedCount);
-            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemPlaced));
+            var evt = focusNode->AtkEventManager.Event;
+            if (evt != null)
+                addon->ReceiveEvent(AtkEventType.ButtonClick, (int)evt->Param, evt);
         }
 
-        return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
+        return Task.FromResult<Result<HandOverOutcome>>(
+            Result.Ok(placedCount >= requiredCount ? HandOverOutcome.HandedOver : HandOverOutcome.ItemNotFound));
     }
 
     private Task<Result<Unit>> ClickAddonButton(
