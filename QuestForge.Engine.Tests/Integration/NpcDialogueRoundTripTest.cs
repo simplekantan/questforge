@@ -83,6 +83,8 @@ public sealed class NpcDialogueRoundTripTest
             => Task.FromResult<Result<Unit>>(Result.Ok());
         public Task<Result<HandOverOutcome>> HandOverItem(ItemId[] items, AdaptersNpcId target, CancellationToken ct)
             => Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.HandedOver));
+        public Task<Result<HandOverOutcome>> TryFillRequestAddon(CancellationToken ct)
+            => Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
     }
 
     // E2E-1

@@ -509,6 +509,7 @@ public sealed class EngineHost : IDisposable
                     _interactor, ct);
                 if (!choiceDispatched)
                     await _interactor.AdvanceDialogue(ct);
+                await _interactor.TryFillRequestAddon(ct);
                 await _interactor.AcceptQuest(_currentQuestId, ct);
                 await _interactor.CompleteQuest(_currentQuestId, ct);
                 break;

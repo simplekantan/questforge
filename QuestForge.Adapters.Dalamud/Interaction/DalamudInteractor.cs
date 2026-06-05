@@ -281,6 +281,50 @@ public sealed class DalamudInteractor : IInteractor
         return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
     }
 
+    public unsafe Task<Result<HandOverOutcome>> TryFillRequestAddon(CancellationToken ct)
+    {
+        var addonPtr = _svc.GameGui.GetAddonByName("Request");
+        if (addonPtr.IsNull || !addonPtr.IsReady)
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
+
+        var addon = (AtkUnitBase*)addonPtr.Address;
+        if (!addon->IsVisible || addon->AtkValuesCount < 4)
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.NoDialog));
+
+        var placedCount   = addon->AtkValues[0].Int;
+        var requiredCount = (int)addon->AtkValues[3].UInt;
+
+        if (placedCount >= requiredCount)
+        {
+            var focusNode = addon->FocusNode;
+            if (focusNode != null)
+            {
+                var evt = focusNode->AtkEventManager.Event;
+                if (evt != null)
+                    addon->ReceiveEvent(AtkEventType.ButtonClick, (int)evt->Param, evt);
+            }
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.HandedOver));
+        }
+
+        var mgr = InventoryManager.Instance();
+        if (mgr == null)
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
+
+        var container = mgr->GetInventoryContainer(InventoryType.KeyItems);
+        if (container == null)
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
+
+        for (var i = 0; i < container->Size; i++)
+        {
+            var slot = container->GetInventorySlot(i);
+            if (slot == null || slot->ItemId == 0) continue;
+            mgr->MoveItemSlot(InventoryType.KeyItems, (ushort)i, InventoryType.HandIn, (ushort)placedCount);
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemPlaced));
+        }
+
+        return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
+    }
+
     private Task<Result<Unit>> ClickAddonButton(
         string addonName, uint buttonId,
         string missingAddonCode, string missingButtonCode)
