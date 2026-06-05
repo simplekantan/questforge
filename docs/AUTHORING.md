@@ -1,6 +1,6 @@
 # Authoring Mode Specification
 
-**Status:** v1 — Phase 9 delivered the core recording workflow; several sections describe planned future capability, noted below
+**Status:** v2 — Phase 11 implementation; core recording, inference for 20+ step types, predicate picker, step editing, reordering, and combat replay all operational
 **Owners:** QuestForge maintainers
 **Related:** [DESIGN.md](./DESIGN.md), [SCHEMA.md](./SCHEMA.md), [ADAPTERS.md](./ADAPTERS.md), [TRACE_FORMAT.md](./TRACE_FORMAT.md)
 
@@ -89,9 +89,9 @@ Three panels in v1. Each is independently toggleable and remembers its position 
 └──────────────────────────────────────┘
 ```
 
-Position and zone update on a 250ms heartbeat. Copy-as-JSON produces a position object ready to paste into quest data. The heartbeat interval is configurable via `PluginConfig.AuthoringHeartbeatMs` (default 250ms).
+Position and zone update on a 250ms heartbeat. Copy-as-JSON produces a position object ready to paste into quest data. The heartbeat interval is configurable via `PluginConfig.AuthoringHeartbeatMs` (default 250ms, adjustable in Settings).
 
-> **Phase 9 note:** Job, mount state, combat, HP, and instance kind are not yet shown — `GameStateSnapshot` doesn't capture those fields. They can be added when `SnapshotAggregator` is extended to poll `IGameStateProvider`.
+Job, mount state, combat status, HP, and instance kind are all displayed. The panel reads these from `IGameStateProvider` via the authoring heartbeat.
 
 ### 4.2 Quest state panel
 
@@ -165,8 +165,8 @@ Active recording (Author mode only) collects steps into a draft.
 
 A single "Record current action" button. Pressing it captures the player's most recent action and infers the step type from context:
 
-| Recent action | Inferred type | Phase 9 |
-|---------------|---------------|---------|
+| Recent action | Inferred type | Status |
+|---------------|---------------|--------|
 | Quest completed | `turn-in` | ✅ Auto-inferred |
 | Quest accepted | `accept` | ✅ Auto-inferred |
 | Quest sequence advanced | `talk` | ✅ Auto-inferred |
@@ -174,16 +174,27 @@ A single "Record current action" button. Pressing it captures the player's most 
 | Quest flags changed (no seq change) | `talk` (flag predicate) | ✅ Auto-inferred |
 | Dialogue answer changed only | `talk` | ✅ Auto-inferred |
 | NPC target changed only | `talk` (low confidence) | ✅ Auto-inferred |
-| Interacted with an EventObject | `interact-object` or `pickup-item` | Override required |
+| Interacted with an EventObject | `interact-object` | ✅ Auto-inferred (Rule 3.5o) |
 | Key item appeared in inventory | `pickup-item` | ✅ Auto-inferred (Rule 2.3) |
-| Key item disappeared from inventory (handed over via Request addon) | `hand-over-item` | ✅ Auto-inferred (Rule 2.4) |
-| `AethernetShardTargeted` observation fires (aethernet shard targeted) | `attune` | ✅ Auto-inferred (Rule 2.5) |
-| Inventory hash changes between before/after observations (`InventoryChangedEvent`) | `hand-over-item` using the items that disappeared | ✅ Auto-inferred (Rule 2.6) |
-| Duty entry | `duty` | Override required |
-| Used emote | `use-emote` | Override required |
-| Sent chat message | `say-chat-message` | Override required |
-| Equipped an item | `equip-gear-for-quest` | Override required |
-| Cutscene start/end | `cutscene` | Override required |
+| Key item disappeared from inventory | `hand-over-item` | ✅ Auto-inferred (Rule 2.4 / 2.6) |
+| Aethernet shard targeted | `attune` | ✅ Auto-inferred (Rule 2.5) |
+| Sent /say chat message | `say-chat-message` | ✅ Auto-inferred (Rule 3.5s) |
+| Used a key item or inventory item | `use-item` | ✅ Auto-inferred (Rule 3.5i) |
+| Changed job/class | `change-job` | ✅ Auto-inferred (Rule 3.5j) |
+| Registered a gearset | `register-gearset` | ✅ Auto-inferred (Rule 3.5k) |
+| Equipped gear (slots changed) | `equip-gear-for-quest` | ✅ Auto-inferred (Rule 3.5g) |
+| Performed an emote | `use-emote` | ✅ Auto-inferred (Rule 3.5e) |
+| Used a combat action | `use-action` | ✅ Auto-inferred (Rule 3.5) |
+| Purchased from vendor | `purchase-item` | ✅ Auto-inferred (Rule 2.2b) |
+| Combat with enemies | `combat` | ✅ Auto-inferred (Rule 2.2) |
+| Duty entry | `duty` | Manual selection |
+| Equip best gear | `equip-best-gear` | Manual selection |
+| Open coffers | `open-coffers` | Manual selection |
+| Wait for duration | `wait` | Manual selection |
+| Cutscene | `cutscene` | Manual selection |
+| Await user | `await-user` | Manual selection |
+
+Authors can also override the inferred type by selecting from the step type dropdown before clicking Record. All 27 step types are available in the dropdown.
 
 The inference is shown in a preview modal:
 
@@ -226,9 +237,17 @@ The recorder observes state changes during the action and suggests an `expect` b
 - Quest accepted → `isQuestAccepted(N)`
 - Quest completed → `isQuestComplete(N)`
 - Zone changed → `playerZone() == N`
-- Inventory changed → `playerHasItem(item:N, count)`
+- Inventory changed → `playerHasItem(itemId)` or `playerHasItem(itemId, count)`
+- Attuned to aetheryte → `isAttuned(aetheryteId)`
+- Equipment changed → `playerHasEquipped(itemId)`
+- Job changed → `isPlayerJob(jobId)`
+- Gearset registered → `jobGearsetExists(jobId)`
+- Object interaction → `objectExists(dataId)` or `objectExistsInRange(dataId, range)`
+- Quest variable changed → `questVariableLow(questId, index)` / `questVariableHigh(questId, index)`
 
-`StepInferenceEngine` always emits a **single** predicate string (the strongest signal wins). If the author needs to combine predicates, they edit the expect field manually in the record modal. See `PHASE_9_PLAN.md §2.3` for the single-predicate policy rationale.
+`StepInferenceEngine` always emits a **single** predicate string (the strongest signal wins). If the author needs to combine predicates, they edit the expect field manually.
+
+Both the Record modal and the Edit modal include a **predicate picker dropdown** with contextual suggestions based on the current game state (active quest ID, zone, last NPC interacted, etc.). Authors can also type predicates directly into the text field.
 
 ### 5.3 No observed change — author writes manually
 
@@ -289,9 +308,12 @@ Last 5 saves per quest are retained as numbered backups (`.bak.001` is most rece
 
 Per-step controls:
 
-- `[edit]` — opens a modal showing the step JSON; author can hand-edit before saving back
+- `[▲]` / `[▼]` — reorder steps within the same sequence (cannot cross sequence boundaries)
+- `[edit]` — opens a modal showing step details; author can edit the Expect predicate (with picker dropdown) or click Re-record to replace the step entirely
 - `[✗ delete]` — removes the step from the draft
 - Status icons: `✓` valid, `⚠` validation warning, `✗` validation error
+
+Steps are displayed grouped by sequence number with collapsible headers.
 
 Per-session controls:
 
@@ -304,9 +326,13 @@ Per-session controls:
 
 ### 6.4 Re-recording a step
 
-Author selects an existing step and clicks `[edit]`, then a "Re-record" option in the edit modal. Plugin returns to record mode, scoped to replacing this step's entry. Author performs the action again; new recording replaces the old.
+Author selects an existing step, clicks `[edit]`, then `[Re-record]` in the edit modal (Author mode only). The Record modal opens in replace mode, scoped to replacing this step's entry. Author performs the action again; new recording replaces the old, preserving the step's position in the draft.
 
-### 6.5 Validation feedback
+### 6.5 Editing a step's Expect
+
+The edit modal shows an `[Edit]` button next to the Expect field. Clicking it reveals a text input with the same predicate picker dropdown as the Record modal. Changes update both the draft's `SuggestedExpect` and the raw step's `expect` field via JSON round-trip.
+
+### 6.6 Validation feedback
 
 `[⚙ Validate now]` invokes the local validator with the draft. Validation errors and warnings are shown inline on each step with hover-for-details. Examples:
 
@@ -318,6 +344,8 @@ Author selects an existing step and clicks `[edit]`, then a "Re-record" option i
 ---
 
 ## 7. Resume vs. restart authoring
+
+> **Not yet implemented.** The resume/restart workflow described below is planned but not yet in the code. Currently, `/qf author <questId>` always starts authoring from the current quest state without prompting.
 
 When the author selects "Start authoring quest N" and the quest is already partially complete in their journal, the plugin offers two options:
 
@@ -386,9 +414,9 @@ The command prints the public quest ID and name to both chat and the Dalamud log
 
 The `InteractionPanel` (§4.3) shows the most recently observed dialogue prompt and answer strings. Full sheet-reference browsing is deferred — see issue #11.
 
-### 8.1 Quest dialogue browser (planned)
+### 8.1 Quest dialogue browser (not yet implemented)
 
-Available via a `[📚 Browse dialogue]` button when a quest is the authoring target (not yet implemented):
+> **Planned.** Available via a `[📚 Browse dialogue]` button when a quest is the authoring target:
 
 ```
 ┌─ Quest #2054 Dialogue ───────────────────────┐
@@ -409,9 +437,9 @@ Available via a `[📚 Browse dialogue]` button when a quest is the authoring ta
 
 This is read-only browsing of Lumina data filtered to the quest's text sheets. No authoring decisions; just discovery.
 
-### 8.2 Cross-language verification
+### 8.2 Cross-language verification (not yet implemented)
 
-When a sheet reference is selected (in any panel), the plugin can show all four shipped languages side-by-side. This helps authors confirm "yes, this is the option I meant to pick" especially for languages they don't speak.
+> **Planned.** When a sheet reference is selected (in any panel), the plugin can show all four shipped languages side-by-side. This helps authors confirm "yes, this is the option I meant to pick" especially for languages they don't speak.
 
 This is also useful for the validator's tier-2 checks — sheet references that resolve in EN but not DE/FR/JA produce a validation warning.
 
@@ -500,7 +528,7 @@ Explicit scope boundaries to prevent feature creep:
 - **No support for general plugin development.** Other Dalamud plugins have their own developer tools.
 - **No quest data validation against game state mid-authoring.** The author may be on a different patch, character, or job than the eventual user; mid-authoring validation against current state would produce false positives. Validation runs against game data (Lumina), not the current player's state.
 - **No automated multi-language testing.** Authors record in their own language; CI handles multi-lang verification post-PR.
-- **No support for fragments or branches in v1's recording workflow.** These are advanced authoring concerns; v1 records flat per-sequence steps. Authors who want to use fragments or branches edit the exported JSON manually after recording.
+- **No support for fragments or branches in the recording workflow.** These are advanced authoring concerns; the recorder produces flat per-sequence steps. Authors who want to use fragments or branches edit the exported JSON manually after recording. Fragment authoring is tracked in issue #165.
 
 ---
 
@@ -521,11 +549,13 @@ Authoring mode emits its own structured log entries (separate from trace recordi
 
 ## Appendix A: Open questions for revision
 
-- **Cross-quest fragment authoring.** No defined workflow yet for authoring a new fragment. v1 expects fragments to be hand-written.
-- **Branch authoring.** Same — the recording workflow doesn't yet handle branches. v1 expects branches to be hand-added to drafts post-export.
+- **Cross-quest fragment authoring.** No defined workflow yet for authoring a new fragment. Tracked in issue #165.
+- **Branch authoring.** The recording workflow doesn't handle branches. Tracked in issue #56.
+- **Resume vs. restart authoring.** §7 describes a workflow not yet implemented. Currently authoring always starts from current quest state.
 - **Bulk operations.** No way to record multiple steps in sequence without modal confirmation between each. May add a "batch mode" if it becomes a friction point.
-- **Multi-character authoring.** No defined behavior when the author switches characters mid-session. v1 assumes single character per authoring session.
+- **Multi-character authoring.** No defined behavior when the author switches characters mid-session. Assumes single character per authoring session. Tracked in issue #57.
 - **Authoring on Linux/Steam Deck.** ImGui rendering works identically. No platform-specific concerns expected, but UI scaling on Steam Deck's smaller screen needs testing.
+- **Settings access.** All authoring-related settings (heartbeat interval, trace mode, interaction panel filters) are in the dedicated ConfigWindow accessible via the Dalamud gear icon or the "Settings" button in the main window.
 
 ## Appendix B: Glossary
 
