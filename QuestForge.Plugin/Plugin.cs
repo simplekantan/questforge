@@ -10,6 +10,7 @@ using QuestForge.Engine.Travel;
 using QuestForge.Plugin.Authoring;
 using QuestForge.Plugin.Commands;
 using QuestForge.Plugin.Interaction;
+using QuestForge.Adapters.Types;
 using QuestForge.Plugin.DataDelivery;
 using QuestForge.Plugin.UI.Authoring;
 
@@ -80,8 +81,9 @@ public sealed class Plugin : IDalamudPlugin
         _host.SetRunStartCallback(_responder.TryAnswerOpenPopup);
 
         var questsDir = Path.Combine(pi.GetPluginConfigDirectory(), "quests");
-        var questCategories = BuildQuestCategories(questsDir);
-        _questData = new QuestForge.Adapters.Dalamud.Scheduling.LuminaQuestDataProvider(dataManager, questCategories);
+        var questIndex = QuestFileIndex.Build(questsDir, log);
+        _host.SetQuestFileIndex(questIndex);
+        _questData = new QuestForge.Adapters.Dalamud.Scheduling.LuminaQuestDataProvider(dataManager, questIndex.Categories);
         var questData = _questData;
         _scheduler = new QuestForge.Engine.Scheduling.QuestScheduler(
             _host.QuestState,
@@ -161,23 +163,6 @@ public sealed class Plugin : IDalamudPlugin
         log.Debug($"QuestForge: AetheryteZoneMap populated with {map.Count} entries from Lumina");
     }
 
-    private static Dictionary<QuestForge.Adapters.Types.QuestId, string> BuildQuestCategories(string questsDir)
-    {
-        var result = new Dictionary<QuestForge.Adapters.Types.QuestId, string>();
-        if (!Directory.Exists(questsDir)) return result;
-        foreach (var file in Directory.EnumerateFiles(questsDir, "*.json", SearchOption.TopDirectoryOnly))
-        {
-            if (!uint.TryParse(Path.GetFileNameWithoutExtension(file), out var rawId)) continue;
-            try
-            {
-                var def = QuestFileLoader.Load(file);
-                if (def?.Category is { } cat)
-                    result[new QuestForge.Adapters.Types.QuestId(rawId)] = cat;
-            }
-            catch { /* malformed file — skip */ }
-        }
-        return result;
-    }
 
     private Task? _inflight;
 
