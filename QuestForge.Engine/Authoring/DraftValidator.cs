@@ -18,6 +18,37 @@ public sealed class DraftValidator
 
         var steps = draft.Steps;
 
+        ValidateSteps(steps, errors, warnings);
+
+        // E4: No accept step (quest-only)
+        var hasAcceptStep = steps.Any(s => s.Raw is AcceptStep);
+        if (!hasAcceptStep)
+        {
+            errors.Add(new DraftValidationError("E4",
+                "Draft does not contain an 'accept' step. Add an AcceptStep to define where the quest is picked up."));
+        }
+
+        // W5: A sequence group exists with zero steps (can't happen via normal Add/Remove, so rarely fires)
+        // Per spec: numeric gaps do NOT trigger W5 — only zero-step groups trigger W5.
+        // Since our grouping is driven by actual steps, empty groups don't exist in normal operation.
+        // We explicitly do NOT check for numeric gaps here.
+
+        // W6: empty / placeholder quest name (quest-only)
+        var name = draft.QuestName?.Trim();
+        if (string.IsNullOrEmpty(name) || QuestNamePlaceholders.Contains(name))
+        {
+            warnings.Add(new DraftValidationWarning("W6",
+                "Quest name is empty or a placeholder ('TODO'). Set QuestDraft.QuestName before export."));
+        }
+
+        return (errors, warnings);
+    }
+
+    private static void ValidateSteps(
+        IReadOnlyList<DraftStep> steps,
+        List<DraftValidationError> errors,
+        List<DraftValidationWarning> warnings)
+    {
         // E1: Duplicate stepId
         var duplicates = steps
             .GroupBy(s => s.StepId)
@@ -54,14 +85,6 @@ public sealed class DraftValidator
 
             foreach (var pred in ExtractPredicates(step.Raw.SkipIf))
                 ValidatePredicate(pred, i, step.StepId, errors);
-        }
-
-        // E4: No accept step
-        var hasAcceptStep = steps.Any(s => s.Raw is AcceptStep);
-        if (!hasAcceptStep)
-        {
-            errors.Add(new DraftValidationError("E4",
-                "Draft does not contain an 'accept' step. Add an AcceptStep to define where the quest is picked up."));
         }
 
         // E6: TalkStep with NpcId == 0
@@ -375,18 +398,43 @@ public sealed class DraftValidator
                     [i, i + 1]));
             }
         }
+    }
 
-        // W5: A sequence group exists with zero steps (can't happen via normal Add/Remove, so rarely fires)
-        // Per spec: numeric gaps do NOT trigger W5 — only zero-step groups trigger W5.
-        // Since our grouping is driven by actual steps, empty groups don't exist in normal operation.
-        // We explicitly do NOT check for numeric gaps here.
+    /// <summary>
+    /// Validate a fragment draft. Runs shared step-level rules (E1-E22, W1-W11)
+    /// plus fragment-specific rules (EF1, EF2, WF1).
+    /// Does NOT run quest-specific rules (E4, W6).
+    /// </summary>
+    public (IReadOnlyList<DraftValidationError> Errors, IReadOnlyList<DraftValidationWarning> Warnings) ValidateFragment(FragmentDraft draft)
+    {
+        var errors = new List<DraftValidationError>();
+        var warnings = new List<DraftValidationWarning>();
 
-        // W6: empty / placeholder quest name
-        var name = draft.QuestName?.Trim();
-        if (string.IsNullOrEmpty(name) || QuestNamePlaceholders.Contains(name))
+        // EF1: FragmentId is null or whitespace
+        if (string.IsNullOrWhiteSpace(draft.FragmentId))
         {
-            warnings.Add(new DraftValidationWarning("W6",
-                "Quest name is empty or a placeholder ('TODO'). Set QuestDraft.QuestName before export."));
+            errors.Add(new DraftValidationError("EF1",
+                "FragmentId is empty or whitespace. Set a valid fragment identifier."));
+            return (errors, warnings);
+        }
+
+        // EF2: FragmentId format validation — ^[a-z][a-z0-9/-]*[a-z0-9]$ with min length 3
+        if (draft.FragmentId.Length < 3 || !System.Text.RegularExpressions.Regex.IsMatch(
+                draft.FragmentId, @"^[a-z][a-z0-9/\-]*[a-z0-9]$")
+            || draft.FragmentId.Contains("//"))
+        {
+            errors.Add(new DraftValidationError("EF2",
+                $"FragmentId '{draft.FragmentId}' does not match the required format " +
+                "(lowercase slug, minimum 3 chars, only letters/digits/hyphens/slashes, no trailing slash)."));
+        }
+
+        ValidateSteps(draft.Steps, errors, warnings);
+
+        // WF1: No steps
+        if (draft.Steps.Count == 0)
+        {
+            warnings.Add(new DraftValidationWarning("WF1",
+                "Fragment draft has no steps. Add steps before exporting."));
         }
 
         return (errors, warnings);

@@ -40,10 +40,19 @@ public sealed class ExportDialog : Window
 
     public void OpenForTarget()
     {
-        var target = _host.AuthoringTarget;
-        _exportPath = target.HasValue
-            ? Path.Combine(_pi.GetPluginConfigDirectory(), "quests", $"{target.Value.Value}.json")
-            : Path.Combine(_pi.GetPluginConfigDirectory(), "quests", "unknown.json");
+        if (_host.IsFragmentMode)
+        {
+            var fragmentId = _host.FragmentTarget ?? "unknown";
+            var fragmentRelPath = fragmentId.Replace('/', Path.DirectorySeparatorChar);
+            _exportPath = Path.Combine(_pi.GetPluginConfigDirectory(), "fragments", $"{fragmentRelPath}.json");
+        }
+        else
+        {
+            var target = _host.AuthoringTarget;
+            _exportPath = target.HasValue
+                ? Path.Combine(_pi.GetPluginConfigDirectory(), "quests", $"{target.Value.Value}.json")
+                : Path.Combine(_pi.GetPluginConfigDirectory(), "quests", "unknown.json");
+        }
         _statusMessage = "";
         _statusIsError = false;
         _validationErrors.Clear();
@@ -113,6 +122,14 @@ public sealed class ExportDialog : Window
 
     private void DoExport(bool forceExport)
     {
+        if (_host.IsFragmentMode)
+            DoExportFragment(forceExport);
+        else
+            DoExportQuest(forceExport);
+    }
+
+    private void DoExportQuest(bool forceExport)
+    {
         _statusMessage = "";
         _statusIsError = false;
         _validationErrors.Clear();
@@ -170,6 +187,77 @@ public sealed class ExportDialog : Window
 
             var definition = draft.ToQuestDefinition();
             definition = PatchFromLumina(definition);
+            var json = JsonSerializer.Serialize(definition, QuestForgeJsonContext.QuestFileOptions);
+            var dir = Path.GetDirectoryName(_exportPath);
+            if (dir is not null)
+                Directory.CreateDirectory(dir);
+            File.WriteAllText(_exportPath, json);
+            _statusMessage = $"Exported successfully to: {_exportPath}";
+            _statusIsError = false;
+        }
+        catch (DraftSerializationException ex)
+        {
+            _statusMessage = $"Serialization error: {ex.Message}";
+            _statusIsError = true;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Export failed: {ex.Message}";
+            _statusIsError = true;
+        }
+    }
+
+    private void DoExportFragment(bool forceExport)
+    {
+        _statusMessage = "";
+        _statusIsError = false;
+        _validationErrors.Clear();
+        _validationWarnings.Clear();
+        _showExportAnyway = false;
+
+        var fragmentTarget = _host.FragmentTarget;
+        if (fragmentTarget is null)
+        {
+            _statusMessage = "No fragment target set.";
+            _statusIsError = true;
+            return;
+        }
+
+        var draft = _host.FragmentDraftManager.Get(fragmentTarget, CancellationToken.None).GetAwaiter().GetResult();
+        if (draft is null)
+        {
+            _statusMessage = "No draft found for this fragment.";
+            _statusIsError = true;
+            return;
+        }
+
+        if (_validateBeforeExport && !forceExport)
+        {
+            var (errors, warnings) = _validator.ValidateFragment(draft);
+            _validationErrors = errors.ToList();
+            _validationWarnings = warnings.ToList();
+
+            if (errors.Count > 0)
+            {
+                _statusMessage = $"Validation failed with {errors.Count} error(s). Fix them or export anyway.";
+                _statusIsError = true;
+                _showExportAnyway = true;
+                return;
+            }
+        }
+
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            foreach (var step in draft.Steps.ToList())
+            {
+                var rawTypeDiscriminator = GetTypeDiscriminator(step.Raw);
+                if (rawTypeDiscriminator == step.StepType) continue;
+                var rebuilt = StepFactory.Build(step.StepType, step.StepId, step.SuggestedExpect, step.ObservedAfter, step.ObservedBefore);
+                draft.ReplaceStep(step.StepId, step with { Raw = rebuilt }, now);
+            }
+
+            var definition = draft.ToFragmentDefinition();
             var json = JsonSerializer.Serialize(definition, QuestForgeJsonContext.QuestFileOptions);
             var dir = Path.GetDirectoryName(_exportPath);
             if (dir is not null)

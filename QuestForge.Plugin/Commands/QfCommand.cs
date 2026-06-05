@@ -89,7 +89,7 @@ internal sealed class QfCommand : IDisposable
         _interop = interop;
         _commands.AddHandler(Cmd, new CommandInfo(OnCommand)
         {
-            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf debug close-shop | /qf debug mount | /qf debug dismount | /qf config trace on|off"
+            HelpMessage = "QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author [questId] | /qf author stop | /qf author-fragment <fragmentId> | /qf author-fragment stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf debug close-shop | /qf debug mount | /qf debug dismount | /qf config trace on|off"
         });
     }
 
@@ -127,6 +127,16 @@ internal sealed class QfCommand : IDisposable
             case "author":
                 OpenAllAuthoringPanels();
                 _chat.Print("QuestForge: authoring panels opened — use /qf author <questId> to start recording");
+                break;
+            case "author-fragment" when parts.Length >= 2 && parts[1] == "stop":
+                _authoringHost.ExitAuthoring();
+                _chat.Print("QuestForge: fragment authoring stopped.");
+                break;
+            case "author-fragment" when parts.Length >= 2:
+                HandleAuthorFragment(string.Join("/", parts[1..]));
+                break;
+            case "author-fragment":
+                _chat.Print("QuestForge: usage: /qf author-fragment <fragmentId> — e.g. /qf author-fragment travel/teleport-to-limsa");
                 break;
             case "quest" when parts.Length >= 2:
                 HandleQuestSearch(string.Join(" ", parts[1..]));
@@ -721,6 +731,18 @@ internal sealed class QfCommand : IDisposable
         _chat.Print($"QuestForge: author mode active for quest {questId}");
     }
 
+    private void HandleAuthorFragment(string fragmentId)
+    {
+        if (string.IsNullOrWhiteSpace(fragmentId))
+        {
+            _chat.PrintError("QuestForge: fragment ID cannot be empty");
+            return;
+        }
+        _authoringHost.EnterFragmentAuthorMode(fragmentId);
+        OpenAllAuthoringPanels();
+        _chat.Print($"QuestForge: fragment author mode active for '{fragmentId}'");
+    }
+
     private void OpenAllAuthoringPanels()
     {
         _authoringSessionPanel.IsOpen = true;
@@ -1149,7 +1171,7 @@ internal sealed class QfCommand : IDisposable
     }
 
     private void PrintUsage()
-        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf debug close-shop | /qf debug mount | /qf debug dismount | /qf config trace on|off");
+        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf author-fragment <fragmentId> | /qf author-fragment stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf debug close-shop | /qf debug mount | /qf debug dismount | /qf config trace on|off");
 
     public void Dispose()
     {
