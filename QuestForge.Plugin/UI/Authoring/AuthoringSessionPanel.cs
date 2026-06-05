@@ -1,16 +1,19 @@
+using System.Text.RegularExpressions;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using Dalamud.Plugin;
 using QuestForge.Engine.Authoring;
 using QuestForge.Plugin.Authoring;
 
 namespace QuestForge.Plugin.UI.Authoring;
 
-public sealed class AuthoringSessionPanel : Window
+public sealed partial class AuthoringSessionPanel : Window
 {
     private readonly AuthoringHost _host;
     private readonly RecordStepModal _recordModal;
     private readonly StepEditModal _editModal;
     private readonly ExportDialog _exportDialog;
+    private readonly IDalamudPluginInterface _pi;
 
     // Validation result display
     private List<DraftValidationError> _lastErrors = new();
@@ -18,14 +21,22 @@ public sealed class AuthoringSessionPanel : Window
     private bool _validationRan;
     private readonly DraftValidator _validator = new();
 
+    // Fragment authoring modal state
+    private bool _fragmentModalOpen;
+    private string _fragmentIdInput = "";
+    private string? _fragmentModalWarning;
+    private string? _fragmentModalError;
+
     public AuthoringSessionPanel(AuthoringHost host,
-        RecordStepModal recordModal, StepEditModal editModal, ExportDialog exportDialog)
+        RecordStepModal recordModal, StepEditModal editModal, ExportDialog exportDialog,
+        IDalamudPluginInterface pi)
         : base("QuestForge — Authoring Session", ImGuiWindowFlags.None)
     {
         _host = host;
         _recordModal = recordModal;
         _editModal = editModal;
         _exportDialog = exportDialog;
+        _pi = pi;
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new System.Numerics.Vector2(420, 300),
@@ -60,10 +71,93 @@ public sealed class AuthoringSessionPanel : Window
 
     }
 
+    private static readonly Regex FragmentIdRegex = new(@"^[a-z][a-z0-9/\-]*[a-z0-9]$", RegexOptions.Compiled);
+
     private void DrawOffMode()
     {
         ImGui.TextUnformatted("Not in authoring mode.");
-        ImGui.TextUnformatted("Use /qf inspect or /qf author <questId> to begin.");
+        ImGui.TextUnformatted("Use /qf inspect or /qf author <questId> or /qf author-fragment <id> to begin.");
+        ImGui.Spacing();
+        if (ImGui.Button("Author Fragment"))
+        {
+            _fragmentModalOpen = true;
+            _fragmentIdInput = "";
+            _fragmentModalWarning = null;
+            _fragmentModalError = null;
+        }
+        DrawFragmentIdModal();
+    }
+
+    private void DrawFragmentIdModal()
+    {
+        if (!_fragmentModalOpen) return;
+
+        ImGui.OpenPopup("Author Fragment");
+        var center = ImGui.GetMainViewport().GetCenter();
+        ImGui.SetNextWindowPos(center, ImGuiCond.Appearing, new System.Numerics.Vector2(0.5f, 0.5f));
+
+        if (ImGui.BeginPopupModal("Author Fragment", ref _fragmentModalOpen, ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            ImGui.TextUnformatted("Enter a unique fragment ID:");
+            ImGui.TextUnformatted("(e.g., travel/teleport-to-gridania)");
+            ImGui.Spacing();
+
+            ImGui.SetNextItemWidth(300f);
+            ImGui.InputText("##fragmentId", ref _fragmentIdInput, 128);
+
+            var id = _fragmentIdInput.Trim();
+            var validFormat = id.Length >= 3
+                && FragmentIdRegex.IsMatch(id)
+                && !id.Contains("//");
+
+            // Check for existing fragment file
+            _fragmentModalWarning = null;
+            _fragmentModalError = null;
+            if (validFormat)
+            {
+                var existingPath = Path.Combine(_pi.GetPluginConfigDirectory(), "fragments", $"{id.Replace('/', Path.DirectorySeparatorChar)}.json");
+                if (File.Exists(existingPath))
+                    _fragmentModalWarning = $"Fragment '{id}' already exists. Exporting will overwrite.";
+
+                var existingDraft = _host.FragmentDraftManager.Get(id, CancellationToken.None).GetAwaiter().GetResult();
+                if (existingDraft is not null)
+                    _fragmentModalWarning = $"Draft for '{id}' exists ({existingDraft.Steps.Count} steps). Will resume.";
+            }
+            else if (id.Length > 0)
+            {
+                _fragmentModalError = "Invalid format: lowercase letters, digits, hyphens, slashes. Min 3 chars.";
+            }
+
+            if (_fragmentModalError is not null)
+            {
+                ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(1f, 0.3f, 0.3f, 1f));
+                ImGui.TextUnformatted(_fragmentModalError);
+                ImGui.PopStyleColor();
+            }
+            if (_fragmentModalWarning is not null)
+            {
+                ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(1f, 0.8f, 0.2f, 1f));
+                ImGui.TextUnformatted(_fragmentModalWarning);
+                ImGui.PopStyleColor();
+            }
+
+            ImGui.Spacing();
+            ImGui.BeginDisabled(!validFormat);
+            if (ImGui.Button("Start", new System.Numerics.Vector2(120, 0)))
+            {
+                _host.EnterFragmentAuthorMode(id);
+                _fragmentModalOpen = false;
+                ImGui.CloseCurrentPopup();
+            }
+            ImGui.EndDisabled();
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel", new System.Numerics.Vector2(120, 0)))
+            {
+                _fragmentModalOpen = false;
+                ImGui.CloseCurrentPopup();
+            }
+            ImGui.EndPopup();
+        }
     }
 
     private void DrawInspectMode()
