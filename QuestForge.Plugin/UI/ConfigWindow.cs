@@ -1,7 +1,9 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
+using QuestForge.Adapters.State;
 using QuestForge.Adapters.Tracing;
+using QuestForge.Engine.Rewards;
 using QuestForge.Engine.Scheduling;
 
 namespace QuestForge.Plugin.UI;
@@ -102,6 +104,73 @@ public sealed class ConfigWindow : Window
         }
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Seconds to wait after firing an instant action\n(say, emote, action, item) before re-firing. 0 = no delay.");
+
+        ImGui.Spacing();
+        DrawRewardPriority();
+    }
+
+    private static readonly Dictionary<RewardPriority, string> PriorityLabels = new()
+    {
+        [RewardPriority.BiggestUpgrade]   = "Biggest Upgrade",
+        [RewardPriority.HighestGilValue]  = "Highest Gil Value",
+        [RewardPriority.GearCoffer]       = "Gear Coffer",
+        [RewardPriority.GilSack]          = "Gil Sack (Allagan Piece)",
+        [RewardPriority.EquippableGear]   = "Equippable Gear",
+        [RewardPriority.UnequippableGear] = "Unequippable Gear",
+        [RewardPriority.AnythingElse]     = "Anything Else",
+    };
+
+    private void DrawRewardPriority()
+    {
+        ImGui.TextUnformatted("Reward priority");
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("When a quest offers optional rewards, tiers are evaluated\ntop-to-bottom. The first tier that matches a reward wins.");
+
+        var list = _config.RewardPriorityOrder;
+        int? swap = null;
+        for (var i = 0; i < list.Count; i++)
+        {
+            ImGui.PushID(i);
+            var canUp = i > 0;
+            var canDown = i < list.Count - 1;
+
+            if (canUp)
+            {
+                if (ImGui.SmallButton("▲")) swap = i - 1;
+            }
+            else
+            {
+                ImGui.BeginDisabled();
+                ImGui.SmallButton("▲");
+                ImGui.EndDisabled();
+            }
+            ImGui.SameLine();
+            if (canDown)
+            {
+                if (ImGui.SmallButton("▼")) swap ??= i;
+            }
+            else
+            {
+                ImGui.BeginDisabled();
+                ImGui.SmallButton("▼");
+                ImGui.EndDisabled();
+            }
+            ImGui.SameLine();
+            ImGui.TextUnformatted($"{i + 1}. {PriorityLabels.GetValueOrDefault(list[i], list[i].ToString())}");
+            ImGui.PopID();
+        }
+
+        if (swap is { } s)
+        {
+            (list[s], list[s + 1]) = (list[s + 1], list[s]);
+            Save();
+        }
+
+        if (ImGui.SmallButton("Reset to default"))
+        {
+            _config.RewardPriorityOrder = new(RewardPrioritizer.DefaultPriorityOrder);
+            Save();
+        }
     }
 
     private void DrawAuthoringSettings()
