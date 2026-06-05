@@ -253,6 +253,10 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
         return Task.FromResult(Materialize<bool>(obs.Data.Value));
     }
 
+    public Task<Result<int>> GetEquippedItemLevelForSlot(int slotIndex, CancellationToken ct)
+        // Not recorded in traces; return 0 so BiggestUpgrade falls through gracefully during replay.
+        => Task.FromResult<Result<int>>(Result.Ok(0));
+
     private static Result<T> Materialize<T>(JsonElement? value)
         => ObservationMaterializer.Materialize<T>(value);
 }

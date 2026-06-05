@@ -31,6 +31,7 @@ using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine;
 using QuestForge.Engine.Combat;
+using QuestForge.Engine.Rewards;
 using QuestForge.Engine.Dialogue;
 using QuestForge.Engine.Scheduling;
 using QuestForge.Plugin.Logging;
@@ -81,6 +82,7 @@ public sealed class EngineHost : IDisposable
     private RecordingQuestState? _recordingQs;
     private string? _runId;
     private QuestId _currentQuestId;
+    private QuestDefinition? _currentQuestDef;
 
     // True once the engine has emitted its own terminal run.end ("done"/"awaitUser") for the
     // current run, so EndRun must not append a redundant "ended" run.end. Reset per BeginRun.
@@ -238,7 +240,8 @@ public sealed class EngineHost : IDisposable
         EnableCutsceneSkip();
         _runId          = runId;
         _engineEmittedRunEnd = false;
-        _currentQuestId = new QuestId(quest.Id);
+        _currentQuestId  = new QuestId(quest.Id);
+        _currentQuestDef = quest;
         _timing.Reseed(StableHash(runId));
         _traceSession.OnQuestRunStart(quest.Id);
         _traceSession.Write(new RunStartEvent
@@ -511,6 +514,7 @@ public sealed class EngineHost : IDisposable
                     await _interactor.AdvanceDialogue(ct);
                 await _interactor.TryFillRequestAddon(ct);
                 await _interactor.AcceptQuest(_currentQuestId, ct);
+                await TrySelectQuestReward(ct);
                 await _interactor.CompleteQuest(_currentQuestId, ct);
                 break;
 
@@ -677,6 +681,7 @@ public sealed class EngineHost : IDisposable
                 TryCutsceneSkipConfirm();
                 await _interactor.AdvanceDialogue(ct);
                 await _interactor.AcceptQuest(_currentQuestId, ct);
+                await TrySelectQuestReward(ct);
                 await _interactor.CompleteQuest(_currentQuestId, ct);
                 break;
 
@@ -702,6 +707,36 @@ public sealed class EngineHost : IDisposable
                 EndRun();
                 break;
         }
+    }
+
+    private async Task TrySelectQuestReward(CancellationToken ct)
+    {
+        var rewardsResult = await _questStateInner.GetAvailableQuestRewards(ct);
+        if (rewardsResult is not Result<IReadOnlyList<QuestReward>>.Success { Value: var rewards }
+            || rewards.Count == 0)
+            return;
+
+        var jobResult = await _gameStateInner.GetCurrentJob(ct);
+        var currentJob = jobResult is Result<JobId>.Success { Value: var j } ? j : new JobId(0);
+
+        int? bestIndex = null;
+        if (_currentQuestDef?.RewardOverride is { } rewardOverride)
+        {
+            bestIndex = await RewardPrioritizer.ApplyOverride(
+                rewards, rewardOverride, currentJob,
+                slot => _gameStateInner.GetEquippedItemLevelForSlot(slot, ct), ct);
+        }
+
+        bestIndex ??= await RewardPrioritizer.SelectBestReward(
+            rewards, _config.RewardPriorityOrder, currentJob,
+            slot => _gameStateInner.GetEquippedItemLevelForSlot(slot, ct), ct);
+
+        if (bestIndex is null) return;
+
+        DebounceLog("reward-select", $"[Reward] selected index={bestIndex.Value}");
+        var selectResult = await _interactor.SelectQuestReward(bestIndex.Value, ct);
+        if (selectResult is Result<Unit>.Success)
+            await Task.Delay(100, ct);
     }
 
     private async Task TryStartNextQuestAsync(IQuestScheduler scheduler, CancellationToken ct)
@@ -815,10 +850,11 @@ public sealed class EngineHost : IDisposable
         }
         if (_runId is not null && !_engineEmittedRunEnd)
             _traceSession.Write(new RunEndEvent { RunId = _runId, Data = new RunEndEvent.RunEndData { Outcome = "ended" } });
-        _engine      = null;
-        _recordingQs = null;
+        _engine          = null;
+        _recordingQs     = null;
         _recordingCombat = null;
-        _runId       = null;
+        _runId           = null;
+        _currentQuestDef = null;
         _traceSession.OnQuestRunEnd();
         RestoreCutsceneSkip();
         // TraceSession file lifecycle for non-QuestRun modes is managed by Plugin.cs.

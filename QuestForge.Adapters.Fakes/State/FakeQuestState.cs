@@ -10,7 +10,7 @@ public sealed class FakeQuestState : IQuestState
     private readonly Dictionary<QuestId, int> _sequences = new();
     private readonly Dictionary<QuestId, uint> _flags = new();
     private readonly HashSet<QuestId> _accepted = new();
-    private readonly Dictionary<QuestId, IReadOnlyList<QuestReward>> _rewards = new();
+    private IReadOnlyList<QuestReward> _availableRewards = Array.Empty<QuestReward>();
     private readonly Dictionary<QuestId, QuestUnlockReason?> _whyUnavailable = new();
     private readonly Dictionary<QuestId, (string Reason, string? Detail)> _availabilityFailures = new();
     private readonly Dictionary<QuestId, IReadOnlyList<byte>> _variables = new();
@@ -61,8 +61,8 @@ public sealed class FakeQuestState : IQuestState
     public void AddAcceptedQuest(QuestId quest) => _accepted.Add(quest);
     public void RemoveAcceptedQuest(QuestId quest) => _accepted.Remove(quest);
 
-    public void SetQuestRewards(QuestId quest, IReadOnlyList<QuestReward> rewards) =>
-        _rewards[quest] = rewards;
+    public void SetAvailableRewards(IReadOnlyList<QuestReward> rewards) =>
+        _availableRewards = rewards;
 
     // Scripts a specific WhyUnavailable result for a quest.
     // Pass null to clear scripting (reverts to the default null-reason response).
@@ -172,8 +172,7 @@ public sealed class FakeQuestState : IQuestState
     {
         ct.ThrowIfCancellationRequested();
         Record(nameof(GetAvailableQuestRewards));
-        IReadOnlyList<QuestReward> rewards = Array.Empty<QuestReward>();
-        return Task.FromResult<Result<IReadOnlyList<QuestReward>>>(Result.Ok(rewards));
+        return Task.FromResult<Result<IReadOnlyList<QuestReward>>>(Result.Ok(_availableRewards));
     }
 
     public Task<Result<IReadOnlyList<byte>>> GetQuestVariables(QuestId quest, CancellationToken ct)

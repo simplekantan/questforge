@@ -63,16 +63,8 @@ public record QuestReward(
     int ItemLevel,
     long VendorPrice,
     IReadOnlyList<JobId> RestrictedJobs,
-    bool IsUntradable
+    bool IsUntradable,
+    uint EquipSlotCategory = 0,
+    uint ItemActionId = 0,
+    uint ItemUiCategoryId = 0
 );
-
-public enum RewardSelectionStrategy
-{
-    FirstAvailable,
-    SpecificItem,
-    HighestIlvlForCurrentJob,
-    HighestIlvlForAnyJob,
-    HighestVendorValue,
-    MatchingCurrentJob,
-    AskUser
-}

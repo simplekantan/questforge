@@ -102,6 +102,10 @@ public sealed class FakeGameStateProvider : IGameStateProvider
     private bool _hasCoffers;
     public void SetHasCoffers(bool value) { lock (_lock) _hasCoffers = value; }
 
+    private readonly Dictionary<int, int> _equippedIlvls = new();
+    public void SetEquippedItemLevelForSlot(int slotIndex, int itemLevel)
+        { lock (_lock) _equippedIlvls[slotIndex] = itemLevel; }
+
     public void AddNpc(NpcReference npc)    { lock (_lock) _npcs.Add(npc); }
     public void RemoveNpc(NpcId id)         { lock (_lock) _npcs.RemoveAll(n => n.Id == id); }
     public void ClearNpcs()                 { lock (_lock) _npcs.Clear(); }
@@ -481,6 +485,17 @@ public sealed class FakeGameStateProvider : IGameStateProvider
             if (npcFound) return Task.FromResult<Result<bool>>(Result.Ok(true));
             var objFound = _interactables.Any(i => i.Id.Value == dataId);
             return Task.FromResult<Result<bool>>(Result.Ok(objFound));
+        }
+    }
+
+    public Task<Result<int>> GetEquippedItemLevelForSlot(int slotIndex, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        Record(nameof(GetEquippedItemLevelForSlot));
+        lock (_lock)
+        {
+            var ilvl = _equippedIlvls.TryGetValue(slotIndex, out var v) ? v : 0;
+            return Task.FromResult<Result<int>>(Result.Ok(ilvl));
         }
     }
 }

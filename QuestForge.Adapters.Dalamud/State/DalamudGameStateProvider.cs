@@ -620,4 +620,26 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         }
         return Task.FromResult<Result<bool>>(Result.Ok(false));
     }
+
+    public unsafe Task<Result<int>> GetEquippedItemLevelForSlot(int slotIndex, CancellationToken ct)
+    {
+        if (slotIndex < 0 || slotIndex > 13)
+            return Task.FromResult<Result<int>>(
+                Result.Fail<int>("slotOutOfRange", $"slotIndex {slotIndex} is out of range 0-13"));
+
+        var im = InventoryManager.Instance();
+        if (im is null)
+            return Task.FromResult<Result<int>>(
+                Result.Fail<int>("noInventoryManager", "InventoryManager.Instance() returned null"));
+
+        var slot = im->GetInventorySlot(InventoryType.EquippedItems, slotIndex);
+        if (slot is null || slot->ItemId == 0)
+            return Task.FromResult<Result<int>>(Result.Ok(0));
+
+        var itemSheet = _svc.DataManager.GetExcelSheet<Item>();
+        if (itemSheet is null || !itemSheet.TryGetRow(slot->ItemId, out var row))
+            return Task.FromResult<Result<int>>(Result.Ok(0));
+
+        return Task.FromResult<Result<int>>(Result.Ok((int)row.LevelItem.RowId));
+    }
 }
