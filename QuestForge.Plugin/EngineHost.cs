@@ -35,6 +35,7 @@ using QuestForge.Engine.Rewards;
 using QuestForge.Engine.Dialogue;
 using QuestForge.Engine.Scheduling;
 using QuestForge.Plugin.Logging;
+using QuestForge.Plugin.DataDelivery;
 using QuestForge.Schema;
 
 namespace QuestForge.Plugin;
@@ -43,6 +44,7 @@ public sealed class EngineHost : IDisposable
 {
     private readonly PluginServices _services;
     private readonly PluginConfig _config;
+    private QuestFileIndex? _questFileIndex;
 
     private readonly DalamudGameStateProvider _gameStateInner;
     private readonly DalamudQuestState _questStateInner;
@@ -158,6 +160,7 @@ public sealed class EngineHost : IDisposable
     public YesNoAnswer? CurrentYesNoAnswer => _engine?.CurrentYesNoAnswer;
 
     public void SetRunStartCallback(Action callback) => _onRunStart = callback;
+    internal void SetQuestFileIndex(QuestFileIndex index) => _questFileIndex = index;
 
     public bool IsAutoMode => _autoMode;
     public QuestId? CurrentQuestId => _engine is not null ? _currentQuestId : null;
@@ -816,10 +819,11 @@ public sealed class EngineHost : IDisposable
 
     private QuestDefinition? TryLoadQuest(QuestId questId)
     {
-        var path = Path.Combine(
-            _services.PluginInterface.GetPluginConfigDirectory(),
-            "quests",
-            $"{questId.Value}.json");
+        var path = _questFileIndex?.GetPath(questId)
+            ?? Path.Combine(
+                _services.PluginInterface.GetPluginConfigDirectory(),
+                "quests",
+                $"{questId.Value}.json");
         if (!File.Exists(path)) return null;
         try
         {
