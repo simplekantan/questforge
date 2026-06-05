@@ -10,6 +10,7 @@ using QuestForge.Engine.Travel;
 using QuestForge.Plugin.Authoring;
 using QuestForge.Plugin.Commands;
 using QuestForge.Plugin.Interaction;
+using QuestForge.Plugin.DataDelivery;
 using QuestForge.Plugin.UI.Authoring;
 
 namespace QuestForge.Plugin;
@@ -33,6 +34,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly QuestStatePanel _questStatePanel;
     private readonly QuestForge.Engine.Scheduling.QuestScheduler _scheduler;
     private readonly QuestForge.Adapters.Dalamud.Scheduling.LuminaQuestDataProvider _questData;
+    private readonly DataUpdateService _dataUpdate;
 
     public Plugin(
         IDalamudPluginInterface pi,
@@ -131,6 +133,9 @@ public sealed class Plugin : IDalamudPlugin
         try { AutoCutsceneSkipper.Init(_ => _host.IsRunActive); }
         catch { /* Hook already owned by another plugin — IGameConfig covers ESC */ }
 
+        _dataUpdate = new DataUpdateService(pi, log);
+        _ = _dataUpdate.CheckAndUpdateAsync(_cts.Token);
+
         _framework.Update += OnFrameworkUpdate;
     }
 
@@ -198,6 +203,7 @@ public sealed class Plugin : IDalamudPlugin
         _authoringHost.Dispose();
         _traceSession.OnPluginStop();
         _traceSession.Dispose();
+        _dataUpdate.Dispose();
         _cts.Dispose();
         ECommonsMain.Dispose();
     }
