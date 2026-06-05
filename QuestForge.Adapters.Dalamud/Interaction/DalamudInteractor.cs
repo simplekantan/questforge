@@ -187,14 +187,19 @@ public sealed class DalamudInteractor : IInteractor
         unsafe
         {
             var addon = (AtkUnitBase*)addonPtr.Address;
+            if (addon->UldManager.NodeListCount <= 7)
+                return Task.FromResult<Result<Unit>>(Result.Fail("noCanvasNode", "NodeList too short"));
+            var canvasNode = (AtkComponentNode*)addon->UldManager.NodeList[7];
+            if (canvasNode == null || canvasNode->Component == null)
+                return Task.FromResult<Result<Unit>>(Result.Fail("noCanvas", "JournalCanvas component not found"));
+            var canvas = canvasNode->Component;
             var evt = stackalloc AtkEvent[1];
             evt->Node     = null;
-            evt->Target   = (AtkEventTarget*)AtkStage.Instance();
-            evt->Listener = (AtkEventListener*)addon;
+            evt->Target   = (AtkEventTarget*)canvas;
+            evt->Listener = (AtkEventListener*)canvas;
             evt->State    = new AtkEventState();
             var data = stackalloc AtkEventData[1];
-            // eventType 9 = ListItemToggle; eventParam 7+slotIndex selects the reward slot
-            addon->ReceiveEvent((AtkEventType)9, 7 + rewardIndex, evt, data);
+            canvas->ReceiveEvent((AtkEventType)9, 7 + rewardIndex, evt, data);
         }
         return Task.FromResult<Result<Unit>>(Result.Ok());
     }

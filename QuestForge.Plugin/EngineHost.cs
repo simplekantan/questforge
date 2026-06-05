@@ -735,11 +735,8 @@ public sealed class EngineHost : IDisposable
 
         DebounceLog("reward-select", $"[Reward] selected index={bestIndex.Value}");
         var selectResult = await _interactor.SelectQuestReward(bestIndex.Value, ct);
-        if (selectResult is not Result<Unit>.Success)
-        {
-            await Task.Delay(200, ct);
-            await _interactor.SelectQuestReward(bestIndex.Value, ct);
-        }
+        if (selectResult is Result<Unit>.Success)
+            await Task.Delay(100, ct);
     }
 
     private async Task TryStartNextQuestAsync(IQuestScheduler scheduler, CancellationToken ct)
