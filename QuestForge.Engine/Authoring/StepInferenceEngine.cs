@@ -423,11 +423,13 @@ public sealed class StepInferenceEngine
         // Fires when UIObserver.PollPlayerActionEffect detected that the player used a supported
         // game action (Action / GeneralAction / KeyItem) during this recording window.
         // PRIORITY: above Rule 3 (QuestSequence advanced) — use-action is more specific than
-        // the catch-all sequence-advance which defaults to "talk". Above Rule 4.0 (TeleportCompleted)
-        // because ActionCompleted is the more specific signal when both are present.
+        // the catch-all sequence-advance which defaults to "talk".
+        // GUARD: if TeleportCompleted is also set, skip — let Rule 4.0 handle it. The Teleport
+        // general action fires both ActionCompleted and TeleportCompleted; teleport inference wins.
         // CONFIDENCE: High — the player demonstrably pressed the button.
         // EXPECT: null — author MUST write the postcondition (Decision UA4).
-        if (after.ActionCompleted is { } actionSignal)
+        if (after.ActionCompleted is { } actionSignal
+            && after.TeleportCompleted is null)
         {
             var stepIdSuffix = actionSignal.TargetBaseId is { } tid
                 ? $"{actionSignal.ActionId}-on-{tid}"
