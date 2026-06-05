@@ -27,6 +27,7 @@ public sealed class AuthoringHost : IDisposable
     private readonly PluginServices _services;
     private readonly IPluginLog _log;
     private readonly DraftManager _draftManager;
+    private readonly FragmentDraftManager _fragmentDraftManager;
     private readonly StepInferenceEngine _inferenceEngine = new();
     private readonly IQuestState _questState;
     private readonly TraceSession _traceSession;
@@ -44,9 +45,12 @@ public sealed class AuthoringHost : IDisposable
 
     public AuthoringMode Mode { get; private set; } = AuthoringMode.Off;
     public QuestId? AuthoringTarget { get; private set; }
+    public bool IsFragmentMode { get; private set; }
+    public string? FragmentTarget { get; private set; }
 
     public GameStateSnapshot CurrentSnapshot => _aggregator.Current;
     public DraftManager DraftManager => _draftManager;
+    public FragmentDraftManager FragmentDraftManager => _fragmentDraftManager;
 
     // Recent change tracking for QuestStatePanel highlight
     public (QuestId QuestId, string Description, DateTimeOffset When)? RecentChange { get; private set; }
@@ -81,7 +85,7 @@ public sealed class AuthoringHost : IDisposable
         return lines.ToString().TrimEnd();
     }
 
-    public AuthoringHost(PluginServices services, FileDraftStorage storage, IPluginLog log, PluginConfig config, IQuestState questState, TraceSession traceSession)
+    public AuthoringHost(PluginServices services, FileDraftStorage storage, IFragmentDraftStorage fragmentStorage, IPluginLog log, PluginConfig config, IQuestState questState, TraceSession traceSession)
     {
         _services = services;
         _log = log;
@@ -89,6 +93,7 @@ public sealed class AuthoringHost : IDisposable
         _questState = questState;
         _traceSession = traceSession;
         _draftManager = new DraftManager(storage, SystemClock.Instance, TimeSpan.FromSeconds(60));
+        _fragmentDraftManager = new FragmentDraftManager(fragmentStorage, SystemClock.Instance, TimeSpan.FromSeconds(60));
         _aggregator = new SnapshotAggregator(null, SystemClock.Instance);
 
         _uiObserver = new UIObserver(
@@ -149,6 +154,33 @@ public sealed class AuthoringHost : IDisposable
         _log.Info($"QuestForge Authoring: entered Author mode for quest {target.Value}, runId: {_authoringRunId}");
     }
 
+    public void EnterFragmentAuthorMode(string fragmentId) =>
+        _services.Framework.RunOnFrameworkThread(() => EnterFragmentAuthorModeCore(fragmentId));
+
+    private void EnterFragmentAuthorModeCore(string fragmentId)
+    {
+        Mode = AuthoringMode.Author;
+        IsFragmentMode = true;
+        FragmentTarget = fragmentId;
+        AuthoringTarget = null;
+        _aggregator = new SnapshotAggregator(null, SystemClock.Instance);
+        SeedAggregatorZoneFromCurrent();
+        _ = _fragmentDraftManager.GetOrCreate(fragmentId, CancellationToken.None);
+
+        _authoringRunId = $"author-fragment-{fragmentId.Replace('/', '-')}-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
+        _traceSession.OnEnterAuthorMode(0u);
+        _traceSession.Write(new RunStartEvent
+        {
+            RunId = _authoringRunId,
+            Data = new RunStartEvent.RunStartData { QuestId = 0u, SchemaVer = "1.0" }
+        });
+
+        _uiObserver.ResetHeartbeatState();
+        _uiObserver.SetAggregator(_aggregator, _authoringRunId);
+
+        _log.Info($"QuestForge Authoring: entered fragment Author mode for '{fragmentId}', runId: {_authoringRunId}");
+    }
+
     // TerritoryChanged only fires on transitions, never on initial entry. If the player is
     // standing still in a zone when authoring starts, the aggregator would otherwise hold
     // Zone=0 indefinitely (until the next zone change), breaking any inference rule that
@@ -174,6 +206,8 @@ public sealed class AuthoringHost : IDisposable
         _traceSession.OnExitAuthoring();
         Mode = AuthoringMode.Off;
         AuthoringTarget = null;
+        IsFragmentMode = false;
+        FragmentTarget = null;
         _log.Info("QuestForge Authoring: exited authoring mode");
     }
 
@@ -222,7 +256,59 @@ public sealed class AuthoringHost : IDisposable
         Step rawStep,
         CancellationToken ct)
     {
-        if (AuthoringTarget is null || Mode != AuthoringMode.Author) return Task.CompletedTask;
+        if (Mode != AuthoringMode.Author) return Task.CompletedTask;
+
+        if (IsFragmentMode)
+        {
+            if (FragmentTarget is null) return Task.CompletedTask;
+
+            var fragmentDraft = _fragmentDraftManager.GetOrCreate(FragmentTarget, ct).GetAwaiter().GetResult();
+            var fragmentStep = new DraftStep(
+                StepId: finalStepId,
+                StepType: inference.StepType,
+                SequenceNumber: 0,
+                InferredFrom: inference.InferredFrom,
+                ObservedBefore: before,
+                ObservedAfter: _aggregator.Current,
+                SuggestedExpect: finalExpect,
+                Notes: notes,
+                Raw: rawStep);
+
+            fragmentDraft.AddStep(fragmentStep, DateTimeOffset.UtcNow);
+            _fragmentDraftManager.MarkDirty(FragmentTarget);
+            _ = _fragmentDraftManager.SaveNow(FragmentTarget, CancellationToken.None);
+
+            if (_authoringRunId is not null)
+            {
+                var stepParams = JsonSerializer.SerializeToElement(new { stepId = finalStepId, stepType = inference.StepType }, _jsonOpts);
+                _traceSession.Write(new ActionSubmittedEvent
+                {
+                    RunId = _authoringRunId,
+                    Data = new ActionSubmittedEvent.ActionSubmittedData { ActionType = inference.StepType, Parameters = stepParams }
+                });
+                _traceSession.Write(new ActionCompletedEvent
+                {
+                    RunId = _authoringRunId,
+                    Data = new ActionCompletedEvent.ActionCompletedData { ActionType = inference.StepType, Outcome = "recorded" }
+                });
+                var stepJson = JsonSerializer.SerializeToElement(rawStep, QuestForge.Schema.QuestForgeJsonContext.QuestFileOptions);
+                _traceSession.Write(new StepRecordedEvent
+                {
+                    RunId = _authoringRunId,
+                    Data = new StepRecordedEvent.StepRecordedData
+                    {
+                        StepId         = finalStepId,
+                        SequenceNumber = 0,
+                        Step           = stepJson
+                    }
+                });
+            }
+            _traceSession.OnConfirmRecordStep();
+            ConsumeAllSignals();
+            return Task.CompletedTask;
+        }
+
+        if (AuthoringTarget is null) return Task.CompletedTask;
 
         var draft = _draftManager.GetOrCreate(AuthoringTarget.Value, ct).GetAwaiter().GetResult();
         var draftStep = new DraftStep(

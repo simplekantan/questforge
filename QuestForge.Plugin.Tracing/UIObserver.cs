@@ -719,6 +719,11 @@ public sealed class UIObserver : IDisposable
         var schemaType = QuestForge.Adapters.Actions.ActionTypeMapper.FromFFXIVActionType(ffxivActionType);
         if (schemaType is null) return;
 
+        // GeneralAction IDs 5 (Teleport) and 6 (Return) are travel actions handled by
+        // dedicated teleport inference (Rule 4.0), not use-action (Rule 3.5).
+        if (schemaType == QuestForge.Schema.ActionType.GeneralAction && actionId is 5 or 6)
+            return;
+
         {
             var targetBaseId = CaptureTargetBaseId();
             var now   = _clock.UtcNow;

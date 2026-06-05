@@ -189,19 +189,17 @@ public sealed class UseActionInferenceTests
     }
 
     // =========================================================================
-    // UAI5 — Priority ABOVE Rule 4.0 (TeleportCompleted): use-action wins (defensive)
+    // UAI5 — TeleportCompleted wins over ActionCompleted when both set
     // =========================================================================
 
     [Fact]
-    public void UseActionInference_WinsOverTeleportCompleted_WhenBothSet_UAI5()
+    public void TeleportInference_WinsOverActionCompleted_WhenBothSet_UAI5()
     {
         // CONTRACT: Given both ActionCompleted=GeneralAction(5,null) AND TeleportCompleted set
-        //           AND zone changed (defensive — should not occur in production),
+        //           AND zone changed,
         //           When Infer is called,
-        //           Then StepType="use-action" (NOT "teleport"), SuggestedStepId="use-action-5".
-        //
-        // WHY 3.5 > 4.0: ActionCompleted is the more specific signal (exact action id + target);
-        //                 TeleportCompleted is retained as a fallback when no action was recorded.
+        //           Then StepType="teleport" (NOT "use-action") — Teleport general action fires
+        //           both signals; the teleport inference is the correct one.
 
         var engine = new StepInferenceEngine();
         var before = MakeSnapshot(zone: new ZoneId(132));
@@ -217,9 +215,9 @@ public sealed class UseActionInferenceTests
 
         var result = engine.Infer(before, after);
 
-        Assert.Equal("use-action",                 result.StepType);
-        Assert.Equal("use-action-5",               result.SuggestedStepId);
-        Assert.Equal(InferredFrom.ActionCompleted, result.InferredFrom);
+        Assert.Equal("teleport",                      result.StepType);
+        Assert.Equal("teleport-to-8",                 result.SuggestedStepId);
+        Assert.Equal(InferredFrom.TeleportCompleted,  result.InferredFrom);
     }
 
     // =========================================================================
