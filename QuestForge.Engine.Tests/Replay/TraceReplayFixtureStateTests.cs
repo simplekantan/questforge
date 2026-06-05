@@ -803,9 +803,9 @@ public sealed class TraceReplayFixtureStateTests
             return;
         }
 
-        var tracePath = Path.Combine(dataRoot, "fixtures", "engine", "with-attunement.trace.jsonl");
+        var tracePath = Path.Combine(dataRoot, "fixtures", "engine", "close-to-home-marauder.trace.jsonl");
         Assert.True(File.Exists(tracePath),
-            $"E2 requires with-attunement.trace.jsonl at: {tracePath}");
+            $"E2 requires close-to-home-marauder.trace.jsonl at: {tracePath}");
 
         var allEvents = TraceReader.ReadFile(tracePath);
 
@@ -824,7 +824,7 @@ public sealed class TraceReplayFixtureStateTests
             .ToList();
 
         Assert.Single(runIds);
-        Assert.Equal("20260525-023230-5aaadbb3", runIds[0]);
+        Assert.Equal("20260604-093905-ac18cf12", runIds[0]);
 
         // --- One run.start for quest 65644 ---
         var runStarts = allEvents.OfType<RunStartEvent>().ToList();
@@ -835,9 +835,9 @@ public sealed class TraceReplayFixtureStateTests
         var runEnds = allEvents.OfType<RunEndEvent>().ToList();
         Assert.Contains(runEnds, e => e.Data.Outcome == "done");
 
-        // --- Exactly 26 DecisionEvents ---
+        // --- Exactly 33 DecisionEvents ---
         var decisions = allEvents.OfType<DecisionEvent>().ToList();
-        Assert.Equal(26, decisions.Count);
+        Assert.Equal(33, decisions.Count);
 
         // --- IsQuestComplete(65644) recorded as [false, true] in order ---
         var isQuestCompleteObs = allEvents

@@ -10,9 +10,14 @@ namespace QuestForge.Adapters.Fakes.Replay;
 /// For each segment, a read of (method, arg) returns the deciding value: the most-recent
 /// observation for that pair recorded at or before the current segment's decision boundary
 /// (LastAtOrBefore(SegmentEnd)). Repeated reads within a segment return the same deciding
-/// value — there is no per-read walk. AdvanceSegment moves the boundary so later segments
-/// may serve a newer value. Starvation only if the pair never appears at-or-before the
-/// boundary AND was never seen (truly-absent).
+/// value — there is no per-read walk.
+///
+/// Segment advancement is driven by two mechanisms:
+///   1. AdvanceSegment() — called by the harness on new unique transitions
+///   2. TryAdvanceForDecision() — called by the harness on EVERY decision (including
+///      duplicates). Advances only when the decision matches the next expected decision
+///      in the trace's recorded sequence. This enables combat replay where the same
+///      transition repeats but observations change across segments.
 /// </summary>
 public sealed class SegmentedObservationScanner
 {
@@ -22,15 +27,24 @@ public sealed class SegmentedObservationScanner
     // One entry per decision, plus one terminal-tail entry = _observations.Count.
     private readonly IReadOnlyList<int> _segmentEnds;
 
+    // The trace's decision sequence for decision-matching advancement.
+    private readonly IReadOnlyList<(string? StepId, string ActionType)> _decisions;
+    private int _decisionCursor;
+
     private int _segment;
 
     // Per-pair most-recently-returned observation.
     private readonly Dictionary<string, ObservationEvent> _lastSeen = new();
 
+    // Debug log for diagnosing replay issues. Access via DebugLog property.
+    private readonly List<string> _debugLog = new();
+    public IReadOnlyList<string> DebugLog => _debugLog;
+
     public SegmentedObservationScanner(IReadOnlyList<TraceEvent> trace)
     {
         var observations = new List<ObservationEvent>();
         var segmentEnds = new List<int>();
+        var decisions = new List<(string? StepId, string ActionType)>();
 
         foreach (var evt in trace)
         {
@@ -38,10 +52,10 @@ public sealed class SegmentedObservationScanner
             {
                 observations.Add(obs);
             }
-            else if (evt is DecisionEvent)
+            else if (evt is DecisionEvent dec)
             {
-                // Decision boundary: close the current segment at the current observation count.
                 segmentEnds.Add(observations.Count);
+                decisions.Add((dec.Data.StepId, dec.Data.ActionType));
             }
         }
 
@@ -50,6 +64,8 @@ public sealed class SegmentedObservationScanner
 
         _observations = observations;
         _segmentEnds = segmentEnds;
+        _decisions = decisions;
+        _decisionCursor = 0;
         _segment = 0;
     }
 
@@ -64,16 +80,63 @@ public sealed class SegmentedObservationScanner
     {
         if (_segment < _segmentEnds.Count - 1)
             _segment++;
+        // Keep decision cursor in sync — skip to the next unmatched decision
+        if (_decisionCursor < _segment)
+            _decisionCursor = _segment;
+    }
+
+    /// <summary>
+    /// Try to advance the segment by matching the replay's decision against the trace's
+    /// decision sequence. If the next expected decision in the trace matches, advance.
+    /// Called by the harness on EVERY decision, including duplicates.
+    /// Returns true if the segment was advanced.
+    /// </summary>
+    public bool TryAdvanceForDecision(string? stepId, string actionType)
+    {
+        if (_decisionCursor >= _decisions.Count)
+            return false;
+
+        // Try to match against the trace's decision sequence.
+        // Skip null-stepId decisions (defense engage, loading zone guard) — these are
+        // non-deterministic and replay may not reproduce them. Each skipped null
+        // decision advances both cursor and segment (they consumed a segment in the trace).
+        while (_decisionCursor < _decisions.Count)
+        {
+            var expected = _decisions[_decisionCursor];
+
+            if (expected.StepId is null)
+            {
+                // Non-deterministic decision — skip and advance segment
+                _debugLog.Add($"SKIP-NULL dec[{_decisionCursor}] (null)/{expected.ActionType}");
+                _decisionCursor++;
+                if (_segment < _segmentEnds.Count - 1)
+                    _segment++;
+                continue;
+            }
+
+            if (expected.StepId == stepId
+                && string.Equals(expected.ActionType, actionType, StringComparison.OrdinalIgnoreCase))
+            {
+                _decisionCursor++;
+                if (_segment < _segmentEnds.Count - 1)
+                {
+                    _debugLog.Add($"MATCH seg {_segment}→{_segment + 1} dec[{_decisionCursor - 1}] {stepId}/{actionType}");
+                    _segment++;
+                }
+                return true;
+            }
+
+            // Non-matching non-null decision — don't advance
+            return false;
+        }
+
+        return false;
     }
 
     private int SegmentEnd => _segmentEnds[_segment];
 
     /// <summary>
-    /// Returns the deciding value for (method, argument) in the current segment: the most-recent
-    /// observation at or before the segment boundary (LastAtOrBefore(SegmentEnd)). Repeated reads
-    /// within the same segment return the same value. Falls back to the last seen value if the
-    /// pair has no observation at or before the current boundary but was seen in an earlier segment.
-    /// Throws ReplayObservationStarvationException only when the pair was never recorded anywhere.
+    /// Returns the deciding value for (method, argument) in the current segment.
     /// </summary>
     public ObservationEvent Next(string method, object? argument)
     {

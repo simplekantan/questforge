@@ -9,7 +9,9 @@ internal static class ObservationMaterializer
     // {"failure":"...","detail":"..."} → Result.Fail<T>; anything else → deserialize as T.
     internal static Result<T> Materialize<T>(JsonElement? value)
     {
-        if (value is null) throw new InvalidDataException("Observation value is null");
+        if (value is null || value.Value.ValueKind == JsonValueKind.Null)
+            return new Result<T>.Success(default!);
+
         var v = value.Value;
 
         if (v.ValueKind == JsonValueKind.Object && v.TryGetProperty("failure", out var f))
