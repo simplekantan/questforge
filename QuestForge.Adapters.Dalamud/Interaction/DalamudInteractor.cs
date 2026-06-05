@@ -180,7 +180,24 @@ public sealed class DalamudInteractor : IInteractor
             missingButtonCode: "completeButtonMissing");
 
     public Task<Result<Unit>> SelectQuestReward(int rewardIndex, CancellationToken ct)
-        => Task.FromResult<Result<Unit>>(Result.Fail("notImplemented", "Phase 6 placeholder"));
+    {
+        var addonPtr = _svc.GameGui.GetAddonByName("JournalResult");
+        if (addonPtr.IsNull || !addonPtr.IsReady)
+            return Task.FromResult<Result<Unit>>(Result.Fail("noRewardDialog", "JournalResult addon not visible"));
+        unsafe
+        {
+            var addon = (AtkUnitBase*)addonPtr.Address;
+            var evt = stackalloc AtkEvent[1];
+            evt->Node     = null;
+            evt->Target   = (AtkEventTarget*)AtkStage.Instance();
+            evt->Listener = (AtkEventListener*)addon;
+            evt->State    = new AtkEventState();
+            var data = stackalloc AtkEventData[1];
+            // eventType 9 = ListItemToggle; eventParam 7+slotIndex selects the reward slot
+            addon->ReceiveEvent((AtkEventType)9, 7 + rewardIndex, evt, data);
+        }
+        return Task.FromResult<Result<Unit>>(Result.Ok());
+    }
 
     public Task<Result<Unit>> AbandonQuest(QuestId quest, CancellationToken ct)
         => Task.FromResult<Result<Unit>>(Result.Fail("notImplemented", "Phase 6 placeholder"));

@@ -1,5 +1,7 @@
 using Dalamud.Plugin;
+using QuestForge.Adapters.State;
 using QuestForge.Adapters.Tracing;
+using QuestForge.Engine.Rewards;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -68,6 +70,12 @@ public sealed class PluginConfig
     /// Set to 0 to disable throttling.
     /// </summary>
     public double ActionCooldownSeconds { get; set; } = 5.0;
+
+    /// <summary>
+    /// Priority order for selecting quest rewards. Evaluated top-to-bottom; first tier
+    /// that produces a winner is used. Quest-level RewardOverride takes precedence over this list.
+    /// </summary>
+    public List<RewardPriority> RewardPriorityOrder { get; set; } = new(RewardPrioritizer.DefaultPriorityOrder);
 
     public static PluginConfig Load(IDalamudPluginInterface pi)
     {

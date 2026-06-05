@@ -316,4 +316,11 @@ public sealed class RecordingGameStateProvider : IGameStateProvider
         Record(nameof(NpcExistsNearby), dataId, result);
         return result;
     }
+
+    public async Task<Result<int>> GetEquippedItemLevelForSlot(int slotIndex, CancellationToken ct)
+    {
+        var result = await _inner.GetEquippedItemLevelForSlot(slotIndex, ct);
+        Record(nameof(GetEquippedItemLevelForSlot), slotIndex, result);
+        return result;
+    }
 }

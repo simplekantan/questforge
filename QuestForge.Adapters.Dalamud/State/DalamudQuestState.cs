@@ -238,8 +238,78 @@ public sealed class DalamudQuestState : IQuestState
     }
 
     public Task<Result<IReadOnlyList<QuestReward>>> GetAvailableQuestRewards(CancellationToken ct)
-        => Task.FromResult<Result<IReadOnlyList<QuestReward>>>(
-            Result.Ok<IReadOnlyList<QuestReward>>(Array.Empty<QuestReward>()));
+    {
+        var addonPtr = _svc.GameGui.GetAddonByName("JournalResult");
+        if (addonPtr.IsNull || !addonPtr.IsReady)
+            return Task.FromResult<Result<IReadOnlyList<QuestReward>>>(
+                Result.Ok<IReadOnlyList<QuestReward>>(Array.Empty<QuestReward>()));
+
+        unsafe
+        {
+            var addon = (FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase*)addonPtr.Address;
+
+            // AtkValues[81] = optional reward count (0-5)
+            // Need at least 98+5=103 values for full reward block
+            if (addon->AtkValuesCount < 103)
+                return Task.FromResult<Result<IReadOnlyList<QuestReward>>>(
+                    Result.Ok<IReadOnlyList<QuestReward>>(Array.Empty<QuestReward>()));
+
+            var count = (int)addon->AtkValues[81].UInt;
+            if (count <= 0)
+                return Task.FromResult<Result<IReadOnlyList<QuestReward>>>(
+                    Result.Ok<IReadOnlyList<QuestReward>>(Array.Empty<QuestReward>()));
+            if (count > 5) count = 5;
+
+            var itemSheet = _svc.DataManager.GetExcelSheet<Item>();
+            var classJobCatSheet = _classJobCategorySheet.Value;
+
+            var rewards = new List<QuestReward>(count);
+            for (var i = 0; i < count; i++)
+            {
+                var itemId = addon->AtkValues[82 + i].UInt;
+                var quantity = addon->AtkValues[93 + i].Int;
+                if (itemId == 0) continue;
+
+                if (itemSheet == null || !itemSheet.TryGetRow(itemId, out var row))
+                    continue;
+
+                var itemLevel = (int)row.LevelItem.RowId;
+                var vendorPrice = (long)row.PriceLow;
+                var equipSlotCategory = row.EquipSlotCategory.RowId;
+                var isUntradable = row.IsUntradable;
+                var itemActionId = row.ItemAction.RowId;
+                var itemUiCategoryId = row.ItemUICategory.RowId;
+
+                var restrictedJobs = new List<JobId>();
+                var classJobCatId = row.ClassJobCategory.RowId;
+                if (classJobCatId != 0)
+                {
+                    var cat = classJobCatSheet.GetRow(classJobCatId);
+                    for (uint jobId = 0; jobId <= 43; jobId++)
+                    {
+                        if (JobCategoryHelper.IsJobInCategory(cat, jobId))
+                            restrictedJobs.Add(new JobId(jobId));
+                    }
+                }
+
+                rewards.Add(new QuestReward(
+                    Index: i,
+                    Item: new ItemId(itemId),
+                    Quantity: quantity,
+                    ItemLevel: itemLevel,
+                    VendorPrice: vendorPrice,
+                    RestrictedJobs: restrictedJobs,
+                    IsUntradable: isUntradable,
+                    EquipSlotCategory: equipSlotCategory,
+                    ItemActionId: itemActionId,
+                    ItemUiCategoryId: itemUiCategoryId
+                ));
+            }
+
+            return Task.FromResult<Result<IReadOnlyList<QuestReward>>>(
+                Result.Ok<IReadOnlyList<QuestReward>>(rewards));
+        }
+    }
 
     public Task<Result<IReadOnlyList<byte>>> GetQuestVariables(QuestId quest, CancellationToken ct)
     {

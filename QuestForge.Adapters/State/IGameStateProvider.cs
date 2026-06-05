@@ -58,6 +58,10 @@ public interface IGameStateProvider
 
     // Aethernet
     Task<Result<AethernetId?>> GetLastAethernetDestination(CancellationToken ct);
+
+    // Equipped gear
+    Task<Result<int>> GetEquippedItemLevelForSlot(int slotIndex, CancellationToken ct)
+        => Task.FromResult<Result<int>>(Result.Ok(0));
 }
 
 public enum MountState
