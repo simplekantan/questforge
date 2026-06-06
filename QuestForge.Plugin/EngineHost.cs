@@ -494,6 +494,7 @@ public sealed class EngineHost : IDisposable
                 // Mount predicate: fire Mount Roulette when preconditions hold.
                 // Casting: true covers mid-mount-animation (~2s gap) — suppresses re-fire spam.
                 // Silent best-effort: UseAction rejection (indoor, no mount) degrades to on-foot.
+                var navOptions = n.Options;
                 if (n.Options.UseMount)
                 {
                     var mountResult = await _gameStateInner.GetPlayerState(ct);
@@ -506,9 +507,13 @@ public sealed class EngineHost : IDisposable
                     {
                         await _mount.Mount(ct);
                     }
+                    else
+                    {
+                        navOptions = navOptions with { UseFlight = false };
+                    }
                 }
                 _lastDispatchedActionWasNavigate = true;
-                await _navigator.NavigateTo(n.Destination, n.Options, ct);
+                await _navigator.NavigateTo(n.Destination, navOptions, ct);
                 // Skip cutscene and advance dialogue that may be open while navigating.
                 // Attuning to the main aetheryte triggers a cutscene; isAttuned(N) becomes
                 // true before it ends so the engine transitions to Navigate while the cutscene
