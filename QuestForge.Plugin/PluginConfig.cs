@@ -34,6 +34,8 @@ public sealed class PluginConfig
     public bool EnableCraftGatherQuests { get; set; } = false;
     public bool EnableBlueQuests { get; set; } = false;
 
+    public List<uint> QuestPlaylist { get; set; } = [];
+
     public int AuthoringHeartbeatMs { get; set; } = 250;
 
     public bool ShowCompletedQuestsInAuthorPanel { get; set; } = false;
