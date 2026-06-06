@@ -710,6 +710,15 @@ public sealed class EngineHost : IDisposable
                     await _dutyRunner.StartDuty(tt.Value, ct);
                 break;
 
+            case EngineAction.Teleport t:
+                DebounceLog(
+                    $"teleport:{t.Destination.Value}",
+                    $"[Teleport] aetheryte={t.Destination.Value}");
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
+                await _teleporter.TeleportToAetheryte(t.Destination, ct);
+                break;
+
             case EngineAction.Wait:
                 // Engine is satisfied with step state but waiting for the game to advance
                 // sequence (e.g. Talk addon still open after interact). Keep clicking through.
