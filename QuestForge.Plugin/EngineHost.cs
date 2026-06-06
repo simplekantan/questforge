@@ -164,6 +164,12 @@ public sealed class EngineHost : IDisposable
 
     public bool IsAutoMode => _autoMode;
     public QuestId? CurrentQuestId => _engine is not null ? _currentQuestId : null;
+    public string? CurrentQuestName => _currentQuestDef?.Name;
+    public string? CurrentStepId { get; private set; }
+    public string? CurrentStepType { get; private set; }
+    public int CurrentStepIndex { get; private set; }
+    public int TotalStepCount { get; private set; }
+    public string? LastActionName { get; private set; }
     public SchedulerStatus? SchedulerStatus => _scheduler?.CurrentStatus;
 
     // Exposed for QuestScheduler construction in Plugin.cs
@@ -245,6 +251,11 @@ public sealed class EngineHost : IDisposable
         _engineEmittedRunEnd = false;
         _currentQuestId  = new QuestId(quest.Id);
         _currentQuestDef = quest;
+        TotalStepCount = quest.Sequences.Sum(s => s.Steps.Length);
+        CurrentStepIndex = 0;
+        CurrentStepId = null;
+        CurrentStepType = null;
+        LastActionName = null;
         _timing.Reseed(StableHash(runId));
         _traceSession.OnQuestRunStart(quest.Id);
         _traceSession.Write(new RunStartEvent
@@ -332,6 +343,15 @@ public sealed class EngineHost : IDisposable
 
     private async Task DispatchAction(EngineAction action, CancellationToken ct)
     {
+        LastActionName = action.GetType().Name;
+        var originStep = ExtractOriginStep(action);
+        if (originStep is not null && originStep.Id != CurrentStepId)
+        {
+            CurrentStepIndex++;
+            CurrentStepId = originStep.Id;
+            CurrentStepType = originStep.GetType().Name;
+        }
+
         await _leaseLatch.OnAction(action, _recordingCombat ?? _combat, ct);
 
         // Lazy shop close: if the previous dispatch was a Purchase and the engine has now
@@ -859,10 +879,29 @@ public sealed class EngineHost : IDisposable
         _recordingCombat = null;
         _runId           = null;
         _currentQuestDef = null;
+        CurrentStepId = null;
+        CurrentStepType = null;
+        CurrentStepIndex = 0;
+        TotalStepCount = 0;
+        LastActionName = null;
         _traceSession.OnQuestRunEnd();
         RestoreCutsceneSkip();
         // TraceSession file lifecycle for non-QuestRun modes is managed by Plugin.cs.
     }
+
+    private static Step? ExtractOriginStep(EngineAction action) => action switch
+    {
+        EngineAction.Interact a       => a.Origin,
+        EngineAction.InteractObject a => a.Origin,
+        EngineAction.UseAction a      => a.Origin,
+        EngineAction.UseEmote a       => a.Origin,
+        EngineAction.UseItem a        => a.Origin,
+        EngineAction.SayChatMessage a => a.Origin,
+        EngineAction.Purchase a       => a.Origin,
+        EngineAction.Teleport a       => a.Origin,
+        EngineAction.OpenCoffer a     => a.Origin,
+        _                             => null
+    };
 
     public void Dispose()
     {
