@@ -19,10 +19,11 @@ public sealed class StepEditModal : Window
     private string _sequenceNumber = "";
     private string _suggestedExpect = "";
     private string _rawJsonDisplay = "(none)";
-
-    private bool _editingExpect;
-    private string _editExpectValue = "";
     private string _saveStatus = "";
+
+    // Inline edit state — only one field editable at a time
+    private string? _editingField;
+    private string _editValue = "";
 
     public StepEditModal(AuthoringHost host)
         : base("QuestForge — Edit Step", ImGuiWindowFlags.None)
@@ -30,8 +31,8 @@ public sealed class StepEditModal : Window
         _host = host;
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new System.Numerics.Vector2(400, 300),
-            MaximumSize = new System.Numerics.Vector2(700, 600)
+            MinimumSize = new System.Numerics.Vector2(480, 400),
+            MaximumSize = new System.Numerics.Vector2(750, 800)
         };
     }
 
@@ -42,11 +43,9 @@ public sealed class StepEditModal : Window
         _stepType = step.StepType;
         _sequenceNumber = step.SequenceNumber.ToString();
         _suggestedExpect = step.SuggestedExpect ?? "";
-        _rawJsonDisplay = step.Raw is not null
-            ? JsonSerializer.Serialize(step.Raw, QuestForgeJsonContext.QuestFileOptions)
-            : "(none)";
-        _editingExpect = false;
-        _editExpectValue = "";
+        RefreshRawJson();
+        _editingField = null;
+        _editValue = "";
         _saveStatus = "";
         IsOpen = true;
     }
@@ -55,39 +54,56 @@ public sealed class StepEditModal : Window
     {
         if (_editingStep is null) { IsOpen = false; return; }
 
+        var isEditable = _host.Mode == AuthoringMode.Author;
+
         ImGui.TextUnformatted("Edit Step");
         ImGui.Separator();
 
-        ImGui.TextUnformatted("Step ID:");
-        ImGui.SameLine();
-        ImGui.TextUnformatted(_stepId);
-
-        ImGui.TextUnformatted("Step Type:");
-        ImGui.SameLine();
-        ImGui.TextUnformatted(_stepType);
-
-        ImGui.TextUnformatted("Sequence Number:");
-        ImGui.SameLine();
-        ImGui.TextUnformatted(_sequenceNumber);
-
-        if (_editingExpect)
-            DrawExpectEditor();
-        else
-            DrawExpectDisplay();
+        // ---- Base Step fields ----
+        DrawEditableString("id", "Step ID", _stepId, isEditable,
+            "Unique identifier for this step within the quest/fragment.");
+        DrawReadOnly("Step Type", _stepType);
+        DrawReadOnly("Sequence", _sequenceNumber);
 
         ImGui.Spacing();
-        ImGui.TextUnformatted("Raw JSON:");
-        ImGui.Separator();
-        ImGui.TextUnformatted(_rawJsonDisplay);
+        DrawExpectField(isEditable);
+        DrawEditableString("skipIf", "SkipIf", ReadRawString("skipIf"), isEditable,
+            "Predicate expression. If true, this step is skipped.");
+        DrawEditableString("notes", "Notes", ReadRawString("notes"), isEditable,
+            "Author notes. Not used by the engine.");
+        DrawEditableFloat("stopDistance", "Stop Distance", ReadRawFloat("stopDistance"), isEditable,
+            "Navigation stopping distance in yalms. Null = step-type default.");
+        DrawEditableString("zone", "Zone", ReadRawString("zone"), isEditable,
+            "Expected zone after this step completes. Used for step grouping.");
+        DrawEditableString("requiredZone", "Required Zone", ReadRawString("requiredZone"), isEditable,
+            "Zone the player must be in before this step can start.\nUsed for cold-resume: if the player logs in at a different zone,\nthe engine navigates here first.");
 
+        // ---- Per-type fields ----
+        var raw = _editingStep.Raw;
+        if (raw is not null)
+        {
+            ImGui.Spacing();
+            ImGui.TextUnformatted("Type-Specific Fields");
+            ImGui.Separator();
+            DrawPerTypeFields(raw, isEditable);
+        }
+
+        // ---- Raw JSON preview ----
+        ImGui.Spacing();
+        if (ImGui.CollapsingHeader("Raw JSON"))
+            ImGui.TextUnformatted(_rawJsonDisplay);
+
+        // ---- Status + buttons ----
         if (_saveStatus.Length > 0)
         {
             ImGui.Spacing();
+            ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(0.2f, 1f, 0.2f, 1f));
             ImGui.TextUnformatted(_saveStatus);
+            ImGui.PopStyleColor();
         }
 
         ImGui.Spacing();
-        if (_host.Mode == AuthoringMode.Author && _recordModal is not null)
+        if (isEditable && _recordModal is not null)
         {
             if (ImGui.Button("Re-record"))
             {
@@ -104,91 +120,535 @@ public sealed class StepEditModal : Window
         }
     }
 
-    private void DrawExpectDisplay()
+    // ---- Per-type field dispatch ----
+
+    private void DrawPerTypeFields(Step raw, bool editable)
     {
-        ImGui.TextUnformatted("Expect:");
-        ImGui.SameLine();
-        ImGui.TextUnformatted(_suggestedExpect.Length > 0 ? _suggestedExpect : "(none)");
-        if (_host.Mode == AuthoringMode.Author)
+        switch (raw)
         {
+            case UseEmoteStep:
+                DrawEditableUint("emoteId", "Emote ID", editable);
+                DrawEditableNullableUint("targetNpcId", "Target NPC ID", editable);
+                DrawEditableBool("motion", "Motion", editable, "Play the emote animation (true) or text-only (false).");
+                break;
+            case UseActionStep:
+                DrawEditableEnum<ActionType>("actionType", "Action Type", editable);
+                DrawEditableUint("actionId", "Action ID", editable);
+                DrawEditableNullableUint("targetNpcId", "Target NPC ID", editable);
+                break;
+            case UseItemStep:
+                DrawEditableEnum<ItemKind>("kind", "Item Kind", editable);
+                DrawEditableUint("itemId", "Item ID", editable);
+                DrawEditableNullableUint("targetNpcId", "Target NPC ID", editable);
+                break;
+            case ChangeJobStep:
+                DrawEditableUint("jobId", "Job ID", editable);
+                break;
+            case InteractObjectStep:
+                DrawEditableUint("interactableId", "Interactable ID", editable);
+                break;
+            case PickupItemStep:
+                DrawEditableUint("interactableId", "Interactable ID", editable);
+                break;
+            case SayChatMessageStep:
+                DrawEditableString("message", "Message", ReadRawString("message"), editable, null);
+                DrawEditableNullableUint("targetNpcId", "Target NPC ID", editable);
+                break;
+            case TeleportStep:
+                DrawEditableUint("aetheryteId", "Aetheryte ID", editable);
+                break;
+            case AttunementStep:
+                DrawEditableUint("target", "Aetheryte/Shard ID", editable);
+                break;
+            case PurchaseItemStep:
+                DrawEditableUint("itemId", "Item ID", editable);
+                DrawEditableUint("quantity", "Quantity", editable);
+                DrawEditableEnum<PurchaseCurrency>("currency", "Currency", editable);
+                DrawEditableNullableInt("gcCategory", "GC Category", editable, "0=Weapons, 1=Armor, 2=Materiel, 3=Materials");
+                DrawEditableNullableInt("gcRankTier", "GC Rank Tier", editable, "0=lowest, 2=highest");
+                break;
+            case WaitStep:
+                DrawEditableFloat("seconds", "Seconds", ReadRawFloat("seconds"), editable, null);
+                break;
+            case DutyStep:
+                DrawEditableString("kind", "Duty Kind", ReadRawString("kind"), editable, "regular | spd | duty");
+                DrawEditableNullableUint("contentFinderConditionId", "CFC ID", editable);
+                DrawEditableNullableUint("entryTargetId", "Entry Target ID", editable);
+                break;
+            case CutsceneStep:
+                DrawEditableString("skip", "Skip", ReadRawString("skip"), editable, "never | ifAllowed");
+                break;
+            case CombatStep:
+                DrawEditableEnum<CombatSpawn>("spawn", "Spawn Type", editable);
+                break;
+            case MinigameStep:
+                DrawEditableString("kind", "Kind", ReadRawString("kind"), editable, "sniping | memory | aiming | rhythm | selection | other");
+                DrawEditableString("skip", "Skip", ReadRawString("skip"), editable, "never | ifAllowed | always");
+                break;
+            case AwaitUserStep:
+                DrawEditableString("reason", "Reason", ReadRawString("reason"), editable, null);
+                break;
+            case TravelStep:
+                DrawEditableBool("useMount", "Use Mount", editable, "Null/true = engine decides. False = no mount.");
+                break;
+            // TalkStep, AcceptStep, TurnInStep, HandOverItemStep, EquipGearForQuestStep,
+            // FragmentStep, BranchStep, EquipBestGearStep, RegisterGearsetStep, OpenCoffersStep
+            // have complex or no per-type fields — handled by Re-record or future Phase 3
+        }
+    }
+
+    // ---- Field rendering helpers ----
+
+    private void DrawReadOnly(string label, string value)
+    {
+        ImGui.TextUnformatted($"{label}:");
+        ImGui.SameLine();
+        ImGui.TextUnformatted(value);
+    }
+
+    private void DrawExpectField(bool editable)
+    {
+        if (_editingField == "expect")
+        {
+            ImGui.TextUnformatted("Expect:");
+            ImGui.SetNextItemWidth(200f);
+            if (ImGui.BeginCombo("##editexpectpick", "Pick predicate..."))
+            {
+                foreach (var option in PredicateOptions.Build(_host.CurrentSnapshot))
+                {
+                    if (ImGui.Selectable(option))
+                        _editValue = option == "(none)" ? "" : option;
+                }
+                ImGui.EndCombo();
+            }
             ImGui.SameLine();
-            if (ImGui.SmallButton("Edit"))
+            ImGui.SetNextItemWidth(280f);
+            ImGui.InputText("##editexpect", ref _editValue, 256);
+            DrawSaveCancelButtons("expect", _editValue.Length > 0 ? _editValue : null);
+        }
+        else
+        {
+            ImGui.TextUnformatted("Expect:");
+            ImGui.SameLine();
+            ImGui.TextUnformatted(_suggestedExpect.Length > 0 ? _suggestedExpect : "(none)");
+            if (editable)
             {
-                _editingExpect = true;
-                _editExpectValue = _suggestedExpect;
-                _saveStatus = "";
+                ImGui.SameLine();
+                if (ImGui.SmallButton("Edit##expect"))
+                {
+                    _editingField = "expect";
+                    _editValue = _suggestedExpect;
+                }
+            }
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Postcondition predicate. Step completes when this is true.");
+        }
+    }
+
+    private void DrawEditableString(string jsonKey, string label, string? currentValue, bool editable, string? tooltip)
+    {
+        if (_editingField == jsonKey)
+        {
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(300f);
+            ImGui.InputText($"##{jsonKey}", ref _editValue, 512);
+            DrawSaveCancelButtons(jsonKey, _editValue.Length > 0 ? _editValue : null);
+        }
+        else
+        {
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.TextUnformatted(currentValue ?? "(none)");
+            if (editable)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"Edit##{jsonKey}"))
+                {
+                    _editingField = jsonKey;
+                    _editValue = currentValue ?? "";
+                }
+            }
+            if (tooltip is not null && ImGui.IsItemHovered())
+                ImGui.SetTooltip(tooltip);
+        }
+    }
+
+    private void DrawEditableUint(string jsonKey, string label, bool editable)
+    {
+        var current = ReadRawUint(jsonKey);
+        if (_editingField == jsonKey)
+        {
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(120f);
+            ImGui.InputText($"##{jsonKey}", ref _editValue, 20);
+            if (uint.TryParse(_editValue, out _))
+                DrawSaveCancelButtons(jsonKey, _editValue);
+            else
+            {
+                ImGui.SameLine();
+                ImGui.TextUnformatted("(invalid)");
+                DrawCancelButton(jsonKey);
+            }
+        }
+        else
+        {
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.TextUnformatted(current?.ToString() ?? "(none)");
+            if (editable)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"Edit##{jsonKey}"))
+                {
+                    _editingField = jsonKey;
+                    _editValue = current?.ToString() ?? "";
+                }
             }
         }
     }
 
-    private void DrawExpectEditor()
+    private void DrawEditableNullableUint(string jsonKey, string label, bool editable)
     {
-        ImGui.TextUnformatted("Expect:");
-
-        ImGui.SetNextItemWidth(200f);
-        if (ImGui.BeginCombo("##editexpectpick", "Pick predicate..."))
+        var current = ReadRawUint(jsonKey);
+        if (_editingField == jsonKey)
         {
-            foreach (var option in PredicateOptions.Build(_host.CurrentSnapshot))
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(120f);
+            ImGui.InputText($"##{jsonKey}", ref _editValue, 20);
+            if (_editValue.Length == 0)
+                DrawSaveCancelButtons(jsonKey, null);
+            else if (uint.TryParse(_editValue, out _))
+                DrawSaveCancelButtons(jsonKey, _editValue);
+            else
             {
-                if (ImGui.Selectable(option))
-                    _editExpectValue = option == "(none)" ? "" : option;
+                ImGui.SameLine();
+                ImGui.TextUnformatted("(invalid — clear to remove)");
+                DrawCancelButton(jsonKey);
             }
-            ImGui.EndCombo();
         }
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(280f);
-        ImGui.InputText("##editexpect", ref _editExpectValue, 256);
-
-        if (ImGui.SmallButton("Save"))
+        else
         {
-            ApplyExpectChange(_editExpectValue.Length > 0 ? _editExpectValue : null);
-            _editingExpect = false;
-        }
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Cancel"))
-        {
-            _editingExpect = false;
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.TextUnformatted(current?.ToString() ?? "(none)");
+            if (editable)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"Edit##{jsonKey}"))
+                {
+                    _editingField = jsonKey;
+                    _editValue = current?.ToString() ?? "";
+                }
+            }
         }
     }
 
-    private void ApplyExpectChange(string? newExpect)
+    private void DrawEditableNullableInt(string jsonKey, string label, bool editable, string? tooltip)
     {
-        if (_editingStep is null || _host.AuthoringTarget is null) return;
+        var current = ReadRawInt(jsonKey);
+        if (_editingField == jsonKey)
+        {
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(80f);
+            ImGui.InputText($"##{jsonKey}", ref _editValue, 20);
+            if (_editValue.Length == 0)
+                DrawSaveCancelButtons(jsonKey, null);
+            else if (int.TryParse(_editValue, out _))
+                DrawSaveCancelButtons(jsonKey, _editValue);
+            else
+            {
+                ImGui.SameLine();
+                ImGui.TextUnformatted("(invalid)");
+                DrawCancelButton(jsonKey);
+            }
+        }
+        else
+        {
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.TextUnformatted(current?.ToString() ?? "(none)");
+            if (editable)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"Edit##{jsonKey}"))
+                {
+                    _editingField = jsonKey;
+                    _editValue = current?.ToString() ?? "";
+                }
+            }
+            if (tooltip is not null && ImGui.IsItemHovered())
+                ImGui.SetTooltip(tooltip);
+        }
+    }
 
-        var updatedRaw = UpdateRawStepExpect(_editingStep.Raw, newExpect);
-        var updatedStep = _editingStep with { SuggestedExpect = newExpect, Raw = updatedRaw };
+    private void DrawEditableFloat(string jsonKey, string label, float? currentValue, bool editable, string? tooltip)
+    {
+        if (_editingField == jsonKey)
+        {
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(80f);
+            ImGui.InputText($"##{jsonKey}", ref _editValue, 20);
+            if (_editValue.Length == 0)
+                DrawSaveCancelButtons(jsonKey, null);
+            else if (float.TryParse(_editValue, out _))
+                DrawSaveCancelButtons(jsonKey, _editValue);
+            else
+            {
+                ImGui.SameLine();
+                ImGui.TextUnformatted("(invalid)");
+                DrawCancelButton(jsonKey);
+            }
+        }
+        else
+        {
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.TextUnformatted(currentValue?.ToString("F1") ?? "(none)");
+            if (editable)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"Edit##{jsonKey}"))
+                {
+                    _editingField = jsonKey;
+                    _editValue = currentValue?.ToString("F1") ?? "";
+                }
+            }
+            if (tooltip is not null && ImGui.IsItemHovered())
+                ImGui.SetTooltip(tooltip);
+        }
+    }
 
-        var draft = _host.DraftManager.Get(_host.AuthoringTarget.Value, CancellationToken.None)
-            .GetAwaiter().GetResult();
-        if (draft is null) return;
+    private void DrawEditableBool(string jsonKey, string label, bool editable, string? tooltip)
+    {
+        var current = ReadRawBool(jsonKey);
+        if (editable)
+        {
+            var val = current ?? true;
+            if (ImGui.Checkbox($"{label}##{jsonKey}", ref val))
+                ApplyFieldChange(jsonKey, val ? "true" : "false");
+            if (tooltip is not null && ImGui.IsItemHovered())
+                ImGui.SetTooltip(tooltip);
+        }
+        else
+        {
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.TextUnformatted(current?.ToString() ?? "(default)");
+        }
+    }
 
-        draft.ReplaceStep(_editingStep.StepId, updatedStep, DateTimeOffset.UtcNow);
-        _host.DraftManager.MarkDirty(_host.AuthoringTarget.Value);
-        _ = _host.DraftManager.SaveNow(_host.AuthoringTarget.Value, CancellationToken.None);
+    private void DrawEditableEnum<T>(string jsonKey, string label, bool editable) where T : struct, Enum
+    {
+        var current = ReadRawString(jsonKey) ?? "";
+        if (_editingField == jsonKey)
+        {
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.BeginCombo($"##{jsonKey}", _editValue))
+            {
+                foreach (var val in Enum.GetNames<T>())
+                {
+                    var camel = char.ToLowerInvariant(val[0]) + val[1..];
+                    if (ImGui.Selectable(camel, camel == _editValue))
+                    {
+                        _editValue = camel;
+                        ApplyFieldChange(jsonKey, camel);
+                        _editingField = null;
+                    }
+                }
+                ImGui.EndCombo();
+            }
+            DrawCancelButton(jsonKey);
+        }
+        else
+        {
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.TextUnformatted(current.Length > 0 ? current : "(none)");
+            if (editable)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"Edit##{jsonKey}"))
+                {
+                    _editingField = jsonKey;
+                    _editValue = current;
+                }
+            }
+        }
+    }
+
+    // ---- Save/Cancel buttons ----
+
+    private void DrawSaveCancelButtons(string jsonKey, string? newValue)
+    {
+        ImGui.SameLine();
+        if (ImGui.SmallButton($"Save##{jsonKey}"))
+        {
+            ApplyFieldChange(jsonKey, newValue);
+            _editingField = null;
+        }
+        DrawCancelButton(jsonKey);
+    }
+
+    private void DrawCancelButton(string jsonKey)
+    {
+        ImGui.SameLine();
+        if (ImGui.SmallButton($"Cancel##{jsonKey}"))
+            _editingField = null;
+    }
+
+    // ---- Apply changes ----
+
+    private void ApplyFieldChange(string jsonKey, string? newValue)
+    {
+        if (_editingStep is null) return;
+
+        // Special case: Step ID change requires draft-level rename
+        if (jsonKey == "id" && newValue is not null && newValue != _editingStep.StepId)
+        {
+            ApplyStepIdChange(newValue);
+            return;
+        }
+
+        var updatedRaw = PatchRawField(_editingStep.Raw, jsonKey, newValue);
+        var updatedExpect = jsonKey == "expect" ? newValue : _editingStep.SuggestedExpect;
+        var updatedStep = _editingStep with { SuggestedExpect = updatedExpect, Raw = updatedRaw };
+
+        SaveUpdatedStep(updatedStep);
+        _saveStatus = $"{jsonKey} updated.";
+    }
+
+    private void ApplyStepIdChange(string newId)
+    {
+        if (_editingStep is null) return;
+
+        var updatedRaw = PatchRawField(_editingStep.Raw, "id", newId);
+        var updatedStep = _editingStep with { StepId = newId, Raw = updatedRaw };
+
+        // Draft uses old StepId to find and replace
+        SaveUpdatedStep(updatedStep);
+        _stepId = newId;
+        _saveStatus = "Step ID updated.";
+    }
+
+    private void SaveUpdatedStep(DraftStep updatedStep)
+    {
+        if (_editingStep is null) return;
+
+        var isFragment = _host.IsFragmentMode;
+        if (isFragment && _host.FragmentTarget is { } fragTarget)
+        {
+            var draft = _host.FragmentDraftManager.Get(fragTarget, CancellationToken.None)
+                .GetAwaiter().GetResult();
+            if (draft is null) return;
+            draft.ReplaceStep(_editingStep.StepId, updatedStep, DateTimeOffset.UtcNow);
+            _host.FragmentDraftManager.MarkDirty(fragTarget);
+            _ = _host.FragmentDraftManager.SaveNow(fragTarget, CancellationToken.None);
+        }
+        else if (_host.AuthoringTarget is { } questTarget)
+        {
+            var draft = _host.DraftManager.Get(questTarget, CancellationToken.None)
+                .GetAwaiter().GetResult();
+            if (draft is null) return;
+            draft.ReplaceStep(_editingStep.StepId, updatedStep, DateTimeOffset.UtcNow);
+            _host.DraftManager.MarkDirty(questTarget);
+            _ = _host.DraftManager.SaveNow(questTarget, CancellationToken.None);
+        }
 
         _editingStep = updatedStep;
-        _suggestedExpect = newExpect ?? "";
-        _rawJsonDisplay = updatedRaw is not null
-            ? JsonSerializer.Serialize(updatedRaw, QuestForgeJsonContext.QuestFileOptions)
-            : "(none)";
-        _saveStatus = "Expect updated.";
+        _suggestedExpect = updatedStep.SuggestedExpect ?? "";
+        RefreshRawJson();
     }
 
-    private static Step? UpdateRawStepExpect(Step? raw, string? newExpect)
+    // ---- JSON helpers ----
+
+    private static Step? PatchRawField(Step? raw, string jsonKey, string? newValue)
     {
         if (raw is null) return null;
 
-        // Serialize as base Step so the polymorphic "type" discriminator is included
         var json = JsonSerializer.Serialize<Step>(raw, QuestForgeJsonContext.QuestFileOptions);
         var node = JsonNode.Parse(json);
         if (node is null) return raw;
 
-        if (newExpect is { Length: > 0 })
-            node["expect"] = newExpect;
+        if (newValue is null)
+        {
+            node.AsObject().Remove(jsonKey);
+        }
+        else if (uint.TryParse(newValue, out var uintVal) && jsonKey is not "zone" and not "requiredZone"
+                 and not "id" and not "notes" and not "skipIf" and not "reason" and not "message"
+                 and not "kind" and not "skip" and not "expect")
+        {
+            node[jsonKey] = uintVal;
+        }
+        else if (float.TryParse(newValue, out var floatVal) && jsonKey is "stopDistance" or "seconds")
+        {
+            node[jsonKey] = floatVal;
+        }
+        else if (newValue is "true" or "false" && jsonKey is "motion" or "useMount")
+        {
+            node[jsonKey] = newValue == "true";
+        }
         else
-            node.AsObject().Remove("expect");
+        {
+            node[jsonKey] = newValue;
+        }
 
         return JsonSerializer.Deserialize<Step>(node.ToJsonString(), QuestForgeJsonContext.QuestFileOptions) ?? raw;
+    }
+
+    private string? ReadRawString(string key)
+    {
+        if (_editingStep?.Raw is null) return null;
+        var json = JsonSerializer.Serialize<Step>(_editingStep.Raw, QuestForgeJsonContext.QuestFileOptions);
+        var node = JsonNode.Parse(json);
+        return node?[key]?.GetValue<string>();
+    }
+
+    private uint? ReadRawUint(string key)
+    {
+        if (_editingStep?.Raw is null) return null;
+        var json = JsonSerializer.Serialize<Step>(_editingStep.Raw, QuestForgeJsonContext.QuestFileOptions);
+        var node = JsonNode.Parse(json);
+        return node?[key]?.GetValue<uint>();
+    }
+
+    private int? ReadRawInt(string key)
+    {
+        if (_editingStep?.Raw is null) return null;
+        var json = JsonSerializer.Serialize<Step>(_editingStep.Raw, QuestForgeJsonContext.QuestFileOptions);
+        var node = JsonNode.Parse(json);
+        return node?[key]?.GetValue<int>();
+    }
+
+    private float? ReadRawFloat(string key)
+    {
+        if (_editingStep?.Raw is null) return null;
+        var json = JsonSerializer.Serialize<Step>(_editingStep.Raw, QuestForgeJsonContext.QuestFileOptions);
+        var node = JsonNode.Parse(json);
+        try { return node?[key]?.GetValue<float>(); }
+        catch { return null; }
+    }
+
+    private bool? ReadRawBool(string key)
+    {
+        if (_editingStep?.Raw is null) return null;
+        var json = JsonSerializer.Serialize<Step>(_editingStep.Raw, QuestForgeJsonContext.QuestFileOptions);
+        var node = JsonNode.Parse(json);
+        try { return node?[key]?.GetValue<bool>(); }
+        catch { return null; }
+    }
+
+    private void RefreshRawJson()
+    {
+        _rawJsonDisplay = _editingStep?.Raw is not null
+            ? JsonSerializer.Serialize(_editingStep.Raw, QuestForgeJsonContext.QuestFileOptions)
+            : "(none)";
     }
 
     public void SetRecordModal(RecordStepModal modal) => _recordModal = modal;
