@@ -16,7 +16,7 @@ internal sealed class PlaylistWindow : Window
     private readonly QuestFileIndex _questFileIndex;
 
     private string _searchText = "";
-    private List<(uint Id, string Name, bool HasFile)>? _searchResults;
+    private List<(uint Id, string Name, bool HasFile, bool IsComplete)>? _searchResults;
 
     public PlaylistWindow(
         PluginConfig config,
@@ -58,11 +58,12 @@ internal sealed class PlaylistWindow : Window
             var height = maxVisible * ImGui.GetTextLineHeightWithSpacing();
             if (ImGui.BeginChild("##searchResults", new System.Numerics.Vector2(-1, height), true))
             {
-                foreach (var (id, name, hasFile) in _searchResults)
+                foreach (var (id, name, hasFile, isComplete) in _searchResults)
                 {
                     if (!hasFile) ImGui.BeginDisabled();
 
-                    var label = $"[{id}] {name}";
+                    var prefix = isComplete ? "✓ " : "";
+                    var label = $"{prefix}[{id}] {name}";
                     if (hasFile && _config.QuestPlaylist.Contains(id))
                         label += " (in playlist)";
 
@@ -93,7 +94,7 @@ internal sealed class PlaylistWindow : Window
         if (sheet is null) { _searchResults = null; return; }
 
         var query = _searchText.Trim();
-        var results = new List<(uint Id, string Name, bool HasFile)>();
+        var results = new List<(uint Id, string Name, bool HasFile, bool IsComplete)>();
 
         if (uint.TryParse(query, out var exactId))
         {
@@ -103,7 +104,8 @@ internal sealed class PlaylistWindow : Window
                 if (!string.IsNullOrEmpty(name))
                 {
                     var hasFile = _questFileIndex.GetPath(new QuestForge.Adapters.Types.QuestId(exactId)) is not null;
-                    results.Add((exactId, name, hasFile));
+                    var complete = CheckComplete(exactId);
+                    results.Add((exactId, name, hasFile, complete));
                 }
             }
         }
@@ -116,7 +118,8 @@ internal sealed class PlaylistWindow : Window
             if (!name.Contains(query, StringComparison.OrdinalIgnoreCase)) continue;
             if (results.Any(r => r.Id == row.RowId)) continue;
             var hasFile = _questFileIndex.GetPath(new QuestForge.Adapters.Types.QuestId(row.RowId)) is not null;
-            results.Add((row.RowId, name, hasFile));
+            var complete = CheckComplete(row.RowId);
+            results.Add((row.RowId, name, hasFile, complete));
         }
 
         _searchResults = results;
@@ -155,7 +158,8 @@ internal sealed class PlaylistWindow : Window
             if (ImGui.SmallButton("X")) removeAt = i;
 
             ImGui.SameLine();
-            ImGui.TextUnformatted($"{i + 1}. [{questId}] {name}");
+            var completeMark = CheckComplete(questId) ? "✓ " : "";
+            ImGui.TextUnformatted($"{completeMark}{i + 1}. [{questId}] {name}");
             ImGui.PopID();
         }
 
@@ -178,6 +182,11 @@ internal sealed class PlaylistWindow : Window
             Save();
         }
     }
+
+    private bool CheckComplete(uint questId)
+        => _host.QuestState
+            .IsQuestComplete(new QuestForge.Adapters.Types.QuestId(questId), CancellationToken.None)
+            .GetAwaiter().GetResult().ValueOrDefault;
 
     private string LookupQuestName(uint questId)
     {
