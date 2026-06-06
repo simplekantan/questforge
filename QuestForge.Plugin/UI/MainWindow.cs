@@ -1,5 +1,6 @@
 using Dalamud.Interface.Windowing;
 using Dalamud.Bindings.ImGui;
+using QuestForge.Adapters.Types;
 using QuestForge.Engine.Scheduling;
 
 namespace QuestForge.Plugin.UI;
@@ -31,6 +32,9 @@ public sealed class MainWindow : Window
     public override void Draw()
     {
         DrawStatus();
+        if (_host.IsRunActive)
+            DrawRunDetails();
+        DrawPlaylistProgress();
         ImGui.Separator();
         DrawControls();
     }
@@ -39,6 +43,38 @@ public sealed class MainWindow : Window
     {
         var statusText = BuildStatusText();
         ImGui.TextUnformatted($"Status: {statusText}");
+    }
+
+    private void DrawRunDetails()
+    {
+        var questName = _host.CurrentQuestName;
+        var questId = _host.CurrentQuestId;
+        if (questName is not null && questId is not null)
+            ImGui.TextUnformatted($"Quest: {questName} ({questId.Value.Value})");
+
+        var stepId = _host.CurrentStepId;
+        if (stepId is not null)
+        {
+            var progress = _host.TotalStepCount > 0
+                ? $" ({_host.CurrentStepIndex}/{_host.TotalStepCount})"
+                : "";
+            ImGui.TextUnformatted($"Step: {stepId}{progress}");
+        }
+
+        var action = _host.LastActionName;
+        if (action is not null)
+            ImGui.TextUnformatted($"Action: {action}");
+    }
+
+    private void DrawPlaylistProgress()
+    {
+        var playlist = _config.QuestPlaylist;
+        if (playlist.Count == 0) return;
+        var completed = playlist.Count(id =>
+            _host.QuestState.IsQuestComplete(
+                new QuestForge.Adapters.Types.QuestId(id),
+                CancellationToken.None).GetAwaiter().GetResult().ValueOrDefault);
+        ImGui.TextUnformatted($"Playlist: {completed}/{playlist.Count}");
     }
 
     private string BuildStatusText()
