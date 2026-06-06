@@ -738,14 +738,16 @@ public sealed class UIObserver : IDisposable
 
     private uint? CaptureTargetBaseId()
     {
-        uint? targetBaseId = null;
         var hostile      = _targetProbe?.GetBattleNpcTarget();
+        if (hostile is { } h) return h.BaseId;
+
         var interactable = _targetProbe?.GetInteractableNpcTarget();
-        if (hostile is { } h)
-            targetBaseId = h.BaseId;
-        else if (interactable is { } i)
-            targetBaseId = i.BaseId;
-        return targetBaseId;
+        if (interactable is { } i) return i.BaseId;
+
+        var eventObj = _targetProbe?.GetEventObjTarget();
+        if (eventObj is { } e) return e.BaseId;
+
+        return null;
     }
 
     private void PollPlayerEmote()

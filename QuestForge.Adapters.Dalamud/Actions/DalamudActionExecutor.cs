@@ -34,7 +34,7 @@ public sealed class DalamudActionExecutor : IActionExecutor
             foreach (var obj in _svc.ObjectTable)
             {
                 if (obj is null || obj.BaseId != id.Value) continue;
-                if (obj.ObjectKind is not (ObjectKind.EventNpc or ObjectKind.BattleNpc)) continue;
+                if (obj.ObjectKind is not (ObjectKind.EventNpc or ObjectKind.BattleNpc or ObjectKind.EventObj)) continue;
                 found = obj;
                 break;
             }

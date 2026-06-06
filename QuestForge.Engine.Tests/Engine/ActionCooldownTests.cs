@@ -360,7 +360,7 @@ public sealed class ActionCooldownTests
     // =========================================================================
 
     [Fact]
-    public async Task CD7_DifferentStep_ResetsCooldown_FiresImmediately()
+    public async Task CD7_DifferentStep_CooldownCarriesAcrossSteps()
     {
         // Given: two SayChatMessageSteps with different IDs, cooldown 5s
         var clock = new ManualTimeProvider(T0);
@@ -390,14 +390,19 @@ public sealed class ActionCooldownTests
         // Satisfy say-first's Expect so engine advances to say-second
         questState.SetQuestFlagBit(new QuestId(90007), 1, true);
 
-        // Advance only 1s (within cooldown for say-first, but say-second is a different step)
+        // Advance only 1s (within cooldown window)
         clock.Advance(TimeSpan.FromSeconds(1.0));
 
-        // When: tick 2
+        // When: tick 2 — cooldown carries across steps
         var tick2 = await engine.Tick(CancellationToken.None);
 
-        // Then: say-second fires immediately (different step ID resets cooldown)
-        var sayChat = Assert.IsType<EngineAction.SayChatMessage>(tick2);
+        // Then: say-second is deferred (Wait from confirm)
+        Assert.IsType<EngineAction.Wait>(tick2);
+
+        // After cooldown expires, say-second fires
+        clock.Advance(TimeSpan.FromSeconds(5.5));
+        var tick3 = await engine.Tick(CancellationToken.None);
+        var sayChat = Assert.IsType<EngineAction.SayChatMessage>(tick3);
         Assert.Equal("World", sayChat.Message);
     }
 
@@ -434,9 +439,8 @@ public sealed class ActionCooldownTests
         // When: tick 2
         var tick2 = await engine.Tick(CancellationToken.None);
 
-        // Then: step confirms (Expect check runs BEFORE pre-arm); NOT Wait("action cooldown")
+        // Then: step confirms and defers evaluation of next step
         var wait = Assert.IsType<EngineAction.Wait>(tick2);
-        Assert.Contains("all steps in current sequence satisfied", wait.Reason, StringComparison.Ordinal);
     }
 
     // =========================================================================

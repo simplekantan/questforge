@@ -100,6 +100,8 @@ public sealed class EngineHost : IDisposable
     private bool _tracingEnabled;
     private DateTimeOffset _lastSchedulerPollAt = DateTimeOffset.MinValue;
     private static readonly TimeSpan SchedulerPollInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan EngineTickInterval = TimeSpan.FromMilliseconds(250);
+    private DateTimeOffset _lastEngineTickAt = DateTimeOffset.MinValue;
 
     // Aethernet throttle: prevent re-firing while zone transition / loading is in progress
     private DateTimeOffset _lastAethernetAt = DateTimeOffset.MinValue;
@@ -315,6 +317,10 @@ public sealed class EngineHost : IDisposable
             }
             return;
         }
+
+        if (DateTimeOffset.UtcNow - _lastEngineTickAt < EngineTickInterval)
+            return;
+        _lastEngineTickAt = DateTimeOffset.UtcNow;
 
         EngineAction action;
         try { action = await _engine.Tick(ct); }
