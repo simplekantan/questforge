@@ -17,7 +17,11 @@ public sealed record AethernetHop(AetheryteId? From, AethernetId To);
 public sealed record ActionCompletedSignal(
     QuestForge.Schema.ActionType ActionType,
     uint ActionId,
-    uint? TargetBaseId);
+    uint? TargetBaseId,
+    float? TargetX = null,
+    float? TargetY = null,
+    float? TargetZ = null,
+    int? TargetZone = null);
 
 /// <summary>
 /// Records that the player triggered an emote during this recording window. Set by
@@ -31,7 +35,11 @@ public sealed record ActionCompletedSignal(
 /// </summary>
 public sealed record EmoteCompletedSignal(
     uint EmoteId,
-    uint? TargetBaseId);
+    uint? TargetBaseId,
+    float? TargetX = null,
+    float? TargetY = null,
+    float? TargetZ = null,
+    int? TargetZone = null);
 
 /// <summary>
 /// Records that the player typed /say &lt;message&gt; during this recording window. Set by

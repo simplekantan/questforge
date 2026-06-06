@@ -701,7 +701,7 @@ public sealed class UIObserver : IDisposable
         var itemKind = QuestForge.Adapters.Items.ItemKindMapper.FromFFXIVActionType(ffxivActionType);
         if (itemKind is not null)
         {
-            var targetBaseId = CaptureTargetBaseId();
+            var targetInfo = CaptureTargetInfo();
             QuestForge.Schema.Position3? targetPosition =
                 (tlX != 0f || tlY != 0f || tlZ != 0f)
                     ? new QuestForge.Schema.Position3(tlX, tlY, tlZ)
@@ -710,9 +710,9 @@ public sealed class UIObserver : IDisposable
             var runId = CurrentRunId;
             WriteObservation("ItemUsed",
                 actionId,
-                new { kind = (int)itemKind.Value, targetBaseId = targetBaseId ?? 0u },
+                new { kind = (int)itemKind.Value, targetBaseId = targetInfo?.BaseId ?? 0u },
                 runId, now);
-            _aggregator?.OnItemUsed(itemKind.Value, actionId, targetBaseId, targetPosition);
+            _aggregator?.OnItemUsed(itemKind.Value, actionId, targetInfo?.BaseId, targetPosition);
             return;
         }
 
@@ -725,27 +725,28 @@ public sealed class UIObserver : IDisposable
             return;
 
         {
-            var targetBaseId = CaptureTargetBaseId();
+            var targetInfo = CaptureTargetInfo();
             var now   = _clock.UtcNow;
             var runId = CurrentRunId;
             WriteObservation("ActionCompleted",
                 actionId,
-                new { actionType = (int)schemaType.Value, targetBaseId = targetBaseId ?? 0u },
+                new { actionType = (int)schemaType.Value, targetBaseId = targetInfo?.BaseId ?? 0u },
                 runId, now);
-            _aggregator?.OnActionCompleted(schemaType.Value, actionId, targetBaseId);
+            _aggregator?.OnActionCompleted(schemaType.Value, actionId, targetInfo?.BaseId,
+                targetInfo?.X, targetInfo?.Y, targetInfo?.Z, targetInfo?.Zone);
         }
     }
 
-    private uint? CaptureTargetBaseId()
+    private (uint BaseId, float X, float Y, float Z, int Zone)? CaptureTargetInfo()
     {
-        var hostile      = _targetProbe?.GetBattleNpcTarget();
-        if (hostile is { } h) return h.BaseId;
+        var hostile = _targetProbe?.GetBattleNpcTarget();
+        if (hostile is { } h) return h;
 
         var interactable = _targetProbe?.GetInteractableNpcTarget();
-        if (interactable is { } i) return i.BaseId;
+        if (interactable is { } i) return i;
 
         var eventObj = _targetProbe?.GetEventObjTarget();
-        if (eventObj is { } e) return e.BaseId;
+        if (eventObj is { } e) return e;
 
         return null;
     }
@@ -771,21 +772,16 @@ public sealed class UIObserver : IDisposable
         // Transition to a new non-zero emote (0 → X or X → Y). Fire.
         _lastObservedEmoteId = currentId;
 
-        uint? targetBaseId = null;
-        var hostile      = _targetProbe?.GetBattleNpcTarget();
-        var interactable = _targetProbe?.GetInteractableNpcTarget();
-        if (hostile is { } h)
-            targetBaseId = h.BaseId;
-        else if (interactable is { } i)
-            targetBaseId = i.BaseId;
+        var targetInfo = CaptureTargetInfo();
 
         var now   = _clock.UtcNow;
         var runId = CurrentRunId;
         WriteObservation("EmoteCompleted",
             currentId,
-            new { targetBaseId = targetBaseId ?? 0u },
+            new { targetBaseId = targetInfo?.BaseId ?? 0u },
             runId, now);
-        _aggregator?.OnEmoteCompleted(currentId, targetBaseId);
+        _aggregator?.OnEmoteCompleted(currentId, targetInfo?.BaseId,
+            targetInfo?.X, targetInfo?.Y, targetInfo?.Z, targetInfo?.Zone);
     }
 
     private void PollPlayerChatMessage()

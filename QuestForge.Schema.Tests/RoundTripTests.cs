@@ -1706,6 +1706,126 @@ public class RoundTripTests
     }
 
     // =========================================================================
+    // A14 -- UseActionStep with Location round-trips through JSON
+    // Spec: docs/ACTION_LOCATION_PLAN.md -- GWT A14
+    // =========================================================================
+
+    [Fact]
+    public void UseActionStep_WithLocation_RoundTrips_A14()
+    {
+        /*
+         * CONTRACT: Given a UseActionStep with Location set (NpcId=2001234, Zone=130, Position=(100,5,200)),
+         *           When serialized to JSON and deserialized back,
+         *           Then all fields including Location are preserved.
+         *           The JSON includes a "location" key with the nested object.
+         */
+
+        var step = new UseActionStep
+        {
+            Id = "action-with-location",
+            ActionType = ActionType.Action,
+            ActionId = 31u,
+            TargetNpcId = 2001234u,
+            Location = new NpcLocation(2001234u, 130, new Position3(100f, 5f, 200f)),
+            Expect = new PredicateExpect { Predicate = "questFlag(83014, 3)" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        Assert.Equal(ActionType.Action, result.ActionType);
+        Assert.Equal(31u, result.ActionId);
+        Assert.Equal(2001234u, result.TargetNpcId);
+        Assert.NotNull(result.Location);
+        Assert.Equal(2001234u, result.Location!.NpcId);
+        Assert.Equal(130, result.Location.Zone);
+        Assert.Equal(100f, result.Location.Position.X, precision: 1);
+        Assert.Equal(5f, result.Location.Position.Y, precision: 1);
+        Assert.Equal(200f, result.Location.Position.Z, precision: 1);
+
+        // Verify "location" key present in JSON
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"location\":", compactJson, StringComparison.Ordinal);
+    }
+
+    // =========================================================================
+    // A15 -- UseActionStep without Location round-trips (no "location" key in JSON)
+    // Spec: docs/ACTION_LOCATION_PLAN.md -- GWT A15
+    // =========================================================================
+
+    [Fact]
+    public void UseActionStep_WithoutLocation_NoLocationKeyInJson_A15()
+    {
+        /*
+         * CONTRACT: Given a UseActionStep with Location = null,
+         *           When serialized to JSON,
+         *           Then the JSON does NOT contain a "location" key
+         *           (due to [JsonIgnore(WhenWritingNull)]).
+         */
+
+        var step = new UseActionStep
+        {
+            Id = "action-no-location",
+            ActionType = ActionType.Action,
+            ActionId = 31u,
+            TargetNpcId = 2001234u,
+            Location = null,
+            Expect = new PredicateExpect { Predicate = "questFlag(83015, 3)" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        Assert.Equal(31u, result.ActionId);
+        Assert.Null(result.Location);
+
+        // "location" key must be absent from JSON
+        Assert.DoesNotContain("\"location\"", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // =========================================================================
+    // A16 -- UseEmoteStep with Location round-trips through JSON
+    // Spec: docs/ACTION_LOCATION_PLAN.md -- GWT A16
+    // =========================================================================
+
+    [Fact]
+    public void UseEmoteStep_WithLocation_RoundTrips_A16()
+    {
+        /*
+         * CONTRACT: Given a UseEmoteStep with Location set (NpcId=1000789, Zone=130, Position=(50,0,80)),
+         *           When serialized to JSON and deserialized back,
+         *           Then all fields including Location are preserved.
+         */
+
+        var step = new UseEmoteStep
+        {
+            Id = "emote-with-location",
+            EmoteId = 17u,
+            TargetNpcId = 1000789u,
+            Motion = true,
+            Location = new NpcLocation(1000789u, 130, new Position3(50f, 0f, 80f)),
+            Expect = new PredicateExpect { Predicate = "questFlag(84016, 3)" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        Assert.Equal(17u, result.EmoteId);
+        Assert.Equal(1000789u, result.TargetNpcId);
+        Assert.True(result.Motion);
+        Assert.NotNull(result.Location);
+        Assert.Equal(1000789u, result.Location!.NpcId);
+        Assert.Equal(130, result.Location.Zone);
+        Assert.Equal(50f, result.Location.Position.X, precision: 1);
+        Assert.Equal(0f, result.Location.Position.Y, precision: 1);
+        Assert.Equal(80f, result.Location.Position.Z, precision: 1);
+
+        // Verify "location" key present in JSON
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"location\":", compactJson, StringComparison.Ordinal);
+    }
+
+    // =========================================================================
     // OC_RT1 -- OpenCoffersStep round-trip serialization
     // =========================================================================
 

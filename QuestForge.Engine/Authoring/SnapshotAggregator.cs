@@ -518,8 +518,13 @@ public sealed class SnapshotAggregator
     public void OnActionCompleted(
         QuestForge.Schema.ActionType actionType,
         uint actionId,
-        uint? targetBaseId)
-        => _actionCompleted = new ActionCompletedSignal(actionType, actionId, targetBaseId);
+        uint? targetBaseId,
+        float? targetX = null,
+        float? targetY = null,
+        float? targetZ = null,
+        int? targetZone = null)
+        => _actionCompleted = new ActionCompletedSignal(actionType, actionId, targetBaseId,
+            targetX, targetY, targetZ, targetZone);
 
     /// <summary>
     /// Called at the end of RecordStep (and from UIObserver.ResetWindowState for symmetry) to
@@ -535,8 +540,13 @@ public sealed class SnapshotAggregator
     /// OnEmoteConsumed (called from AuthoringHost.RecordStep).
     /// Does NOT update LastNpcInteracted or any other unrelated field (Decision UEI3).
     /// </summary>
-    public void OnEmoteCompleted(uint emoteId, uint? targetBaseId)
-        => _emoteCompleted = new EmoteCompletedSignal(emoteId, targetBaseId);
+    public void OnEmoteCompleted(uint emoteId, uint? targetBaseId,
+        float? targetX = null,
+        float? targetY = null,
+        float? targetZ = null,
+        int? targetZone = null)
+        => _emoteCompleted = new EmoteCompletedSignal(emoteId, targetBaseId,
+            targetX, targetY, targetZ, targetZone);
 
     /// <summary>
     /// Called at the end of RecordStep (and from UIObserver.ResetWindowState for symmetry) to

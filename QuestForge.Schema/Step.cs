@@ -186,6 +186,8 @@ public sealed class UseEmoteStep : Step
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public uint? TargetNpcId { get; init; }
     public bool Motion { get; init; } = true;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public NpcLocation? Location { get; init; }
 }
 
 public sealed class UseItemStep : Step
@@ -204,6 +206,8 @@ public class UseActionStep : Step
     public uint ActionId { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public uint? TargetNpcId { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public NpcLocation? Location { get; init; }
 }
 
 public sealed class EquipGearForQuestStep : Step

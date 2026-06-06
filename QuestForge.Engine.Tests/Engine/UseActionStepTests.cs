@@ -477,6 +477,253 @@ public sealed class UseActionStepTests
     }
 
     // =========================================================================
+    // A1 — UseAction with Location, player far: emits Navigate
+    // Spec: docs/ACTION_LOCATION_PLAN.md — GWT A1
+    // =========================================================================
+
+    [Fact]
+    public async Task UseActionStep_WithLocation_PlayerFar_EmitsNavigate_A1()
+    {
+        /*
+         * RED: Will fail until Builder implements Guard 0 (navigation check) in
+         * ResolveUseAction. The Location field exists but the engine ignores it,
+         * so it emits UseAction instead of Navigate.
+         *
+         * CONTRACT: Given a UseActionStep with Location at (100, 0, 200) in zone 130,
+         *               player position at (0, 0, 0) (distance >> DefaultStopDistance),
+         *           When engine ticks,
+         *           Then engine emits EngineAction.Navigate with target (100, 0, 200).
+         */
+
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(83001), 0);
+        harness.GameState.SetPosition(new WorldPosition(0f, 0f, 0f));
+        harness.GameState.SetZone(new ZoneId(130));
+        harness.ActionExecutor.ScriptNextStatus(new ActionStatus.Ready());
+
+        var step = new UseActionStep
+        {
+            Id = "action-far",
+            ActionType = ActionType.Action,
+            ActionId = 31u,
+            TargetNpcId = 2001234u,
+            Location = new NpcLocation(2001234u, 130, new Position3(100f, 0f, 200f)),
+            Expect = new PredicateExpect { Predicate = "questFlag(83001, 3)" }
+        };
+
+        harness.Engine.StartQuest(BuildSingleStepQuest(83001, 0, step));
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        var nav = Assert.IsType<EngineAction.Navigate>(action);
+        Assert.Equal(100f, nav.Destination.X, precision: 1);
+        Assert.Equal(0f, nav.Destination.Y, precision: 1);
+        Assert.Equal(200f, nav.Destination.Z, precision: 1);
+    }
+
+    // =========================================================================
+    // A2 — UseAction with Location, player close: emits UseAction
+    // Spec: docs/ACTION_LOCATION_PLAN.md — GWT A2
+    // =========================================================================
+
+    [Fact]
+    public async Task UseActionStep_WithLocation_PlayerClose_EmitsUseAction_A2()
+    {
+        /*
+         * CONTRACT: Given a UseActionStep with Location at (100, 0, 200),
+         *               player position at (100, 0, 201) (distance ~1.0, within DefaultStopDistance=3.0),
+         *           When engine ticks,
+         *           Then engine emits EngineAction.UseAction (not Navigate).
+         */
+
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(83002), 0);
+        harness.GameState.SetPosition(new WorldPosition(100f, 0f, 201f));
+        harness.GameState.SetZone(new ZoneId(130));
+        harness.ActionExecutor.ScriptNextStatus(new ActionStatus.Ready());
+
+        var step = new UseActionStep
+        {
+            Id = "action-close",
+            ActionType = ActionType.Action,
+            ActionId = 31u,
+            TargetNpcId = 2001234u,
+            Location = new NpcLocation(2001234u, 130, new Position3(100f, 0f, 200f)),
+            Expect = new PredicateExpect { Predicate = "questFlag(83002, 3)" }
+        };
+
+        harness.Engine.StartQuest(BuildSingleStepQuest(83002, 0, step));
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        var useAction = Assert.IsType<EngineAction.UseAction>(action);
+        Assert.Equal(ActionType.Action, useAction.Type);
+        Assert.Equal(31u, useAction.ActionId);
+        Assert.Equal(new NpcId(2001234), useAction.TargetNpcId!.Value);
+    }
+
+    // =========================================================================
+    // A3 — UseAction with Location, player close but action on cooldown: Wait
+    // Spec: docs/ACTION_LOCATION_PLAN.md — GWT A3
+    // =========================================================================
+
+    [Fact]
+    public async Task UseActionStep_WithLocation_PlayerClose_ActionOnCooldown_EmitsWait_A3()
+    {
+        /*
+         * CONTRACT: Given a UseActionStep with Location at (100, 0, 200),
+         *               player close at (100, 0, 201),
+         *               action on cooldown (2.5s),
+         *           When engine ticks,
+         *           Then engine emits Wait with "on cooldown" (guards still run after navigation check passes).
+         */
+
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(83003), 0);
+        harness.GameState.SetPosition(new WorldPosition(100f, 0f, 201f));
+        harness.GameState.SetZone(new ZoneId(130));
+        harness.ActionExecutor.ScriptNextStatus(new ActionStatus.OnCooldown(TimeSpan.FromSeconds(2.5)));
+
+        var step = new UseActionStep
+        {
+            Id = "action-close-cooldown",
+            ActionType = ActionType.Action,
+            ActionId = 31u,
+            TargetNpcId = 2001234u,
+            Location = new NpcLocation(2001234u, 130, new Position3(100f, 0f, 200f)),
+            Expect = new PredicateExpect { Predicate = "questFlag(83003, 3)" }
+        };
+
+        harness.Engine.StartQuest(BuildSingleStepQuest(83003, 0, step));
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        var wait = Assert.IsType<EngineAction.Wait>(action);
+        Assert.Contains("on cooldown", wait.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // =========================================================================
+    // A4 — UseAction with null Location (backward compat): emits UseAction directly
+    // Spec: docs/ACTION_LOCATION_PLAN.md — GWT A4
+    // =========================================================================
+
+    [Fact]
+    public async Task UseActionStep_NullLocation_EmitsUseActionDirectly_A4()
+    {
+        /*
+         * CONTRACT: Given a UseActionStep with Location = null,
+         *               TargetNpcId = 2001234, action Ready,
+         *           When engine ticks,
+         *           Then engine emits UseAction directly (no Navigate). Backward compatible.
+         */
+
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(83004), 0);
+        harness.GameState.SetPosition(new WorldPosition(0f, 0f, 0f));
+        harness.ActionExecutor.ScriptNextStatus(new ActionStatus.Ready());
+
+        var step = new UseActionStep
+        {
+            Id = "action-null-location",
+            ActionType = ActionType.Action,
+            ActionId = 31u,
+            TargetNpcId = 2001234u,
+            Location = null,
+            Expect = new PredicateExpect { Predicate = "questFlag(83004, 3)" }
+        };
+
+        harness.Engine.StartQuest(BuildSingleStepQuest(83004, 0, step));
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        var useAction = Assert.IsType<EngineAction.UseAction>(action);
+        Assert.Equal(31u, useAction.ActionId);
+        Assert.Equal(new NpcId(2001234), useAction.TargetNpcId!.Value);
+    }
+
+    // =========================================================================
+    // A5 — UseAction with Location and custom StopDistance
+    // Spec: docs/ACTION_LOCATION_PLAN.md — GWT A5
+    // =========================================================================
+
+    [Fact]
+    public async Task UseActionStep_WithLocation_CustomStopDistance_PlayerWithin_EmitsUseAction_A5()
+    {
+        /*
+         * RED: Will fail until Builder implements Guard 0 in ResolveUseAction.
+         *
+         * CONTRACT: Given a UseActionStep with Location at (100, 0, 200), StopDistance = 10.0f,
+         *               player position at (95, 0, 200) (distance 5.0, within custom StopDistance),
+         *           When engine ticks,
+         *           Then engine emits UseAction (player is within custom stop distance).
+         */
+
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(83005), 0);
+        harness.GameState.SetPosition(new WorldPosition(95f, 0f, 200f));
+        harness.GameState.SetZone(new ZoneId(130));
+        harness.ActionExecutor.ScriptNextStatus(new ActionStatus.Ready());
+
+        var step = new UseActionStep
+        {
+            Id = "action-custom-stop",
+            ActionType = ActionType.Action,
+            ActionId = 31u,
+            TargetNpcId = 2001234u,
+            Location = new NpcLocation(2001234u, 130, new Position3(100f, 0f, 200f)),
+            StopDistance = 10.0f,
+            Expect = new PredicateExpect { Predicate = "questFlag(83005, 3)" }
+        };
+
+        harness.Engine.StartQuest(BuildSingleStepQuest(83005, 0, step));
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        Assert.IsType<EngineAction.UseAction>(action);
+    }
+
+    // =========================================================================
+    // A6 — UseAction with Location, null playerPos: fail-open, emits UseAction
+    // Spec: docs/ACTION_LOCATION_PLAN.md — GWT A6
+    // =========================================================================
+
+    [Fact]
+    public async Task UseActionStep_WithLocation_NullPlayerPos_FailOpen_EmitsUseAction_A6()
+    {
+        /*
+         * RED: Will fail until Builder implements Guard 0 in ResolveUseAction.
+         * Even after implementation, this should pass: null playerPos → fail-open → emit action.
+         *
+         * CONTRACT: Given a UseActionStep with Location set,
+         *               playerPos is null (position read failed),
+         *           When engine ticks,
+         *           Then engine emits UseAction (fail-open, matching ResolveInteractOrNavigate behavior).
+         */
+
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(83006), 0);
+        // Force position read to fail — engine sees playerPos == null
+        harness.GameState.SetPositionFailure("adapter-error", "position unavailable");
+        harness.ActionExecutor.ScriptNextStatus(new ActionStatus.Ready());
+
+        var step = new UseActionStep
+        {
+            Id = "action-null-pos",
+            ActionType = ActionType.Action,
+            ActionId = 31u,
+            TargetNpcId = 2001234u,
+            Location = new NpcLocation(2001234u, 130, new Position3(100f, 0f, 200f)),
+            Expect = new PredicateExpect { Predicate = "questFlag(83006, 3)" }
+        };
+
+        harness.Engine.StartQuest(BuildSingleStepQuest(83006, 0, step));
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        Assert.IsType<EngineAction.UseAction>(action);
+    }
+
+    // =========================================================================
     // Factory helpers
     // =========================================================================
 

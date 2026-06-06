@@ -338,6 +338,127 @@ public sealed class UseEmoteStepTests
     }
 
     // =========================================================================
+    // A7 — UseEmote with Location, player far: emits Navigate
+    // Spec: docs/ACTION_LOCATION_PLAN.md — GWT A7
+    // =========================================================================
+
+    [Fact]
+    public async Task UseEmoteStep_WithLocation_PlayerFar_EmitsNavigate_A7()
+    {
+        /*
+         * RED: Will fail until Builder implements Guard 0 (navigation check) in
+         * ResolveUseEmote. The Location field exists but the engine ignores it.
+         *
+         * CONTRACT: Given a UseEmoteStep with EmoteId=17, TargetNpcId=1000789,
+         *               Location at (100, 0, 200) in zone 130,
+         *               player position at (0, 0, 0),
+         *           When engine ticks,
+         *           Then engine emits EngineAction.Navigate with target (100, 0, 200).
+         */
+
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(84001), 0);
+        harness.GameState.SetPosition(new WorldPosition(0f, 0f, 0f));
+        harness.GameState.SetZone(new ZoneId(130));
+
+        var step = new UseEmoteStep
+        {
+            Id = "emote-far",
+            EmoteId = 17,
+            TargetNpcId = 1000789u,
+            Motion = true,
+            Location = new NpcLocation(1000789u, 130, new Position3(100f, 0f, 200f)),
+            Expect = new PredicateExpect { Predicate = "questFlag(84001, 3)" }
+        };
+
+        harness.Engine.StartQuest(BuildSingleStepQuest(84001, 0, step));
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        var nav = Assert.IsType<EngineAction.Navigate>(action);
+        Assert.Equal(100f, nav.Destination.X, precision: 1);
+        Assert.Equal(0f, nav.Destination.Y, precision: 1);
+        Assert.Equal(200f, nav.Destination.Z, precision: 1);
+    }
+
+    // =========================================================================
+    // A8 — UseEmote with Location, player close: emits UseEmote
+    // Spec: docs/ACTION_LOCATION_PLAN.md — GWT A8
+    // =========================================================================
+
+    [Fact]
+    public async Task UseEmoteStep_WithLocation_PlayerClose_EmitsUseEmote_A8()
+    {
+        /*
+         * CONTRACT: Given a UseEmoteStep with Location at (100, 0, 200),
+         *               player position at (100, 0, 201) (within DefaultStopDistance),
+         *           When engine ticks,
+         *           Then engine emits UseEmote(17, NpcId(1000789), true).
+         */
+
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(84002), 0);
+        harness.GameState.SetPosition(new WorldPosition(100f, 0f, 201f));
+        harness.GameState.SetZone(new ZoneId(130));
+
+        var step = new UseEmoteStep
+        {
+            Id = "emote-close",
+            EmoteId = 17,
+            TargetNpcId = 1000789u,
+            Motion = true,
+            Location = new NpcLocation(1000789u, 130, new Position3(100f, 0f, 200f)),
+            Expect = new PredicateExpect { Predicate = "questFlag(84002, 3)" }
+        };
+
+        harness.Engine.StartQuest(BuildSingleStepQuest(84002, 0, step));
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        var useEmote = Assert.IsType<EngineAction.UseEmote>(action);
+        Assert.Equal(17u, useEmote.EmoteId);
+        Assert.Equal(new NpcId(1000789), useEmote.TargetNpcId!.Value);
+        Assert.True(useEmote.Motion);
+    }
+
+    // =========================================================================
+    // A9 — UseEmote with null Location (backward compat): emits UseEmote directly
+    // Spec: docs/ACTION_LOCATION_PLAN.md — GWT A9
+    // =========================================================================
+
+    [Fact]
+    public async Task UseEmoteStep_NullLocation_EmitsUseEmoteDirectly_A9()
+    {
+        /*
+         * CONTRACT: Given a UseEmoteStep with Location = null,
+         *           When engine ticks,
+         *           Then engine emits UseEmote directly (no Navigate). Backward compatible.
+         */
+
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(84003), 0);
+        harness.GameState.SetPosition(new WorldPosition(0f, 0f, 0f));
+
+        var step = new UseEmoteStep
+        {
+            Id = "emote-null-location",
+            EmoteId = 17,
+            TargetNpcId = 1000789u,
+            Motion = true,
+            Location = null,
+            Expect = new PredicateExpect { Predicate = "questFlag(84003, 3)" }
+        };
+
+        harness.Engine.StartQuest(BuildSingleStepQuest(84003, 0, step));
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        var useEmote = Assert.IsType<EngineAction.UseEmote>(action);
+        Assert.Equal(17u, useEmote.EmoteId);
+        Assert.Equal(new NpcId(1000789), useEmote.TargetNpcId!.Value);
+    }
+
+    // =========================================================================
     // Factory helpers
     // =========================================================================
 
