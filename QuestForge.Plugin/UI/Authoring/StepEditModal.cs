@@ -172,7 +172,7 @@ public sealed class StepEditModal : Window
                 DrawEditableFloat("seconds", "Seconds", ReadRawFloat("seconds"), editable, null);
                 break;
             case DutyStep:
-                DrawEditableString("kind", "Duty Kind", ReadRawString("kind"), editable, "regular | spd | duty");
+                DrawEditableStringChoice("kind", "Duty Kind", ReadRawString("kind"), editable, ["spd", "duty"]);
                 DrawEditableNullableUint("contentFinderConditionId", "CFC ID", editable);
                 DrawEditableNullableUint("entryTargetId", "Entry Target ID", editable);
                 break;
@@ -460,6 +460,46 @@ public sealed class StepEditModal : Window
                     {
                         _editValue = camel;
                         ApplyFieldChange(jsonKey, camel);
+                        _editingField = null;
+                    }
+                }
+                ImGui.EndCombo();
+            }
+            DrawCancelButton(jsonKey);
+        }
+        else
+        {
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.TextUnformatted(current.Length > 0 ? current : "(none)");
+            if (editable)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"Edit##{jsonKey}"))
+                {
+                    _editingField = jsonKey;
+                    _editValue = current;
+                }
+            }
+        }
+    }
+
+    private void DrawEditableStringChoice(string jsonKey, string label, string? currentValue, bool editable, string[] options)
+    {
+        var current = currentValue ?? "";
+        if (_editingField == jsonKey)
+        {
+            ImGui.TextUnformatted($"{label}:");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.BeginCombo($"##{jsonKey}", _editValue))
+            {
+                foreach (var opt in options)
+                {
+                    if (ImGui.Selectable(opt, opt == _editValue))
+                    {
+                        _editValue = opt;
+                        ApplyFieldChange(jsonKey, opt);
                         _editingField = null;
                     }
                 }

@@ -333,6 +333,7 @@ public sealed class QuestEngine
             TalkStep t    => t.DialogueChoices,
             TurnInStep ti => ti.DialogueChoices,
             TravelStep tr => tr.RouteHint?.NpcDialogue?.DialogueChoices ?? [],
+            DutyStep { Kind: "spd" } => [new DialogueChoice("yesno", null, "yes")],
             _             => []
         };
         foreach (var c in choices)
