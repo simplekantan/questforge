@@ -645,7 +645,7 @@ public sealed class QuestEngine
             //     read when the cursor is on a UseActionStep.
             if (step is UseActionStep useActionStep)
             {
-                var useAction = await ResolveUseAction(useActionStep, ct);
+                var useAction = await ResolveUseAction(useActionStep, playerPos, ct);
                 return (useAction, step.Id);
             }
 
@@ -653,7 +653,7 @@ public sealed class QuestEngine
             //      the cursor is on a UseEmoteStep.
             if (step is UseEmoteStep useEmoteStep)
             {
-                var useEmote = await ResolveUseEmote(useEmoteStep, ct);
+                var useEmote = await ResolveUseEmote(useEmoteStep, playerPos, ct);
                 return (useEmote, step.Id);
             }
 
@@ -1005,8 +1005,17 @@ public sealed class QuestEngine
         return purchaseAction;
     }
 
-    private async Task<EngineAction> ResolveUseAction(UseActionStep step, CancellationToken ct)
+    private async Task<EngineAction> ResolveUseAction(UseActionStep step, WorldPosition? playerPos, CancellationToken ct)
     {
+        // Guard 0 (AL3): navigate to target if Location is present and player is far
+        if (step.Location is { } loc)
+        {
+            var navCheck = ResolveInteractOrNavigate(step, loc.Position, playerPos,
+                new EngineAction.Wait("navigate-sentinel"));
+            if (navCheck is EngineAction.Navigate nav)
+                return nav;
+        }
+
         if (_actionExecutor is null)
             return new EngineAction.AwaitUser(
                 "UseActionStep dispatched but no IActionExecutor wired — host must supply one");
@@ -1043,8 +1052,17 @@ public sealed class QuestEngine
         return new EngineAction.UseAction(step.ActionType, step.ActionId, target, Origin: step);
     }
 
-    private async Task<EngineAction> ResolveUseEmote(UseEmoteStep step, CancellationToken ct)
+    private async Task<EngineAction> ResolveUseEmote(UseEmoteStep step, WorldPosition? playerPos, CancellationToken ct)
     {
+        // Guard 0 (AL3): navigate to target if Location is present and player is far
+        if (step.Location is { } loc)
+        {
+            var navCheck = ResolveInteractOrNavigate(step, loc.Position, playerPos,
+                new EngineAction.Wait("navigate-sentinel"));
+            if (navCheck is EngineAction.Navigate nav)
+                return nav;
+        }
+
         if (_emoteExecutor is null)
             return new EngineAction.AwaitUser(
                 "UseEmoteStep dispatched but no IEmoteExecutor wired — host must supply one");

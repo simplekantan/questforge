@@ -140,7 +140,13 @@ public static class StepFactory
                 Expect = expectValue,
                 ActionType = after?.ActionCompleted?.ActionType ?? QuestForge.Schema.ActionType.Action,
                 ActionId = after?.ActionCompleted?.ActionId ?? 0u,
-                TargetNpcId = after?.ActionCompleted?.TargetBaseId
+                TargetNpcId = after?.ActionCompleted?.TargetBaseId,
+                Location = BuildLocationFromSignal(
+                    after?.ActionCompleted?.TargetBaseId,
+                    after?.ActionCompleted?.TargetX,
+                    after?.ActionCompleted?.TargetY,
+                    after?.ActionCompleted?.TargetZ,
+                    after?.ActionCompleted?.TargetZone)
             },
             "use-emote" => new UseEmoteStep
             {
@@ -148,7 +154,13 @@ public static class StepFactory
                 Expect = expectValue,
                 EmoteId = after?.EmoteCompleted?.EmoteId ?? 0u,
                 TargetNpcId = after?.EmoteCompleted?.TargetBaseId,
-                Motion = true
+                Motion = true,
+                Location = BuildLocationFromSignal(
+                    after?.EmoteCompleted?.TargetBaseId,
+                    after?.EmoteCompleted?.TargetX,
+                    after?.EmoteCompleted?.TargetY,
+                    after?.EmoteCompleted?.TargetZ,
+                    after?.EmoteCompleted?.TargetZone)
             },
             "use-item" => new QuestForge.Schema.UseItemStep
             {
@@ -404,6 +416,13 @@ public static class StepFactory
             GcCategory = after?.PurchaseDetected?.ActiveGcCategory,
             GcRankTier = after?.PurchaseDetected?.ActiveGcRankTier
         };
+    }
+
+    private static NpcLocation? BuildLocationFromSignal(uint? baseId, float? x, float? y, float? z, int? zone)
+    {
+        if (baseId is null || x is null || y is null || z is null || zone is null)
+            return null;
+        return new NpcLocation(NpcId: baseId.Value, Zone: zone.Value, Position: new Position3(x.Value, y.Value, z.Value));
     }
 
     private static string? ZoneStr(uint zone) => zone > 0 ? zone.ToString() : null;

@@ -535,4 +535,99 @@ public sealed class SnapshotAggregatorTests
         // Assert
         Assert.True(aggregator.Current.QuestAccepted);
     }
+
+    // =========================================================================
+    // A17 -- OnActionCompleted with position sets all fields
+    // Spec: docs/ACTION_LOCATION_PLAN.md -- GWT A17
+    // =========================================================================
+
+    [Fact]
+    public void SnapshotAggregator_OnActionCompleted_WithPosition_SetsAllFields_A17()
+    {
+        /*
+         * RED: Will fail until Builder updates SnapshotAggregator.OnActionCompleted
+         * to accept and thread the optional position parameters.
+         *
+         * CONTRACT: Given a fresh SnapshotAggregator,
+         *           When OnActionCompleted(Action, 31, 2001234, 100, 5, 200, 130) is called,
+         *           Then Current.ActionCompleted has TargetBaseId==2001234,
+         *                TargetX==100, TargetY==5, TargetZ==200, TargetZone==130.
+         */
+
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+
+        aggregator.OnActionCompleted(
+            QuestForge.Schema.ActionType.Action, 31u, 2001234u,
+            100f, 5f, 200f, 130);
+
+        var signal = aggregator.Current.ActionCompleted;
+        Assert.NotNull(signal);
+        Assert.Equal(2001234u, signal!.TargetBaseId);
+        Assert.Equal(100f, signal.TargetX);
+        Assert.Equal(5f, signal.TargetY);
+        Assert.Equal(200f, signal.TargetZ);
+        Assert.Equal(130, signal.TargetZone);
+    }
+
+    // =========================================================================
+    // A18 -- OnActionCompleted without position (backward compat)
+    // Spec: docs/ACTION_LOCATION_PLAN.md -- GWT A18
+    // =========================================================================
+
+    [Fact]
+    public void SnapshotAggregator_OnActionCompleted_WithoutPosition_BackwardCompat_A18()
+    {
+        /*
+         * CONTRACT: Given a fresh SnapshotAggregator,
+         *           When OnActionCompleted(Action, 31, 2001234) is called (no position args),
+         *           Then Current.ActionCompleted has TargetBaseId==2001234,
+         *                TargetX==null, TargetY==null, TargetZ==null, TargetZone==null.
+         */
+
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+
+        aggregator.OnActionCompleted(
+            QuestForge.Schema.ActionType.Action, 31u, 2001234u);
+
+        var signal = aggregator.Current.ActionCompleted;
+        Assert.NotNull(signal);
+        Assert.Equal(2001234u, signal!.TargetBaseId);
+        Assert.Null(signal.TargetX);
+        Assert.Null(signal.TargetY);
+        Assert.Null(signal.TargetZ);
+        Assert.Null(signal.TargetZone);
+    }
+
+    // =========================================================================
+    // A19 -- OnEmoteCompleted with position sets all fields
+    // Spec: docs/ACTION_LOCATION_PLAN.md -- GWT A19
+    // =========================================================================
+
+    [Fact]
+    public void SnapshotAggregator_OnEmoteCompleted_WithPosition_SetsAllFields_A19()
+    {
+        /*
+         * RED: Will fail until Builder updates SnapshotAggregator.OnEmoteCompleted
+         * to accept and thread the optional position parameters.
+         *
+         * CONTRACT: Given a fresh SnapshotAggregator,
+         *           When OnEmoteCompleted(17, 1000789, 50, 0, 80, 130) is called,
+         *           Then Current.EmoteCompleted has EmoteId==17, TargetBaseId==1000789,
+         *                TargetX==50, TargetY==0, TargetZ==80, TargetZone==130.
+         */
+
+        var aggregator = new SnapshotAggregator(activeQuest: Quest2054);
+
+        aggregator.OnEmoteCompleted(17u, 1000789u,
+            50f, 0f, 80f, 130);
+
+        var signal = aggregator.Current.EmoteCompleted;
+        Assert.NotNull(signal);
+        Assert.Equal(17u, signal!.EmoteId);
+        Assert.Equal(1000789u, signal.TargetBaseId);
+        Assert.Equal(50f, signal.TargetX);
+        Assert.Equal(0f, signal.TargetY);
+        Assert.Equal(80f, signal.TargetZ);
+        Assert.Equal(130, signal.TargetZone);
+    }
 }
