@@ -32,6 +32,10 @@ public interface IQuestDataProvider
     // Returns false for unknown quest IDs.
     bool IsClassQuestForJob(QuestId quest, JobId job);
 
+    // Quest-level skipIf predicate from the quest definition file.
+    // Returns null for unknown quest IDs or quests without a skipIf field.
+    string? GetSkipIf(QuestId quest);
+
     // All known quest IDs the data provider can answer about.
     // Used by the scheduler to enumerate candidates for each tier.
     IReadOnlyCollection<QuestId> EnumerateKnownQuests();

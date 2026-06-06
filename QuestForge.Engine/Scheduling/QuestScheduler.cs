@@ -10,6 +10,7 @@ public sealed class QuestScheduler : IQuestScheduler
     private readonly IGameStateProvider _gameState;
     private readonly IQuestDataProvider _questData;
     private readonly ILogger<QuestScheduler> _logger;
+    private readonly Func<string, CancellationToken, Task<bool>>? _evaluateSkipIf;
 
     // Snapshot-on-read via volatile; UpdateOptions affects next call only (spec §5).
     private volatile SchedulerOptions _options;
@@ -29,7 +30,8 @@ public sealed class QuestScheduler : IQuestScheduler
         IGameStateProvider gameState,
         IQuestDataProvider questData,
         SchedulerOptions initialOptions,
-        ILogger<QuestScheduler> logger)
+        ILogger<QuestScheduler> logger,
+        Func<string, CancellationToken, Task<bool>>? evaluateSkipIf = null)
     {
         ArgumentNullException.ThrowIfNull(questState);
         ArgumentNullException.ThrowIfNull(gameState);
@@ -42,6 +44,7 @@ public sealed class QuestScheduler : IQuestScheduler
         _questData = questData;
         _options = initialOptions;
         _logger = logger;
+        _evaluateSkipIf = evaluateSkipIf;
     }
 
     public SchedulerStatus CurrentStatus => _currentStatus;
@@ -170,6 +173,23 @@ public sealed class QuestScheduler : IQuestScheduler
     private async Task<Result<QuestId?>?> TrySelectCandidate(
         QuestId q, CancellationToken ct, HashSet<QuestId> visited, bool isTier1)
     {
+        var skipIf = _questData.GetSkipIf(q);
+        if (skipIf is not null && _evaluateSkipIf is not null)
+        {
+            try
+            {
+                if (await _evaluateSkipIf(skipIf, ct))
+                {
+                    _logger.LogDebug("Quest {QuestId} skipped by skipIf predicate.", q);
+                    return null;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Quest {QuestId} skipIf evaluation failed; treating as not-skipped.", q);
+            }
+        }
+
         var completeResult = await _questState.IsQuestComplete(q, ct);
         if (completeResult is Result<bool>.Success { Value: true })
             return null;
@@ -200,9 +220,16 @@ public sealed class QuestScheduler : IQuestScheduler
         if (reason is null)
             return null;
 
+        _logger.LogDebug(
+            "Quest {QuestId} unavailable: LevelTooLow={LevelTooLow} (need {Level}) WrongJob={WrongJob} " +
+            "PrereqIncomplete={PrereqIncomplete} (missing={Missing}) AlreadyCompleted={Completed} Other={Other} Detail={Detail}",
+            q, reason.LevelTooLow, reason.RequiredLevel, reason.WrongJob,
+            reason.PrerequisiteIncomplete,
+            string.Join(",", reason.MissingPrereqs.Select(p => p.Value)),
+            reason.AlreadyCompleted, reason.OtherReason, reason.Detail);
+
         if (reason.PrerequisiteIncomplete)
         {
-            // Pass already-known MissingPrereqs to avoid re-querying the entry blocker.
             var blocker = await ResolveBlocker(reason.MissingPrereqs, ct, visited);
             if (blocker is not null)
             {
@@ -210,20 +237,6 @@ public sealed class QuestScheduler : IQuestScheduler
                 return Result.Ok<QuestId?>(blocker);
             }
             return null;
-        }
-
-        if (reason.WrongJob && isTier1)
-        {
-            _logger.LogDebug(
-                "Quest {QuestId}: data-provider says it matches current job but WhyUnavailable returned WrongJob. " +
-                "Player may have changed jobs between reads. Skipping.", q);
-        }
-
-        if (reason.AlreadyCompleted)
-        {
-            _logger.LogDebug(
-                "Quest {QuestId}: IsQuestComplete returned false but WhyUnavailable returned AlreadyCompleted. " +
-                "Data inconsistency; skipping.", q);
         }
 
         return null;

@@ -15,29 +15,33 @@ public sealed class LuminaQuestDataProvider : IQuestDataProvider
         IReadOnlyList<QuestId> Prerequisites,
         PrerequisiteJoin PrereqJoin,
         int SortKey,
-        string Category);
+        string Category,
+        string? SkipIf);
 
     private readonly ExcelSheet<ClassJobCategory> _classJobCatSheet;
     private readonly Dictionary<QuestId, Entry> _entries = new();
 
-    /// <param name="questCategories">QuestId → Category string from quest files. Built by Plugin.cs using QuestFileLoader.</param>
-    public LuminaQuestDataProvider(IDataManager dataManager, IReadOnlyDictionary<QuestId, string> questCategories)
+    /// <param name="questMetadata">QuestId → (Category, SkipIf) from quest files. Built by QuestFileIndex.</param>
+    public LuminaQuestDataProvider(IDataManager dataManager, IReadOnlyDictionary<QuestId, (string Category, string? SkipIf)> questMetadata)
     {
         var questSheet = dataManager.GetExcelSheet<Quest>()
             ?? throw new InvalidOperationException("Lumina Quest sheet unavailable");
         _classJobCatSheet = dataManager.GetExcelSheet<ClassJobCategory>()
             ?? throw new InvalidOperationException("Lumina ClassJobCategory sheet unavailable");
 
-        foreach (var (questId, category) in questCategories)
+        foreach (var (questId, meta) in questMetadata)
         {
             try
             {
                 var row = questSheet.GetRow(questId.Value);
-                _entries[questId] = BuildEntry(questId, category, row);
+                _entries[questId] = BuildEntry(questId, meta.Category, meta.SkipIf, row);
             }
             catch { /* invalid/missing Lumina row — skip */ }
         }
     }
+
+    public string? GetSkipIf(QuestId quest)
+        => _entries.TryGetValue(quest, out var e) ? e.SkipIf : null;
 
     // Maps QuestDefinition.Category to a scheduler tier.
     // "msq"                    → 3  (auto chain, always runs)
@@ -56,7 +60,7 @@ public sealed class LuminaQuestDataProvider : IQuestDataProvider
         _                          => null,
     };
 
-    private static Entry BuildEntry(QuestId questId, string category, Quest row)
+    private static Entry BuildEntry(QuestId questId, string category, string? skipIf, Quest row)
     {
         var classJobCatId = row.ClassJobCategory0.RowId;
 
@@ -71,7 +75,8 @@ public sealed class LuminaQuestDataProvider : IQuestDataProvider
             Prerequisites: prereqs,
             PrereqJoin: row.PreviousQuestJoin == 0 ? PrerequisiteJoin.All : PrerequisiteJoin.AtLeastOne,
             SortKey: (int)questId.Value,
-            Category: category);
+            Category: category,
+            SkipIf: skipIf);
     }
 
     public uint GetClassJobCategoryId(QuestId quest)

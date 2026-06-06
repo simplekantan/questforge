@@ -16,6 +16,8 @@ public record class QuestDefinition
     public RewardOverride? RewardOverride { get; init; }
     public string[]? Contributors { get; init; }
     public string? Notes { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? SkipIf { get; init; }
     public QuestSequence[] Sequences { get; init; } = [];
 }
 

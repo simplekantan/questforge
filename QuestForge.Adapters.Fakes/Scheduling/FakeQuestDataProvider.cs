@@ -10,7 +10,8 @@ public sealed class FakeQuestDataProvider : IQuestDataProvider
         int SortKey,
         JobId? ClassJob,
         QuestId[] Prerequisites,
-        PrerequisiteJoin Join);
+        PrerequisiteJoin Join,
+        string? SkipIf);
 
     private readonly Dictionary<QuestId, QuestEntry> _quests = new();
 
@@ -21,9 +22,10 @@ public sealed class FakeQuestDataProvider : IQuestDataProvider
         int sortKey = 0,
         JobId? classJob = null,
         QuestId[]? prereqs = null,
-        PrerequisiteJoin join = PrerequisiteJoin.All)
+        PrerequisiteJoin join = PrerequisiteJoin.All,
+        string? skipIf = null)
     {
-        _quests[id] = new QuestEntry(tier, sortKey, classJob, prereqs ?? [], join);
+        _quests[id] = new QuestEntry(tier, sortKey, classJob, prereqs ?? [], join, skipIf);
         return this;
     }
 
@@ -45,6 +47,9 @@ public sealed class FakeQuestDataProvider : IQuestDataProvider
 
     public int? GetQuestTier(QuestId quest)
         => _quests.TryGetValue(quest, out var e) ? e.Tier : null;
+
+    public string? GetSkipIf(QuestId quest)
+        => _quests.TryGetValue(quest, out var e) ? e.SkipIf : null;
 
     public bool IsClassQuestForJob(QuestId quest, JobId job)
         => _quests.TryGetValue(quest, out var e) && e.ClassJob == job;

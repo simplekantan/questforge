@@ -6,9 +6,9 @@ namespace QuestForge.Plugin.DataDelivery;
 internal sealed class QuestFileIndex
 {
     private readonly Dictionary<QuestId, string> _pathById = new();
-    private readonly Dictionary<QuestId, string> _categoryById = new();
+    private readonly Dictionary<QuestId, (string Category, string? SkipIf)> _metadataById = new();
 
-    internal IReadOnlyDictionary<QuestId, string> Categories => _categoryById;
+    internal IReadOnlyDictionary<QuestId, (string Category, string? SkipIf)> Metadata => _metadataById;
 
     internal static QuestFileIndex Build(string questsDir, Dalamud.Plugin.Services.IPluginLog log)
     {
@@ -44,7 +44,7 @@ internal sealed class QuestFileIndex
             var qid = new QuestId(def.Id);
             _pathById[qid] = file;
             if (def.Category is { } cat)
-                _categoryById[qid] = cat;
+                _metadataById[qid] = (cat, def.SkipIf);
         }
         catch (Exception ex)
         {
