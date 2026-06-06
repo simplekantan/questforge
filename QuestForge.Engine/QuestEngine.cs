@@ -523,6 +523,8 @@ public sealed class QuestEngine
             _activeResumeFragment = null;
             _waitStepStart = null;
             _waitStepStartId = null;
+            _lastActionFiredAt = null;
+            _lastActionFiredStepId = null;
             await _combatController.ResetAsync(ct);
         }
         _lastKnownSequence = currentSeq;
@@ -555,11 +557,7 @@ public sealed class QuestEngine
             if (_confirmedStepIds.Contains(step.Id))
                 continue;
 
-            // 2. Expect: if true, confirm and skip. Confirmation persists until BeginRun or
-            //    sequence change clears the cursor.
-            //    CombatStep case is split out: completion additionally requires the player to be
-            //    out of combat (D1). The IsPlayerInCombat read happens ONLY here — not in the
-            //    prelude — so non-combat steps and mid-fight combat steps never read it (D6).
+            // 2. Expect: if true, confirm and skip.
             if (step.Expect is not null && await _expectEvaluator.Evaluate(step.Expect, ct))
             {
                 if (step is CombatStep cs)
@@ -945,7 +943,7 @@ public sealed class QuestEngine
     private EngineAction.Wait? CheckActionCooldown(Step step)
     {
         if (_actionCooldownSeconds <= 0) return null;
-        if (_lastActionFiredStepId != step.Id || _lastActionFiredAt is null) return null;
+        if (_lastActionFiredAt is null) return null;
 
         var elapsed = _clock.GetUtcNow() - _lastActionFiredAt.Value;
         if (elapsed.TotalSeconds >= _actionCooldownSeconds) return null;
@@ -1013,6 +1011,9 @@ public sealed class QuestEngine
             return new EngineAction.AwaitUser(
                 "UseActionStep dispatched but no IActionExecutor wired — host must supply one");
 
+        var cooldownUa = CheckActionCooldown(step);
+        if (cooldownUa is not null) return cooldownUa;
+
         // Guard 1: casting → Wait (defer until cast finishes)
         var stateResult = await _gameState.GetPlayerState(ct);
         if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
@@ -1036,9 +1037,6 @@ public sealed class QuestEngine
             }
         }
         // Fail-open: status read failure → proceed to emit
-
-        var cooldownUa = CheckActionCooldown(step);
-        if (cooldownUa is not null) return cooldownUa;
 
         var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
         RecordActionFired(step);
