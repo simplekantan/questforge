@@ -66,8 +66,9 @@ public sealed class StepEditModal : Window
         DrawReadOnly("Sequence", _sequenceNumber);
 
         ImGui.Spacing();
-        DrawExpectField(isEditable);
-        DrawEditableString("skipIf", "SkipIf", ReadRawString("skipIf"), isEditable,
+        DrawPredicateField("expect", "Expect", _suggestedExpect, isEditable,
+            "Postcondition predicate. Step completes when this is true.");
+        DrawPredicateField("skipIf", "SkipIf", ReadRawString("skipIf") ?? "", isEditable,
             "Predicate expression. If true, this step is skipped.");
         DrawEditableString("notes", "Notes", ReadRawString("notes"), isEditable,
             "Author notes. Not used by the engine.");
@@ -206,13 +207,13 @@ public sealed class StepEditModal : Window
         ImGui.TextUnformatted(value);
     }
 
-    private void DrawExpectField(bool editable)
+    private void DrawPredicateField(string jsonKey, string label, string currentValue, bool editable, string? tooltip)
     {
-        if (_editingField == "expect")
+        if (_editingField == jsonKey)
         {
-            ImGui.TextUnformatted("Expect:");
+            ImGui.TextUnformatted($"{label}:");
             ImGui.SetNextItemWidth(200f);
-            if (ImGui.BeginCombo("##editexpectpick", "Pick predicate..."))
+            if (ImGui.BeginCombo($"##{jsonKey}pick", "Pick predicate..."))
             {
                 foreach (var option in PredicateOptions.Build(_host.CurrentSnapshot))
                 {
@@ -223,25 +224,25 @@ public sealed class StepEditModal : Window
             }
             ImGui.SameLine();
             ImGui.SetNextItemWidth(280f);
-            ImGui.InputText("##editexpect", ref _editValue, 256);
-            DrawSaveCancelButtons("expect", _editValue.Length > 0 ? _editValue : null);
+            ImGui.InputText($"##{jsonKey}", ref _editValue, 256);
+            DrawSaveCancelButtons(jsonKey, _editValue.Length > 0 ? _editValue : null);
         }
         else
         {
-            ImGui.TextUnformatted("Expect:");
+            ImGui.TextUnformatted($"{label}:");
             ImGui.SameLine();
-            ImGui.TextUnformatted(_suggestedExpect.Length > 0 ? _suggestedExpect : "(none)");
+            ImGui.TextUnformatted(currentValue.Length > 0 ? currentValue : "(none)");
             if (editable)
             {
                 ImGui.SameLine();
-                if (ImGui.SmallButton("Edit##expect"))
+                if (ImGui.SmallButton($"Edit##{jsonKey}"))
                 {
-                    _editingField = "expect";
-                    _editValue = _suggestedExpect;
+                    _editingField = jsonKey;
+                    _editValue = currentValue;
                 }
             }
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Postcondition predicate. Step completes when this is true.");
+            if (tooltip is not null && ImGui.IsItemHovered())
+                ImGui.SetTooltip(tooltip);
         }
     }
 
