@@ -178,6 +178,66 @@ public class IntegrationTests
     }
 
     // -------------------------------------------------------------------------
+    // S11 -- Quest-level SkipIf serializes and deserializes
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// S11 -- QuestDefinition.SkipIf round-trips through JSON.
+    /// When present, the skipIf key appears in the serialized JSON with the exact predicate string.
+    /// When null, the skipIf key is absent (JsonIgnoreCondition.WhenWritingNull).
+    /// </summary>
+    [Fact]
+    public void QuestDefinition_SkipIf_RoundTrips_S11()
+    {
+        // Arrange: QuestDefinition with SkipIf set
+        var quest = new QuestDefinition
+        {
+            SchemaVersion = "1.0.0",
+            Id = 65643,
+            Name = "Coming to Limsa Lominsa",
+            Expansion = "arr",
+            Category = "msq",
+            SkipIf = "isQuestComplete(66130) or isQuestComplete(65575)",
+            Sequences = []
+        };
+
+        // Act: serialize and deserialize
+        var json = JsonSerializer.Serialize(quest, QuestForgeJsonContext.QuestFileOptions);
+        var result = JsonSerializer.Deserialize<QuestDefinition>(json, QuestForgeJsonContext.QuestFileOptions);
+
+        // Assert: SkipIf preserved
+        Assert.NotNull(result);
+        Assert.Equal("isQuestComplete(66130) or isQuestComplete(65575)", result.SkipIf);
+
+        // Assert: skipIf key present in JSON
+        Assert.Contains("\"skipIf\"", json, StringComparison.Ordinal);
+        Assert.Contains("isQuestComplete(66130) or isQuestComplete(65575)", json, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// S11b -- QuestDefinition.SkipIf null: key absent from JSON.
+    /// </summary>
+    [Fact]
+    public void QuestDefinition_SkipIfNull_KeyAbsentFromJson_S11b()
+    {
+        var quest = new QuestDefinition
+        {
+            SchemaVersion = "1.0.0",
+            Id = 66130,
+            Name = "Coming to Ul'dah",
+            Expansion = "arr",
+            Category = "msq",
+            SkipIf = null,
+            Sequences = []
+        };
+
+        var json = JsonSerializer.Serialize(quest, QuestForgeJsonContext.QuestFileOptions);
+
+        // SkipIf key must be absent when null
+        Assert.DoesNotContain("\"skipIf\"", json, StringComparison.Ordinal);
+    }
+
+    // -------------------------------------------------------------------------
     // FragmentStep with Params round-trip
     // -------------------------------------------------------------------------
 

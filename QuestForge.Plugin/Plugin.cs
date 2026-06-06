@@ -83,8 +83,10 @@ public sealed class Plugin : IDalamudPlugin
         var questsDir = Path.Combine(pi.GetPluginConfigDirectory(), "quests");
         var questIndex = QuestFileIndex.Build(questsDir, log);
         _host.SetQuestFileIndex(questIndex);
-        _questData = new QuestForge.Adapters.Dalamud.Scheduling.LuminaQuestDataProvider(dataManager, questIndex.Categories);
+        _questData = new QuestForge.Adapters.Dalamud.Scheduling.LuminaQuestDataProvider(dataManager, questIndex.Metadata);
         var questData = _questData;
+        var skipIfEvaluator = new QuestForge.Engine.Predicates.ExpectEvaluator(
+            new QuestForge.Engine.Predicates.PredicateEvaluator(_host.GameState, _host.QuestState));
         _scheduler = new QuestForge.Engine.Scheduling.QuestScheduler(
             _host.QuestState,
             _host.GameState,
@@ -92,7 +94,8 @@ public sealed class Plugin : IDalamudPlugin
             new QuestForge.Engine.Scheduling.SchedulerOptions(
                 config.QuestPlaylist.Select(id => new QuestForge.Adapters.Types.QuestId(id)).ToList(),
                 config.EnableCraftGatherQuests, config.EnableSideQuests, config.EnableBlueQuests),
-            new QuestForge.Plugin.Logging.DalamudLogger<QuestForge.Engine.Scheduling.QuestScheduler>(log));
+            new QuestForge.Plugin.Logging.DalamudLogger<QuestForge.Engine.Scheduling.QuestScheduler>(log),
+            evaluateSkipIf: skipIfEvaluator.Evaluate);
 
         _configWindow = new UI.ConfigWindow(config, pi, _traceSession, _host);
         var playlistWindow = new UI.PlaylistWindow(config, pi, dataManager, _host, questIndex);

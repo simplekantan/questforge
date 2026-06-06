@@ -194,9 +194,11 @@ public sealed class DalamudQuestState : IQuestState
 
             // PreviousQuestJoin: 0 = All must be complete, 1 = AtLeastOne must be complete
             var nonZeroPrereqCount = prereqRowIds.Count(id => id != 0);
-            var prerequisiteIncomplete = row.PreviousQuestJoin == 0
-                ? missingPrereqs.Count > 0                           // All: any missing = incomplete
-                : missingPrereqs.Count == nonZeroPrereqCount;       // AtLeastOne: incomplete only if ALL missing
+            var prerequisiteIncomplete = nonZeroPrereqCount == 0
+                ? false
+                : row.PreviousQuestJoin == 0
+                    ? missingPrereqs.Count > 0                       // All: any missing = incomplete
+                    : missingPrereqs.Count == nonZeroPrereqCount;   // AtLeastOne: incomplete only if ALL missing
 
             if (!wrongJob && !levelTooLow && !prerequisiteIncomplete)
                 return Task.FromResult<Result<QuestUnlockReason?>>(Result.Ok<QuestUnlockReason?>(null));
