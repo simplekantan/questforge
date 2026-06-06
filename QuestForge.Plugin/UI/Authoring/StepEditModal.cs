@@ -172,7 +172,7 @@ public sealed class StepEditModal : Window
                 DrawEditableFloat("seconds", "Seconds", ReadRawFloat("seconds"), editable, null);
                 break;
             case DutyStep:
-                DrawEditableStringChoice("kind", "Duty Kind", ReadRawString("kind"), editable, ["spd", "duty", "regular"]);
+                DrawEditableStringChoice("kind", "Duty Kind", ReadRawString("kind"), editable, ["spd", "duty"]);
                 DrawEditableNullableUint("contentFinderConditionId", "CFC ID", editable);
                 DrawEditableNullableUint("entryTargetId", "Entry Target ID", editable);
                 break;
