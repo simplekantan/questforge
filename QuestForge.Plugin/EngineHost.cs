@@ -424,6 +424,7 @@ public sealed class EngineHost : IDisposable
                         // MountState observes Dismounted; the engine's ~250ms tick gap gives the
                         // landing animation time to complete between calls.
                         await _mount.Dismount(ct);
+                        return;
                     }
                     else
                     {
