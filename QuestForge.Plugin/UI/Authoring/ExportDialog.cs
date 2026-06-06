@@ -15,7 +15,11 @@ public sealed class ExportDialog : Window
     private readonly IDalamudPluginInterface _pi;
     private readonly IDataManager _dataManager;
 
+    private static readonly string[] CategoryOptions =
+        ["msq", "class", "job", "role", "blue-urgent", "blue", "side"];
+
     private string _exportPath = "";
+    private int _categoryIndex;
     private bool _validateBeforeExport = true;
     private string _statusMessage = "";
     private bool _statusIsError;
@@ -58,6 +62,15 @@ public sealed class ExportDialog : Window
         _validationErrors.Clear();
         _validationWarnings.Clear();
         _showExportAnyway = false;
+
+        if (!_host.IsFragmentMode && _host.AuthoringTarget is { } qt)
+        {
+            var draft = _host.DraftManager.Get(qt, CancellationToken.None).GetAwaiter().GetResult();
+            var cat = draft?.Category ?? "msq";
+            _categoryIndex = Array.IndexOf(CategoryOptions, cat);
+            if (_categoryIndex < 0) _categoryIndex = 0;
+        }
+
         IsOpen = true;
     }
 
@@ -69,6 +82,27 @@ public sealed class ExportDialog : Window
         ImGui.TextUnformatted("Export path:");
         ImGui.SetNextItemWidth(500f);
         ImGui.InputText("##exportpath", ref _exportPath, 512);
+
+        if (!_host.IsFragmentMode)
+        {
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.Combo("Category", ref _categoryIndex, CategoryOptions, CategoryOptions.Length))
+            {
+                var target = _host.AuthoringTarget;
+                if (target is not null)
+                {
+                    var draft = _host.DraftManager.Get(target.Value, CancellationToken.None).GetAwaiter().GetResult();
+                    if (draft is not null)
+                    {
+                        draft.Category = CategoryOptions[_categoryIndex];
+                        _host.DraftManager.MarkDirty(target.Value);
+                        _ = _host.DraftManager.SaveNow(target.Value, CancellationToken.None);
+                    }
+                }
+            }
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("msq = Main Scenario\nclass/job/role = Class/Job quests (Tier 1, job-filtered)\nblue-urgent = Critical unlocks (Tier 1, always runs)\nblue = Feature unlocks (Tier 4, opt-in)\nside = Side quests (Tier 5, opt-in)");
+        }
 
         ImGui.Checkbox("Validate before export", ref _validateBeforeExport);
 
