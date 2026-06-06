@@ -16,6 +16,10 @@ public sealed class QuestScheduler : IQuestScheduler
     private volatile SchedulerOptions _options;
     private volatile SchedulerStatus _currentStatus = new SchedulerStatus.Idle();
 
+    // Dedup: only log unavailability reasons that changed since last poll.
+    private Dictionary<QuestId, string> _lastLoggedReasons = new();
+    private Dictionary<QuestId, string> _currentPollReasons = new();
+
     // Returned when WhyUnavailable unexpectedly returns null for a manual-chain quest.
     private static readonly QuestUnlockReason _whyNullSyntheticReason = new(
         LevelTooLow: false, RequiredLevel: 0,
@@ -57,15 +61,10 @@ public sealed class QuestScheduler : IQuestScheduler
 
     public async Task<Result<QuestId?>> NextQuestToRun(CancellationToken ct)
     {
-        // Stable snapshot across awaits; UpdateOptions during evaluation takes effect next call.
         var options = _options;
         _currentStatus = new SchedulerStatus.SelectingNext();
-
-        // Allocated once per call; shared across all ResolveBlocker invocations to prevent
-        // re-exploring dead-end chains and to guard against Lumina data cycles (spec §3 Rule 2).
         var visited = new HashSet<QuestId>();
-
-        // Single corpus snapshot — data does not change mid-call and callers pay only once.
+        _currentPollReasons = new Dictionary<QuestId, string>();
         var knownQuests = _questData.EnumerateKnownQuests();
 
         // --- Rule 0: Tier 0 — Manual chain -------------------------------------------------------
@@ -145,6 +144,7 @@ public sealed class QuestScheduler : IQuestScheduler
 
         // --- Rule 6: Nothing to run ---------------------------------------------------------------
         _currentStatus = new SchedulerStatus.Idle();
+        _lastLoggedReasons = _currentPollReasons;
         return Result.Ok<QuestId?>(null);
     }
 
@@ -220,18 +220,25 @@ public sealed class QuestScheduler : IQuestScheduler
         if (reason is null)
             return null;
 
-        _logger.LogDebug(
-            "Quest {QuestId} unavailable: LevelTooLow={LevelTooLow} (need {Level}) WrongJob={WrongJob} " +
-            "PrereqIncomplete={PrereqIncomplete} (missing={Missing}) AlreadyCompleted={Completed} Other={Other} Detail={Detail}",
-            q, reason.LevelTooLow, reason.RequiredLevel, reason.WrongJob,
-            reason.PrerequisiteIncomplete,
-            string.Join(",", reason.MissingPrereqs.Select(p => p.Value)),
-            reason.AlreadyCompleted, reason.OtherReason, reason.Detail);
+        var reasonKey = $"{reason.LevelTooLow}|{reason.RequiredLevel}|{reason.WrongJob}|" +
+            $"{reason.PrerequisiteIncomplete}|{string.Join(",", reason.MissingPrereqs.Select(p => p.Value))}|" +
+            $"{reason.AlreadyCompleted}|{reason.OtherReason}|{reason.Detail}";
+        _currentPollReasons[q] = reasonKey;
+        if (!_lastLoggedReasons.TryGetValue(q, out var prev) || prev != reasonKey)
+        {
+            _logger.LogDebug(
+                "Quest {QuestId} unavailable: LevelTooLow={LevelTooLow} (need {Level}) WrongJob={WrongJob} " +
+                "PrereqIncomplete={PrereqIncomplete} (missing={Missing}) AlreadyCompleted={Completed} Other={Other} Detail={Detail}",
+                q, reason.LevelTooLow, reason.RequiredLevel, reason.WrongJob,
+                reason.PrerequisiteIncomplete,
+                string.Join(",", reason.MissingPrereqs.Select(p => p.Value)),
+                reason.AlreadyCompleted, reason.OtherReason, reason.Detail);
+        }
 
         if (reason.PrerequisiteIncomplete)
         {
             var blocker = await ResolveBlocker(reason.MissingPrereqs, ct, visited);
-            if (blocker is not null)
+            if (blocker is not null && _questData.EnumerateKnownQuests().Contains(blocker.Value))
             {
                 _currentStatus = new SchedulerStatus.Running(blocker.Value);
                 return Result.Ok<QuestId?>(blocker);
@@ -250,6 +257,13 @@ public sealed class QuestScheduler : IQuestScheduler
     {
         foreach (var missing in missingPrereqs)
         {
+            var skipIf = _questData.GetSkipIf(missing);
+            if (skipIf is not null && _evaluateSkipIf is not null)
+            {
+                try { if (await _evaluateSkipIf(skipIf, ct)) continue; }
+                catch { /* non-fatal — treat as not-skipped */ }
+            }
+
             var completeResult = await _questState.IsQuestComplete(missing, ct);
             if (completeResult is Result<bool>.Success { Value: true })
                 continue;

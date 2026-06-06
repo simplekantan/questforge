@@ -144,7 +144,13 @@ public sealed class Plugin : IDalamudPlugin
         try { AutoCutsceneSkipper.Init(_ => _host.IsRunActive); }
         catch { /* Hook already owned by another plugin — IGameConfig covers ESC */ }
 
-        _dataUpdate = new DataUpdateService(pi, log);
+        _dataUpdate = new DataUpdateService(pi, log, onDataUpdated: () =>
+        {
+            var newIndex = QuestFileIndex.Build(questsDir, log);
+            _host.SetQuestFileIndex(newIndex);
+            _questData.ReloadMetadata(newIndex.Metadata);
+            log.Info("[DataUpdate] quest file index rebuilt after data update");
+        });
         _ = _dataUpdate.CheckAndUpdateAsync(_cts.Token);
 
         _framework.Update += OnFrameworkUpdate;

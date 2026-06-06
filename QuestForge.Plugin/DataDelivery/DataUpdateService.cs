@@ -20,10 +20,12 @@ internal sealed class DataUpdateService : IDisposable
     private readonly string _dataRoot;
     private readonly string _versionFile;
     private readonly Dalamud.Plugin.Services.IPluginLog _log;
+    private Action? _onDataUpdated;
 
-    internal DataUpdateService(IDalamudPluginInterface pi, Dalamud.Plugin.Services.IPluginLog log)
+    internal DataUpdateService(IDalamudPluginInterface pi, Dalamud.Plugin.Services.IPluginLog log, Action? onDataUpdated = null)
     {
         _log = log;
+        _onDataUpdated = onDataUpdated;
         _dataRoot = pi.GetPluginConfigDirectory();
         _versionFile = Path.Combine(_dataRoot, "data-version.txt");
         _http = new HttpClient();
@@ -86,6 +88,7 @@ internal sealed class DataUpdateService : IDisposable
 
             File.WriteAllText(_versionFile, release.TagName);
             _log.Info($"[DataUpdate] updated to {release.TagName}");
+            _onDataUpdated?.Invoke();
         }
         catch (OperationCanceledException) { }
         catch (HttpRequestException ex)
