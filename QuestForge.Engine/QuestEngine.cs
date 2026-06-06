@@ -860,6 +860,8 @@ public sealed class QuestEngine
 
         AwaitUserStep au => new EngineAction.AwaitUser(au.Reason),
 
+        TeleportStep tp => new EngineAction.Teleport(new Adapters.Types.AetheryteId(tp.AetheryteId.Value), Origin: step),
+
         _ => throw new NotSupportedException($"Phase 4 does not support step type {step.GetType().Name}")
     };
 
