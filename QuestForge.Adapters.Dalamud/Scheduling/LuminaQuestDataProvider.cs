@@ -18,22 +18,34 @@ public sealed class LuminaQuestDataProvider : IQuestDataProvider
         string Category,
         string? SkipIf);
 
+    private readonly ExcelSheet<Quest> _questSheet;
     private readonly ExcelSheet<ClassJobCategory> _classJobCatSheet;
     private readonly Dictionary<QuestId, Entry> _entries = new();
 
     /// <param name="questMetadata">QuestId → (Category, SkipIf) from quest files. Built by QuestFileIndex.</param>
     public LuminaQuestDataProvider(IDataManager dataManager, IReadOnlyDictionary<QuestId, (string Category, string? SkipIf)> questMetadata)
     {
-        var questSheet = dataManager.GetExcelSheet<Quest>()
+        _questSheet = dataManager.GetExcelSheet<Quest>()
             ?? throw new InvalidOperationException("Lumina Quest sheet unavailable");
         _classJobCatSheet = dataManager.GetExcelSheet<ClassJobCategory>()
             ?? throw new InvalidOperationException("Lumina ClassJobCategory sheet unavailable");
 
+        LoadEntries(questMetadata);
+    }
+
+    public void ReloadMetadata(IReadOnlyDictionary<QuestId, (string Category, string? SkipIf)> questMetadata)
+    {
+        _entries.Clear();
+        LoadEntries(questMetadata);
+    }
+
+    private void LoadEntries(IReadOnlyDictionary<QuestId, (string Category, string? SkipIf)> questMetadata)
+    {
         foreach (var (questId, meta) in questMetadata)
         {
             try
             {
-                var row = questSheet.GetRow(questId.Value);
+                var row = _questSheet.GetRow(questId.Value);
                 _entries[questId] = BuildEntry(questId, meta.Category, meta.SkipIf, row);
             }
             catch { /* invalid/missing Lumina row — skip */ }
