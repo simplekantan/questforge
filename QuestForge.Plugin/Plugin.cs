@@ -89,14 +89,19 @@ public sealed class Plugin : IDalamudPlugin
             _host.QuestState,
             _host.GameState,
             questData,
-            new QuestForge.Engine.Scheduling.SchedulerOptions([], config.EnableCraftGatherQuests, config.EnableSideQuests, config.EnableBlueQuests),
+            new QuestForge.Engine.Scheduling.SchedulerOptions(
+                config.QuestPlaylist.Select(id => new QuestForge.Adapters.Types.QuestId(id)).ToList(),
+                config.EnableCraftGatherQuests, config.EnableSideQuests, config.EnableBlueQuests),
             new QuestForge.Plugin.Logging.DalamudLogger<QuestForge.Engine.Scheduling.QuestScheduler>(log));
 
         _configWindow = new UI.ConfigWindow(config, pi, _traceSession, _host);
+        var playlistWindow = new UI.PlaylistWindow(config, pi, dataManager, _host, questIndex);
         _mainWindow = new UI.MainWindow(_host, _scheduler, config);
         _mainWindow.SetConfigWindow(_configWindow);
+        _mainWindow.SetPlaylistWindow(playlistWindow);
         _windowSystem.AddWindow(_mainWindow);
         _windowSystem.AddWindow(_configWindow);
+        _windowSystem.AddWindow(playlistWindow);
 
         // Authoring infrastructure
         var draftsDir = Path.Combine(pi.GetPluginConfigDirectory(), "drafts");

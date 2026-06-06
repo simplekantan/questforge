@@ -10,6 +10,7 @@ public sealed class MainWindow : Window
     private readonly IQuestScheduler _scheduler;
     private readonly PluginConfig _config;
     private ConfigWindow? _configWindow;
+    private PlaylistWindow? _playlistWindow;
 
     public MainWindow(EngineHost host, IQuestScheduler scheduler, PluginConfig config)
         : base("QuestForge", ImGuiWindowFlags.None)
@@ -25,6 +26,7 @@ public sealed class MainWindow : Window
     }
 
     public void SetConfigWindow(ConfigWindow configWindow) => _configWindow = configWindow;
+    internal void SetPlaylistWindow(PlaylistWindow playlistWindow) => _playlistWindow = playlistWindow;
 
     public override void Draw()
     {
@@ -73,6 +75,9 @@ public sealed class MainWindow : Window
                 _host.StopAutoMode();
         }
 
+        ImGui.SameLine();
+        if (ImGui.Button("Playlist"))
+            _playlistWindow?.Toggle();
         ImGui.SameLine();
         if (ImGui.Button("Settings"))
             _configWindow?.Toggle();

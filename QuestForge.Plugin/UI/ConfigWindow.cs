@@ -228,8 +228,8 @@ public sealed class ConfigWindow : Window
 
     private void Save() => _config.Save(_pi);
 
-    private SchedulerOptions BuildOptions() => new(
-        ManualChain: [],
+    internal SchedulerOptions BuildOptions() => new(
+        ManualChain: _config.QuestPlaylist.Select(id => new QuestForge.Adapters.Types.QuestId(id)).ToList(),
         EnableCraftGatherQuests: _config.EnableCraftGatherQuests,
         EnableSideQuests: _config.EnableSideQuests,
         EnableBlueQuests: _config.EnableBlueQuests);
