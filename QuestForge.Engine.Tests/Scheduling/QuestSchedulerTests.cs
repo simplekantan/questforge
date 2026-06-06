@@ -193,7 +193,8 @@ public sealed class QuestSchedulerTests
         gameState.SetJob(J(2), 1);
 
         var questData = new FakeQuestDataProvider()
-            .WithQuest(Q(200), tier: 1, classJob: J(2));
+            .WithQuest(Q(200), tier: 1, classJob: J(2))
+            .WithQuest(Q(199), tier: 1);
 
         questState.SetWhyUnavailable(Q(200), PrereqIncompleteReason(Q(199)));
         questState.SetQuestStatus(Q(199), QuestStatus.Available);
@@ -508,7 +509,9 @@ public sealed class QuestSchedulerTests
         var gameState = new FakeGameStateProvider();
 
         var questData = new FakeQuestDataProvider()
-            .WithQuest(Q(300), tier: 3, sortKey: 0);
+            .WithQuest(Q(300), tier: 3, sortKey: 0)
+            .WithQuest(Q(299), tier: 3)
+            .WithQuest(Q(298), tier: 3);
 
         questState.SetWhyUnavailable(Q(300), PrereqIncompleteReason(Q(299)));
         questState.SetWhyUnavailable(Q(299), PrereqIncompleteReason(Q(298)));

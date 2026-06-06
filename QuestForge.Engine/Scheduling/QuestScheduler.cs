@@ -231,7 +231,7 @@ public sealed class QuestScheduler : IQuestScheduler
         if (reason.PrerequisiteIncomplete)
         {
             var blocker = await ResolveBlocker(reason.MissingPrereqs, ct, visited);
-            if (blocker is not null)
+            if (blocker is not null && _questData.EnumerateKnownQuests().Contains(blocker.Value))
             {
                 _currentStatus = new SchedulerStatus.Running(blocker.Value);
                 return Result.Ok<QuestId?>(blocker);
@@ -250,6 +250,13 @@ public sealed class QuestScheduler : IQuestScheduler
     {
         foreach (var missing in missingPrereqs)
         {
+            var skipIf = _questData.GetSkipIf(missing);
+            if (skipIf is not null && _evaluateSkipIf is not null)
+            {
+                try { if (await _evaluateSkipIf(skipIf, ct)) continue; }
+                catch { /* non-fatal — treat as not-skipped */ }
+            }
+
             var completeResult = await _questState.IsQuestComplete(missing, ct);
             if (completeResult is Result<bool>.Success { Value: true })
                 continue;
