@@ -18,6 +18,9 @@ public sealed class InertNavigator : INavigator
     public Task<Result<Unit>> Stop(CancellationToken ct)
         => Task.FromResult<Result<Unit>>(Result.Ok());
 
+    public Task<Result<Unit>> Jump(CancellationToken ct)
+        => Task.FromResult<Result<Unit>>(Result.Ok());
+
     public Task<Result<bool>> IsNavigating(CancellationToken ct)
         => Task.FromResult<Result<bool>>(Result.Ok(false));
 

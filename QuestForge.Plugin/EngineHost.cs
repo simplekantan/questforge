@@ -299,7 +299,10 @@ public sealed class EngineHost : IDisposable
             questBattleRunner: _questBattleRunner,
             dutyRunner: _dutyRunner,
             cfcResolver: _cfcResolver,
-            actionCooldownSeconds: _config.ActionCooldownSeconds);
+            actionCooldownSeconds: _config.ActionCooldownSeconds,
+            navStallTimeoutSeconds: _config.NavStallTimeoutSeconds,
+            navStallDistanceThreshold: _config.NavStallDistanceThreshold,
+            navMaxJumpAttempts: _config.NavMaxJumpAttempts);
         _engine.StartQuest(quest, LoadFragments());
         _engine.BeginRun(runId);
         _onRunStart?.Invoke();
@@ -399,7 +402,7 @@ public sealed class EngineHost : IDisposable
         // against QuestEngine.Tick() are unaffected (see MOUNT_SUPPORT_PLAN.md §3 Q4).
         // Teleport is exempt: the game dismounts the player automatically on arrival if the
         // destination zone prohibits mounts (e.g. cities). No pre-dismount needed.
-        if (_lastDispatchedActionWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport and not EngineAction.EquipGear and not EngineAction.EquipBestGear and not EngineAction.RegisterGearset)
+        if (_lastDispatchedActionWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport and not EngineAction.EquipGear and not EngineAction.EquipBestGear and not EngineAction.RegisterGearset and not EngineAction.Jump)
         {
             // Don't dismount while vnavmesh is still moving the player. Some non-Navigate
             // actions fire early — notably Engage, which the engine emits as soon as a combat
@@ -742,6 +745,17 @@ public sealed class EngineHost : IDisposable
                 {
                     EndRun();
                 }
+                break;
+
+            case EngineAction.Jump:
+                DebounceLog("jump", "[Jump] stuck-detection jump attempt");
+                await _navigator.Jump(ct);
+                break;
+
+            case EngineAction.UseReturn:
+                DebounceLog("usereturn", "[UseReturn] stuck-detection escalation — casting Return");
+                await _navigator.Stop(ct);
+                await _teleporter.UseReturn(ct);
                 break;
 
             case EngineAction.Done:

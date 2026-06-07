@@ -18,9 +18,11 @@ public sealed class FakeNavigator : INavigator
         : AdapterCall(At);
 
     public record StopCall(DateTimeOffset At) : AdapterCall(At);
+    public record JumpCall(DateTimeOffset At) : AdapterCall(At);
 
     public CallLog<NavigationRequest> RecordedNavigationRequests { get; } = new();
     public CallLog<StopCall> RecordedStops { get; } = new();
+    public CallLog<JumpCall> RecordedJumps { get; } = new();
 
     public FakeNavigator(FakeGameStateProvider state)
     {
@@ -40,6 +42,7 @@ public sealed class FakeNavigator : INavigator
     {
         RecordedNavigationRequests.Clear();
         RecordedStops.Clear();
+        RecordedJumps.Clear();
         _nextResult = null;
         _keyedResults.Clear();
         _nextFailure = null;
@@ -94,6 +97,13 @@ public sealed class FakeNavigator : INavigator
         ct.ThrowIfCancellationRequested();
         RecordedStops.Add(new StopCall(DateTimeOffset.UtcNow));
         _isNavigating = false;
+        return Task.FromResult<Result<Unit>>(Result.Ok());
+    }
+
+    public Task<Result<Unit>> Jump(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        RecordedJumps.Add(new JumpCall(DateTimeOffset.UtcNow));
         return Task.FromResult<Result<Unit>>(Result.Ok());
     }
 

@@ -1,3 +1,5 @@
+using System.Linq;
+using Microsoft.Extensions.Logging;
 using QuestForge.Adapters.Combat;
 using QuestForge.Adapters.Movement;
 using QuestForge.Adapters.State;
@@ -31,6 +33,7 @@ public sealed class CombatController
     private readonly IGameStateProvider _gameState;
     private readonly ICombat _combat;
     private readonly INavigator _navigator;
+    private readonly ILogger? _logger;
 
     // _currentTarget: which actor we last told ICombat to attack (SetTarget latch).
     // _approachTarget: which actor we last issued NavigateTo for (navigation latch).
@@ -50,11 +53,12 @@ public sealed class CombatController
     private float? _cachedAttackRange;
     private DateTimeOffset? _mopUpStartedAt;
 
-    public CombatController(IGameStateProvider gameState, ICombat combat, INavigator navigator)
+    public CombatController(IGameStateProvider gameState, ICombat combat, INavigator navigator, ILogger? logger = null)
     {
         _gameState = gameState  ?? throw new ArgumentNullException(nameof(gameState));
         _combat    = combat     ?? throw new ArgumentNullException(nameof(combat));
         _navigator = navigator  ?? throw new ArgumentNullException(nameof(navigator));
+        _logger    = logger;
     }
 
     /// <summary>
@@ -81,6 +85,17 @@ public sealed class CombatController
         // D8 step 2: select target using kill-set priority
         var killIds = new HashSet<uint>(step.KillEnemyDataIds);
         var target = KillPriority.SelectTarget(actors, killIds, step.Spawn);
+
+        var noKillSetMemberFound = target is null || !killIds.Contains(target.Value.DataId);
+        if (noKillSetMemberFound && _logger is not null)
+        {
+            _logger.LogDebug(
+                "[CombatStep] No target found. HostileActors in scan: {ActorCount}, " +
+                "KillEnemyDataIds: [{KillIds}], ActorDataIds: [{ActorIds}]",
+                actors.Count,
+                string.Join(",", step.KillEnemyDataIds),
+                string.Join(",", actors.Select(a => a.DataId)));
+        }
 
         return await ApplyDecision(target, actors, ct);
     }

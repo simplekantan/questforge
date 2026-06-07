@@ -73,6 +73,15 @@ public sealed class PluginConfig
     /// </summary>
     public double ActionCooldownSeconds { get; set; } = 5.0;
 
+    /// <summary>Seconds of no progress before stuck detection fires.</summary>
+    public double NavStallTimeoutSeconds { get; set; } = 5.0;
+
+    /// <summary>Minimum movement in metres to count as progress during navigation.</summary>
+    public float NavStallDistanceThreshold { get; set; } = 2.0f;
+
+    /// <summary>Number of jump attempts before escalating to Return.</summary>
+    public int NavMaxJumpAttempts { get; set; } = 3;
+
     /// <summary>
     /// Priority order for selecting quest rewards. Evaluated top-to-bottom; first tier
     /// that produces a winner is used. Quest-level RewardOverride takes precedence over this list.

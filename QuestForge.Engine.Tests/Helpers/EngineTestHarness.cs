@@ -152,7 +152,7 @@ public sealed class EngineTestHarness
             dutyRunner: DutyRunner,
             cfcResolver: CfcResolver,
             actionCooldownSeconds: 0);
-        Engine = new HarnessEngine(inner, GameState, Mount, Navigator, ObjectInteractor, Interactor, QuestBattleRunner, DutyRunner, CfcResolver);
+        Engine = new HarnessEngine(inner, GameState, Mount, Navigator, Teleporter, ObjectInteractor, Interactor, QuestBattleRunner, DutyRunner, CfcResolver);
     }
 
     /// <summary>
@@ -390,6 +390,22 @@ public sealed class EngineTestHarness
                     }
                     break;
 
+                case EngineAction.Jump:
+                    actions.Add(action);
+                    EmitActionSubmitted("Jump", default);
+                    await Navigator.Jump(ct);
+                    EmitActionCompleted("Jump", "Done");
+                    break;
+
+                case EngineAction.UseReturn:
+                    actions.Add(action);
+                    EmitActionSubmitted("UseReturn", default);
+                    await Navigator.Stop(ct);
+                    var returnResult = await Teleporter.UseReturn(ct);
+                    EmitActionCompleted("UseReturn",
+                        returnResult.IsSuccess ? returnResult.ValueOrThrow.ToString() : "Failed");
+                    break;
+
                 default:
                     throw new InvalidOperationException(
                         $"Unhandled EngineAction subtype: {action.GetType().Name}");
@@ -443,6 +459,7 @@ public sealed class HarnessEngine
     private readonly FakeGameStateProvider _gameState;
     private readonly FakeMount _mount;
     private readonly FakeNavigator _navigator;
+    private readonly FakeTeleporter _teleporter;
     private readonly FakeObjectInteractor _objectInteractor;
     private readonly FakeInteractor _interactor;
     private readonly FakeQuestBattleRunner _questBattleRunner;
@@ -451,12 +468,13 @@ public sealed class HarnessEngine
     private bool _lastDispatchedWasNavigate;
     private const float MountDistanceThresholdMeters = 20f;
 
-    internal HarnessEngine(QuestEngine inner, FakeGameStateProvider gameState, FakeMount mount, FakeNavigator navigator, FakeObjectInteractor objectInteractor, FakeInteractor interactor, FakeQuestBattleRunner questBattleRunner, FakeDutyRunner dutyRunner, FakeCfcResolver cfcResolver)
+    internal HarnessEngine(QuestEngine inner, FakeGameStateProvider gameState, FakeMount mount, FakeNavigator navigator, FakeTeleporter teleporter, FakeObjectInteractor objectInteractor, FakeInteractor interactor, FakeQuestBattleRunner questBattleRunner, FakeDutyRunner dutyRunner, FakeCfcResolver cfcResolver)
     {
         _inner = inner;
         _gameState = gameState;
         _mount = mount;
         _navigator = navigator;
+        _teleporter = teleporter;
         _objectInteractor = objectInteractor;
         _interactor = interactor;
         _questBattleRunner = questBattleRunner;
@@ -489,7 +507,7 @@ public sealed class HarnessEngine
         // BEFORE the action is returned to the caller. Flying-dismount may cause fall damage
         // (v1 limitation); vnavmesh usually grounds at stop-distance.
         // Teleport is exempt: the game dismounts on arrival if the destination prohibits mounts.
-        if (_lastDispatchedWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport and not EngineAction.EquipGear and not EngineAction.EquipBestGear and not EngineAction.RegisterGearset)
+        if (_lastDispatchedWasNavigate && action is not EngineAction.Navigate and not EngineAction.Teleport and not EngineAction.EquipGear and not EngineAction.EquipBestGear and not EngineAction.RegisterGearset and not EngineAction.Jump)
         {
             // Mirror EngineHost: only consider dismount when vnavmesh has actually stopped.
             // The engine emits Engage early (target in scan range) while the CombatController
@@ -570,6 +588,19 @@ public sealed class HarnessEngine
             var tt = _cfcResolver.GetTerritoryType(ed.ContentFinderConditionId);
             if (tt is not null)
                 await _dutyRunner.StartDuty(tt.Value, ct);
+        }
+
+        // Inline dispatch for Jump: calls Navigator.Jump so direct Tick() calls see the jump.
+        if (action is EngineAction.Jump)
+        {
+            await _navigator.Jump(ct);
+        }
+
+        // Inline dispatch for UseReturn: stop navigation, then use Return.
+        if (action is EngineAction.UseReturn)
+        {
+            await _navigator.Stop(ct);
+            await _teleporter.UseReturn(ct);
         }
 
         return action;
