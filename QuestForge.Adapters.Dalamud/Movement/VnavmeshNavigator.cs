@@ -49,6 +49,12 @@ public sealed class VnavmeshNavigator : INavigator
         return Task.FromResult<Result<Unit>>(Result.Ok());
     }
 
+    public Task<Result<Unit>> Jump(CancellationToken ct)
+    {
+        // Stub: Dalamud implementation is a Slice 3 deliverable.
+        return Task.FromResult<Result<Unit>>(Result.Ok());
+    }
+
     public Task<Result<bool>> IsNavigating(CancellationToken ct)
     {
         // PathfindInProgress covers the ~30-tick async gap after PathfindAndMoveCloseTo

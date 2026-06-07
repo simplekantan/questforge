@@ -20,6 +20,7 @@ using QuestForge.Adapters.Tracing;
 using QuestForge.Adapters.Types;
 using QuestForge.Engine.Combat;
 using QuestForge.Engine.Dialogue;
+using QuestForge.Engine.Navigation;
 using QuestForge.Engine.Predicates;
 using QuestForge.Engine.Travel;
 using QuestForge.Schema;
@@ -56,6 +57,7 @@ public sealed class QuestEngine
     private readonly TimeProvider _clock;
     private readonly double _actionCooldownSeconds;
     private readonly ExpectEvaluator _expectEvaluator;
+    private readonly NavigationWatchdog _watchdog;
 
     /// <summary>Exposed for test inspection (EX-reset-on-advance). Internal to the engine assembly.</summary>
     internal readonly CombatController _combatController;
@@ -108,7 +110,10 @@ public sealed class QuestEngine
         IQuestBattleRunner? questBattleRunner = null,
         IDutyRunner? dutyRunner = null,
         ICfcResolver? cfcResolver = null,
-        double actionCooldownSeconds = 5.0)
+        double actionCooldownSeconds = 5.0,
+        double navStallTimeoutSeconds = 5.0,
+        float navStallDistanceThreshold = 2.0f,
+        int navMaxJumpAttempts = 3)
     {
         _vendor = vendor;
         _actionExecutor = actionExecutor;
@@ -139,7 +144,12 @@ public sealed class QuestEngine
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         _expectEvaluator    = new ExpectEvaluator(new PredicateEvaluator(gameState, questState));
-        _combatController   = new CombatController(gameState, combat, navigator);
+        _combatController   = new CombatController(gameState, combat, navigator, logger);
+        _watchdog = new NavigationWatchdog(
+            TimeSpan.FromSeconds(navStallTimeoutSeconds),
+            navStallDistanceThreshold,
+            navMaxJumpAttempts,
+            _clock);
     }
 
     public void StartQuest(QuestDefinition quest)
@@ -362,7 +372,27 @@ public sealed class QuestEngine
 
         EmitRunStartIfNeeded();
 
-        var (action, stepId) = await ResolveAction(ct);
+        var (action, stepId, playerPos) = await ResolveAction(ct);
+
+        // Watchdog consultation (applies to ALL Navigate actions from any source)
+        if (action is EngineAction.Navigate nav && playerPos.HasValue)
+        {
+            var advice = _watchdog.Update(playerPos.Value, isNavigating: true);
+            action = advice switch
+            {
+                WatchdogAdvice.Jump => new EngineAction.Jump(Origin: _lastResolvedStep),
+                WatchdogAdvice.CastReturn => ResolveObstacleRecovery(stepId),
+                _ => action
+            };
+        }
+        else if (playerPos.HasValue)
+        {
+            _watchdog.Update(playerPos.Value, isNavigating: false);
+        }
+        else
+        {
+            _watchdog.Reset();
+        }
 
         if (_runId is not null)
         {
@@ -416,13 +446,13 @@ public sealed class QuestEngine
         }
     }
 
-    private async Task<(EngineAction action, string? stepId)> ResolveAction(CancellationToken ct)
+    private async Task<(EngineAction action, string? stepId, WorldPosition? playerPos)> ResolveAction(CancellationToken ct)
     {
         var questId = new QuestId(_quest!.Id);
 
         var seqResult = await _questState.GetQuestSequence(questId, ct);
         if (seqResult is Result<int>.Failure f1)
-            return (new EngineAction.AwaitUser($"adapter failure reading sequence: {f1.Reason}"), null);
+            return (new EngineAction.AwaitUser($"adapter failure reading sequence: {f1.Reason}"), null, null);
 
         // Read NG+ state once per tick, fail-open: a failed read treats IsActive=false
         // so the normal-play gate is preserved. A NG+ read failure must never suppress it.
@@ -434,13 +464,13 @@ public sealed class QuestEngine
         bool replayActive = ngp.IsActive && !ngp.IsSuspended;
 
         if (ngp.IsActive && ngp.IsSuspended)
-            return (new EngineAction.Wait("ng+ replay suspended"), null);
+            return (new EngineAction.Wait("ng+ replay suspended"), null, null);
 
         if (!replayActive)
         {
             var completeResult = await _questState.IsQuestComplete(questId, ct);
             if (completeResult is Result<bool>.Success { Value: true })
-                return (new EngineAction.Done(), null);
+                return (new EngineAction.Done(), null, null);
         }
         // else: replay active and not suspended — skip the IsQuestComplete gate (bitmap lies)
         //       and fall through to the live-sequence loop below.
@@ -472,12 +502,12 @@ public sealed class QuestEngine
                 : null;
         }
         if (matchingBlock is null)
-            return (new EngineAction.AwaitUser($"no sequence block covers current sequence {currentSeq}"), null);
+            return (new EngineAction.AwaitUser($"no sequence block covers current sequence {currentSeq}"), null, null);
 
         if (matchingBlock.SkipIf is not null)
         {
             if (await _expectEvaluator.Evaluate(matchingBlock.SkipIf, ct))
-                return (new EngineAction.AwaitUser("sequence skipped by skipIf Ã¢â‚¬â€ engine cannot self-advance in Phase 4"), null);
+                return (new EngineAction.AwaitUser("sequence skipped by skipIf Ã¢â‚¬â€ engine cannot self-advance in Phase 4"), null, null);
         }
 
         // Read UiState once per tick so step dispatch arms can inspect UI without async.
@@ -490,7 +520,7 @@ public sealed class QuestEngine
             : new UiState(false, false, false, false, false, false, false, false, null);
 
         if (ui.LoadingZone)
-            return (new EngineAction.Wait("loading zone"), null);
+            return (new EngineAction.Wait("loading zone"), null, null);
 
         // Read player position once per tick for implied navigation distance checks.
         // On adapter failure: use null so distance checks fail-open (emit Interact, not Navigate).
@@ -534,7 +564,7 @@ public sealed class QuestEngine
         // immediately — regardless of which step type the cursor is on.
         // Fail-open: a failed IsPlayerInCombat read returns null (cursor walk proceeds).
         var defense = await ResolveDefenseOrNull(ct);
-        if (defense is not null) return defense.Value;
+        if (defense is not null) return (defense.Value.action, defense.Value.stepId, playerPos);
 
         // Process any active resume sub-loop FIRST, before the main step loop.
         if (_activeResumeFragment is { } resume)
@@ -543,7 +573,7 @@ public sealed class QuestEngine
                 await ProcessActiveResume(resume, playerZone, ui, playerPos, ct);
 
             if (!resumeDone)
-                return (resumeAction!, resumeStepId);
+                return (resumeAction!, resumeStepId, playerPos);
 
             _resumePointExecutedIds.Add(resume.ForStepId);
             _activeResumeFragment = null;
@@ -595,10 +625,10 @@ public sealed class QuestEngine
                     _resumePointExecutedIds.Add(step.Id);
                     _activeResumeFragment = null;
                     _lastResolvedStep = step;
-                    return (ResolveActionForStep(step, ui, playerPos), step.Id);
+                    return (ResolveActionForStep(step, ui, playerPos), step.Id, playerPos);
                 }
                 _activeResumeFragment = armed;
-                return (action!, stepId);
+                return (action!, stepId, playerPos);
             }
 
             // 5. CombatStep async arm — step-gated so GetHostileActors is NEVER called on the
@@ -614,7 +644,7 @@ public sealed class QuestEngine
                 {
                     // A target is in range — controller already owns approach navigation (it issued
                     // NavigateTo inside Decide). Do NOT navigate to Location. Engage.
-                    return (new EngineAction.Engage(combatStep, decision.Target), step.Id);
+                    return (new EngineAction.Engage(combatStep, decision.Target), step.Id, playerPos);
                 }
 
                 // No eligible target in scan range. If the player has drifted beyond StopDistance
@@ -625,12 +655,12 @@ public sealed class QuestEngine
                         step, combatStep.Location.Position, playerPos,
                         new EngineAction.Wait("combat-roam-sentinel"));
                     if (fallback is EngineAction.Navigate navAction)
-                        return (navAction, step.Id);
+                        return (navAction, step.Id, playerPos);
                 }
 
                 // No target AND at/within Location (or Location unset): idle — waits for respawns.
                 // Engage(null) is a forward decision, never a stall (D6).
-                return (new EngineAction.Engage(combatStep, null), step.Id);
+                return (new EngineAction.Engage(combatStep, null), step.Id, playerPos);
             }
 
             // 6. PurchaseItemStep async arm — step-gated so GetGil/GetGrandCompanySeals are NEVER
@@ -638,7 +668,7 @@ public sealed class QuestEngine
             if (step is PurchaseItemStep purchaseStep)
             {
                 var purchaseAction = await ResolvePurchaseAction(purchaseStep, playerPos, ct);
-                return (purchaseAction, step.Id);
+                return (purchaseAction, step.Id, playerPos);
             }
 
             // 6a. UseActionStep async arm — step-gated so GetPlayerState/GetActionStatus are only
@@ -646,7 +676,7 @@ public sealed class QuestEngine
             if (step is UseActionStep useActionStep)
             {
                 var useAction = await ResolveUseAction(useActionStep, playerPos, ct);
-                return (useAction, step.Id);
+                return (useAction, step.Id, playerPos);
             }
 
             // 6a2. UseEmoteStep async arm — step-gated so GetPlayerState is only read when
@@ -654,7 +684,7 @@ public sealed class QuestEngine
             if (step is UseEmoteStep useEmoteStep)
             {
                 var useEmote = await ResolveUseEmote(useEmoteStep, playerPos, ct);
-                return (useEmote, step.Id);
+                return (useEmote, step.Id, playerPos);
             }
 
             // 6a3. SayChatMessageStep async arm — step-gated so GetPlayerState is only read
@@ -662,7 +692,7 @@ public sealed class QuestEngine
             if (step is SayChatMessageStep sayChatMessageStep)
             {
                 var sayChat = await ResolveSayChatMessage(sayChatMessageStep, ct);
-                return (sayChat, step.Id);
+                return (sayChat, step.Id, playerPos);
             }
 
             // 6a4. UseItemStep async arm — step-gated so GetPlayerState is only read when the
@@ -670,7 +700,7 @@ public sealed class QuestEngine
             if (step is UseItemStep useItemStep)
             {
                 var useItem = await ResolveUseItem(useItemStep, ct);
-                return (useItem, step.Id);
+                return (useItem, step.Id, playerPos);
             }
 
             // 6a5. EquipGearForQuestStep async arm — implicit postcondition: all ItemIds equipped.
@@ -683,14 +713,14 @@ public sealed class QuestEngine
                     _confirmedStepIds.Add(step.Id);
                     continue;
                 }
-                return (equipAction, step.Id);
+                return (equipAction, step.Id, playerPos);
             }
 
             // 6a6. EquipBestGearStep async arm — no implicit postcondition (relies on authored Expect).
             if (step is EquipBestGearStep bestGearStep)
             {
                 var bestGearAction = await ResolveEquipBestGear(bestGearStep, ct);
-                return (bestGearAction, step.Id);
+                return (bestGearAction, step.Id, playerPos);
             }
 
             // 6a7. ChangeJobStep async arm — implicit postcondition: GetCurrentJob == targetJobId.
@@ -703,21 +733,21 @@ public sealed class QuestEngine
                     _confirmedStepIds.Add(step.Id);
                     continue;
                 }
-                return (changeJobAction, step.Id);
+                return (changeJobAction, step.Id, playerPos);
             }
 
             // 6a8. RegisterGearsetStep async arm — no implicit postcondition (per RG-2).
             if (step is RegisterGearsetStep registerGearsetStep)
             {
                 var registerGearsetAction = await ResolveRegisterGearset(registerGearsetStep, ct);
-                return (registerGearsetAction, step.Id);
+                return (registerGearsetAction, step.Id, playerPos);
             }
 
             // 6a9. OpenCoffersStep async arm — no implicit postcondition (relies on authored Expect).
             if (step is OpenCoffersStep openCoffersStep)
             {
                 var openCoffersAction = await ResolveOpenCoffers(openCoffersStep, ct);
-                return (openCoffersAction, step.Id);
+                return (openCoffersAction, step.Id, playerPos);
             }
 
             // 6b0. DutyStep async arm — step-gated so IsBossModAvailable is only read when
@@ -725,7 +755,7 @@ public sealed class QuestEngine
             if (step is DutyStep dutyStep)
             {
                 var dutyAction = await ResolveDuty(dutyStep, ct);
-                return (dutyAction, step.Id);
+                return (dutyAction, step.Id, playerPos);
             }
 
             // 6b. TeleportStep async arm — step-gated so IsPlayerInCombat is only read when the
@@ -734,7 +764,7 @@ public sealed class QuestEngine
             if (step is TeleportStep teleportStep)
             {
                 var teleportAction = await ResolveTeleportAction(teleportStep, ct);
-                return (teleportAction, step.Id);
+                return (teleportAction, step.Id, playerPos);
             }
 
             // 7. WaitStep arm — time-based completion, no game-state predicate consulted.
@@ -744,7 +774,7 @@ public sealed class QuestEngine
                 {
                     _waitStepStart = _clock.GetUtcNow();
                     _waitStepStartId = step.Id;
-                    return (new EngineAction.Wait($"waiting {waitStep.Seconds}s"), step.Id);
+                    return (new EngineAction.Wait($"waiting {waitStep.Seconds}s"), step.Id, playerPos);
                 }
 
                 if (_clock.GetUtcNow() - _waitStepStart!.Value >= TimeSpan.FromSeconds(waitStep.Seconds))
@@ -755,14 +785,14 @@ public sealed class QuestEngine
                     continue;
                 }
 
-                return (new EngineAction.Wait($"waiting {waitStep.Seconds}s"), step.Id);
+                return (new EngineAction.Wait($"waiting {waitStep.Seconds}s"), step.Id, playerPos);
             }
 
             _lastResolvedStep = step;
-            return (ResolveActionForStep(step, ui, playerPos), step.Id);
+            return (ResolveActionForStep(step, ui, playerPos), step.Id, playerPos);
         }
 
-        return (new EngineAction.Wait("all steps in current sequence satisfied; awaiting game sequence advance"), null);
+        return (new EngineAction.Wait("all steps in current sequence satisfied; awaiting game sequence advance"), null, playerPos);
     }
 
     private const float DefaultStopDistance        = 3.0f;
@@ -938,9 +968,29 @@ public sealed class QuestEngine
     private static EngineAction MapRecoverAction(RecoverAction action, Step mainStep) => action switch
     {
         AwaitUserRecoverAction au => new EngineAction.AwaitUser(au.Reason),
+        UseReturnRecoverAction => new EngineAction.UseReturn(Origin: mainStep),
+        UseTeleportRecoverAction tp => new EngineAction.Teleport(
+            new Adapters.Types.AetheryteId(tp.AetheryteId), Origin: mainStep),
         AbandonRecoverAction => new EngineAction.AwaitUser($"resume abandoned for step '{mainStep.Id}'"),
         _ => new EngineAction.AwaitUser($"resume recovery '{action.GetType().Name}' for step '{mainStep.Id}'")
     };
+
+    private EngineAction ResolveObstacleRecovery(string? stepId)
+    {
+        var step = FindStepById(stepId);
+        if (step?.Recover?.OnObstacle is { } onObstacle)
+            return MapRecoverAction(onObstacle, step);
+        return new EngineAction.UseReturn(Origin: step);
+    }
+
+    private Step? FindStepById(string? stepId)
+    {
+        if (stepId is null || _quest is null) return null;
+        foreach (var seq in _quest.Sequences)
+            foreach (var step in seq.Steps)
+                if (step.Id == stepId) return step;
+        return null;
+    }
 
     private EngineAction.Wait? CheckActionCooldown(Step step)
     {

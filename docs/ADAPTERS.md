@@ -518,6 +518,7 @@ public interface INavigator
         CancellationToken ct);
 
     Task<Result<Unit>> Stop(CancellationToken ct);
+    Task<Result<Unit>> Jump(CancellationToken ct);
     Task<Result<bool>> IsNavigating(CancellationToken ct);
     Task<Result<NavmeshInfo>> GetNavmeshInfo(ZoneId zone, CancellationToken ct);
 }

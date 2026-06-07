@@ -72,4 +72,8 @@ public abstract record EngineAction
     public sealed record EnterDuty(
         uint ContentFinderConditionId,
         Step? Origin = null) : EngineAction;
+
+    public sealed record Jump(Step? Origin = null) : EngineAction;
+
+    public sealed record UseReturn(Step? Origin = null) : EngineAction;
 }
