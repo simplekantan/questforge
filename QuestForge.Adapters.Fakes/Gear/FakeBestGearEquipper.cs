@@ -13,11 +13,17 @@ public sealed class FakeBestGearEquipper : IBestGearEquipper
     private bool _stylistAvailable;
     private (string Reason, string? Detail)? _nextFailure;
     private EquipOutcome? _nextOutcome;
+    private readonly Queue<EquipOutcome> _outcomeSequence = new();
 
     public void ScriptNextResult(EquipOutcome outcome) => _nextOutcome = outcome;
     public void ScriptNextFailure(string reason, string? detail = null)
         => _nextFailure = (reason, detail);
     public void SetStylistAvailable(bool available) => _stylistAvailable = available;
+
+    public void ScriptOutcomeSequence(params EquipOutcome[] outcomes)
+    {
+        foreach (var o in outcomes) _outcomeSequence.Enqueue(o);
+    }
 
     public void Reset()
     {
@@ -25,6 +31,7 @@ public sealed class FakeBestGearEquipper : IBestGearEquipper
         _stylistAvailable = false;
         _nextFailure = null;
         _nextOutcome = null;
+        _outcomeSequence.Clear();
     }
 
     public Task<Result<EquipOutcome>> EquipBestGear(CancellationToken ct)
@@ -37,6 +44,9 @@ public sealed class FakeBestGearEquipper : IBestGearEquipper
             _nextFailure = null;
             return Task.FromResult<Result<EquipOutcome>>(Result.Fail<EquipOutcome>(f.Reason, f.Detail));
         }
+
+        if (_outcomeSequence.TryDequeue(out var scripted))
+            return Task.FromResult<Result<EquipOutcome>>(Result.Ok(scripted));
 
         var outcome = _nextOutcome ?? EquipOutcome.Equipped;
         _nextOutcome = null;

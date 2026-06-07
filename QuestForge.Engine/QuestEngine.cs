@@ -367,6 +367,11 @@ public sealed class QuestEngine
         _activeResumeFragment = null;
     }
 
+    public void NotifyEquipBestGearComplete(string stepId)
+    {
+        _confirmedStepIds.Add(stepId);
+    }
+
     public async Task<EngineAction> Tick(CancellationToken ct)
     {
         if (_quest is null)
@@ -719,17 +724,10 @@ public sealed class QuestEngine
                 return (equipAction, step.Id, playerPos);
             }
 
-            // 6a6. EquipBestGearStep async arm — fire-once: self-confirms after first dispatch.
+            // 6a6. EquipBestGearStep async arm — re-dispatches every tick until confirmed by host.
             if (step is EquipBestGearStep bestGearStep)
             {
-                if (_fireOnceDispatchedIds.Contains(step.Id))
-                {
-                    _confirmedStepIds.Add(step.Id);
-                    continue;
-                }
                 var bestGearAction = await ResolveEquipBestGear(bestGearStep, ct);
-                if (bestGearAction is not EngineAction.Wait)
-                    _fireOnceDispatchedIds.Add(step.Id);
                 return (bestGearAction, step.Id, playerPos);
             }
 
