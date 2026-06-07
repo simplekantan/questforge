@@ -237,11 +237,11 @@ public sealed class EquipBestGearStepTests
     }
 
     // =========================================================================
-    // EB8 -- No Expect -- engine re-fires every tick (stateless retry)
+    // EB8 -- No Expect -- self-confirms after first dispatch (fire-once)
     // =========================================================================
 
     [Fact]
-    public async Task EquipBestGearStep_NoExpect_RefiresEveryTick_EB8()
+    public async Task EquipBestGearStep_NoExpect_SelfConfirmsAfterFirstDispatch_EB8()
     {
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(65575), 0);
@@ -259,10 +259,45 @@ public sealed class EquipBestGearStepTests
         var tick1 = await harness.Engine.Tick(CancellationToken.None);
         Assert.IsType<EngineAction.EquipBestGear>(tick1);
 
-        // Tick 2: same action again (no Expect to advance past it)
+        // Tick 2: self-confirmed; no more steps -> Wait (not EquipBestGear again)
+        var tick2 = await harness.Engine.Tick(CancellationToken.None);
+        Assert.IsType<EngineAction.Wait>(tick2);
+    }
+
+    // =========================================================================
+    // EB8b -- Casting guard does not count as dispatched — retries then self-confirms
+    // =========================================================================
+
+    [Fact]
+    public async Task EquipBestGearStep_CastingGuardThenDispatch_SelfConfirms_EB8b()
+    {
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(65575), 0);
+        harness.GameState.SetCasting(true);
         harness.BestGearEquipper.ScriptNextResult(Adapters.Gear.EquipOutcome.Equipped);
+
+        var step = new EquipBestGearStep
+        {
+            Id = "equip-best-casting-then-fire",
+            Expect = null
+        };
+
+        harness.Engine.StartQuest(BuildSingleStepQuest(65575, 0, step));
+
+        // Tick 1: casting -> Wait (NOT dispatched)
+        var tick1 = await harness.Engine.Tick(CancellationToken.None);
+        Assert.IsType<EngineAction.Wait>(tick1);
+
+        // Clear casting
+        harness.GameState.SetCasting(false);
+
+        // Tick 2: EquipBestGear dispatched
         var tick2 = await harness.Engine.Tick(CancellationToken.None);
         Assert.IsType<EngineAction.EquipBestGear>(tick2);
+
+        // Tick 3: self-confirmed -> Wait (done, no more steps)
+        var tick3 = await harness.Engine.Tick(CancellationToken.None);
+        Assert.IsType<EngineAction.Wait>(tick3);
     }
 
     // =========================================================================
