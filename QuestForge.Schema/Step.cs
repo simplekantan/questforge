@@ -287,6 +287,8 @@ public class PurchaseItemStep : Step
     public PurchaseCurrency Currency { get; init; } = PurchaseCurrency.Gil;
     public int? GcCategory { get; init; }
     public int? GcRankTier { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? VendorCategory { get; init; }
 }
 
 public class TeleportStep : Step

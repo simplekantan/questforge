@@ -216,4 +216,77 @@ public sealed class PurchaseStepFactoryTests
         Assert.Null(ps.GcCategory);
         Assert.Null(ps.GcRankTier);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // V14 — Factory writes VendorCategory from PurchaseDetection.ActiveVendorCategory
+    //
+    // RED: PurchaseDetection.ActiveVendorCategory does not exist yet.
+    //      StepFactory.BuildPurchaseItemStep does not yet propagate it.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void V14_FactoryWritesVendorCategoryFromPurchaseDetection()
+    {
+        // CONTRACT (VC8 V14):
+        // Given after.PurchaseDetected with ActiveVendorCategory=2
+        // When StepFactory.Build("purchase-item", ...) is called
+        // Then the resulting PurchaseItemStep has VendorCategory==2.
+
+        var after = MakeAfterSnapshot(
+            purchaseDetected: new PurchaseDetection(
+                ShopWasOpen:           true,
+                ItemDeltas:            new Dictionary<uint, int> { [1601u] = 1 },
+                GilDropped:            1000L,
+                SealsDropped:          0,
+                ActiveGcCategory:      null,
+                ActiveGcRankTier:      null,
+                ActiveVendorCategory:  2));   // RED: parameter does not exist yet
+
+        var step = StepFactory.Build(
+            stepType: "purchase-item",
+            stepId:   "buy-cat-2",
+            expect:   "playerHasItem(1601,1)",
+            after:    after);
+
+        Assert.IsType<PurchaseItemStep>(step);
+        var ps = (PurchaseItemStep)step;
+
+        Assert.Equal(2, ps.VendorCategory);   // RED: property does not exist on PurchaseItemStep
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // V15 — Factory writes VendorCategory null when ActiveVendorCategory is null
+    //
+    // This test verifies NO synthetic 0 default is introduced.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void V15_FactoryNullVendorCategory_StepFieldIsNull()
+    {
+        // CONTRACT (VC8 V15):
+        // Given after.PurchaseDetected with ActiveVendorCategory=null
+        // Then the resulting PurchaseItemStep has VendorCategory==null.
+        // The factory must NOT default to 0 — null means "author must fill in."
+
+        var after = MakeAfterSnapshot(
+            purchaseDetected: new PurchaseDetection(
+                ShopWasOpen:           true,
+                ItemDeltas:            new Dictionary<uint, int> { [1601u] = 1 },
+                GilDropped:            1000L,
+                SealsDropped:          0,
+                ActiveGcCategory:      null,
+                ActiveGcRankTier:      null,
+                ActiveVendorCategory:  null));   // RED: parameter does not exist yet
+
+        var step = StepFactory.Build(
+            stepType: "purchase-item",
+            stepId:   "buy-no-cat",
+            expect:   "playerHasItem(1601,1)",
+            after:    after);
+
+        Assert.IsType<PurchaseItemStep>(step);
+        var ps = (PurchaseItemStep)step;
+
+        Assert.Null(ps.VendorCategory);   // RED: property does not exist on PurchaseItemStep
+    }
 }

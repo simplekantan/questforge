@@ -235,6 +235,8 @@ public sealed class EngineTestHarness
                 case EngineAction.Purchase purchase:
                     actions.Add(action);
                     EmitActionSubmitted("Purchase", JsonSerializer.SerializeToElement(purchase.Vendor, _jsonOpts));
+                    if (purchase.VendorCategory is { } vendorCat)
+                        await Interactor.SelectStringOption(vendorCat, ct);
                     var purchaseResult = await Vendor.Purchase(purchase.Vendor, purchase.Item, purchase.Quantity, purchase.Currency, ct, purchase.GcCategory, purchase.GcRankTier);
                     EmitActionCompleted("Purchase", purchaseResult.IsSuccess ? purchaseResult.ValueOrThrow.ToString() : "Failed");
                     lastDispatchedWasPurchase = true;

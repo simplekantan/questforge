@@ -414,7 +414,8 @@ public static class StepFactory
             Quantity = primaryQty,
             Currency = currency,
             GcCategory = after?.PurchaseDetected?.ActiveGcCategory,
-            GcRankTier = after?.PurchaseDetected?.ActiveGcRankTier
+            GcRankTier = after?.PurchaseDetected?.ActiveGcRankTier,
+            VendorCategory = after?.PurchaseDetected?.ActiveVendorCategory
         };
     }
 
