@@ -136,6 +136,7 @@ public sealed class PredicateEvaluator
                 (uint)(long)args[0], ct)).ValueOrThrow,
             "npcExistsNearby" or "objectExists" => await EvaluateObjectExists((long)args[0], ct),
             "objectExistsInRange" => await EvaluateObjectExistsInRange((long)args[0], (long)args[1], ct),
+            "isSlotEquipped" => (await _gameState.GetEquippedItemLevelForSlot((int)(long)args[0], ct)).ValueOrThrow > 0,
             _ => throw new UnknownStateFunctionException(name)
         };
     }
