@@ -29,6 +29,7 @@ internal static class PredicateOptions
             "not inventoryHasCoffers()",
             $"playerHasItem({0})",
             $"playerHasEquipped({0})",
+            $"isSlotEquipped({0})",
             $"isPlayerJob({0})",
             "isDiscipleOfWar",
             "isDiscipleOfMagic",
