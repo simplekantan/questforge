@@ -32,6 +32,19 @@ public sealed class FragmentDraft
         LastModifiedAt = now;
     }
 
+    public void InsertStepAfter(string afterStepId, DraftStep step, DateTimeOffset now)
+    {
+        if (_steps.Any(s => s.StepId == step.StepId))
+            throw new InvalidOperationException($"A step with id '{step.StepId}' already exists in this draft.");
+
+        var index = _steps.FindIndex(s => s.StepId == afterStepId);
+        if (index < 0)
+            throw new InvalidOperationException($"Step '{afterStepId}' not found in this draft.");
+
+        _steps.Insert(index + 1, step);
+        LastModifiedAt = now;
+    }
+
     public bool RemoveStep(string stepId, DateTimeOffset now)
     {
         var index = _steps.FindIndex(s => s.StepId == stepId);
