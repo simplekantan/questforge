@@ -29,7 +29,8 @@ public sealed class EngineFixtureTests
         [property: JsonPropertyName("questFile")]     string QuestFile,
         [property: JsonPropertyName("expectedTransitions")] FixtureTransition[] ExpectedTransitions,
         [property: JsonPropertyName("terminalOutcome")] string TerminalOutcome,
-        [property: JsonPropertyName("sourceTrace")]   string? SourceTrace = null);
+        [property: JsonPropertyName("sourceTrace")]   string? SourceTrace = null,
+        [property: JsonPropertyName("initialZone")]   int? InitialZone = null);
 
     internal sealed record FixtureTransition(
         [property: JsonPropertyName("stepId")]     string? StepId,
@@ -87,11 +88,17 @@ public sealed class EngineFixtureTests
         var quest = JsonSerializer.Deserialize<QuestDefinition>(questJson, QuestForgeJsonContext.QuestFileOptions)
             ?? throw new InvalidDataException($"Quest file deserialized to null: {questPath}");
 
-        // ---- Validate step IDs ----
+        // ---- Load fragments from questforge-data/fragments/ ----
+        var fragments = LoadFragmentsFromDataRoot(dataRoot);
+
+        // ---- Validate step IDs (quest + fragment steps) ----
         var allStepIds = quest.Sequences
             .SelectMany(s => s.Steps)
             .Select(s => s.Id)
             .ToHashSet(StringComparer.Ordinal);
+        foreach (var frag in fragments.Values)
+            foreach (var step in frag.Steps)
+                allStepIds.Add(step.Id);
 
         foreach (var t in fixture.ExpectedTransitions)
         {
@@ -135,7 +142,7 @@ public sealed class EngineFixtureTests
             capturingTrace, NullLogger<QuestEngine>.Instance,
             clock: state.Clock);
 
-        engine.StartQuest(quest);
+        engine.StartQuest(quest, fragments);
         engine.BeginRun("fixture-run");
 
         // ---- Drive engine and collect transitions ----
@@ -159,6 +166,11 @@ public sealed class EngineFixtureTests
             if (newDecision is null) break; // terminal action reached
 
             state.OnTick(action, tick); // advance state machine every tick
+
+            // Two-phase EquipBestGear: the engine re-dispatches until NotifyEquipBestGearComplete
+            // is called. In replay, confirm immediately (the adapter always succeeds).
+            if (action is EngineAction.EquipBestGear ebg && ebg.Origin?.Id is { } ebgStepId)
+                engine.NotifyEquipBestGearComplete(ebgStepId);
 
             // Decision-matching advancement: try to match every decision (including
             // duplicates) against the trace's recorded decision sequence. This enables
@@ -292,4 +304,25 @@ public sealed class EngineFixtureTests
         EngineAction.Engage    _ => "engage",
         _                        => action.GetType().Name.ToLowerInvariant()
     };
+
+    private static IReadOnlyDictionary<string, FragmentDefinition> LoadFragmentsFromDataRoot(string dataRoot)
+    {
+        var fragmentsDir = Path.Combine(dataRoot, "fragments");
+        if (!Directory.Exists(fragmentsDir))
+            return new Dictionary<string, FragmentDefinition>();
+
+        var result = new Dictionary<string, FragmentDefinition>(StringComparer.Ordinal);
+        foreach (var file in Directory.EnumerateFiles(fragmentsDir, "*.json", SearchOption.AllDirectories))
+        {
+            try
+            {
+                var json = File.ReadAllText(file);
+                var def = JsonSerializer.Deserialize<FragmentDefinition>(json, QuestForgeJsonContext.QuestFileOptions);
+                if (def is not null && !string.IsNullOrEmpty(def.FragmentId))
+                    result[def.FragmentId] = def;
+            }
+            catch { }
+        }
+        return result;
+    }
 }
