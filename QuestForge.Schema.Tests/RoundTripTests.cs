@@ -1172,6 +1172,96 @@ public class RoundTripTests
     }
 
     // =========================================================================
+    // Group V -- VendorCategory schema round-trip tests (RED PHASE)
+    // All three tests fail to COMPILE until Builder adds VendorCategory
+    // to PurchaseItemStep in Step.cs. That compile failure is the intended RED.
+    // =========================================================================
+
+    /// <summary>V1 -- VendorCategory=2 round-trips when set.</summary>
+    [Fact]
+    public void PurchaseItemStep_VendorCategory_RoundTrip_WhenSet_V1()
+    {
+        // CONTRACT: Given PurchaseItemStep with VendorCategory=2, Currency=Gil,
+        //           When serialized via QuestForgeJsonContext.QuestFileOptions,
+        //           Then JSON contains "vendorCategory":2;
+        //           deserialized step is PurchaseItemStep with VendorCategory==2,
+        //           ItemId and Target.NpcId also preserved.
+
+        var step = new PurchaseItemStep
+        {
+            Id             = "buy-cat-2",
+            Target         = new NpcLocation(NpcId: 1001234, Zone: 128, Position: new Position3(10.5f, 0f, -20.0f)),
+            ItemId         = 1601,
+            Quantity       = 1,
+            Currency       = PurchaseCurrency.Gil,
+            VendorCategory = 2   // RED: property does not exist yet
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"vendorCategory\":2", compactJson, StringComparison.Ordinal);
+
+        var result = RoundTrip(step);
+
+        Assert.Equal(2, result.VendorCategory);   // RED: property does not exist yet
+        Assert.Equal(1601u, result.ItemId);
+        Assert.Equal(1001234u, result.Target.NpcId);
+    }
+
+    /// <summary>V2 -- VendorCategory null omitted from JSON (WhenWritingNull).</summary>
+    [Fact]
+    public void PurchaseItemStep_VendorCategory_NullOmittedFromJson_V2()
+    {
+        // CONTRACT: Given PurchaseItemStep with VendorCategory=null,
+        //           When serialized, Then compact JSON does NOT contain "vendorCategory";
+        //           deserialized step has VendorCategory==null.
+
+        var step = new PurchaseItemStep
+        {
+            Id             = "buy-no-cat",
+            Target         = new NpcLocation(NpcId: 1001234, Zone: 128, Position: new Position3(10.5f, 0f, -20.0f)),
+            ItemId         = 1601,
+            Quantity       = 1,
+            Currency       = PurchaseCurrency.Gil,
+            VendorCategory = null   // RED: property does not exist yet
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.DoesNotContain("\"vendorCategory\"", compactJson, StringComparison.Ordinal);
+
+        var result = RoundTrip(step);
+
+        Assert.Null(result.VendorCategory);   // RED: property does not exist yet
+    }
+
+    /// <summary>V3 -- Missing vendorCategory field in JSON defaults to null.</summary>
+    [Fact]
+    public void PurchaseItemStep_VendorCategory_MissingField_DefaultsToNull_V3()
+    {
+        // CONTRACT: Given JSON with type "purchase-item" and no vendorCategory field,
+        //           When deserialized, Then VendorCategory == null (backward compat).
+
+        var json = """
+            {
+              "type": "purchase-item",
+              "id": "x",
+              "target": {
+                "npcId": 1001234,
+                "zone": 128,
+                "position": { "x": 10.5, "y": 0, "z": -20.0 }
+              },
+              "itemId": 1601
+            }
+            """;
+
+        var step = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+
+        var purchase = Assert.IsType<PurchaseItemStep>(step);
+        Assert.Null(purchase.VendorCategory);   // RED: property does not exist yet
+    }
+
+    // =========================================================================
     // Issue #122 -- Gear step schema update round-trip tests (RED PHASE)
     // All tests reference NEW property names (ItemIds, JobId) and the removal
     // of GearConstraints. They will fail to compile until the builder updates

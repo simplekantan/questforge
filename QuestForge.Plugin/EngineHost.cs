@@ -587,6 +587,8 @@ public sealed class EngineHost : IDisposable
                 // InteractWith opens the shop; DalamudVendor then drives the buy addon.
                 // SelectYesno confirm ("buy N for Y?") is dismissed by the existing SelectYesnoResponder.
                 await _interactor.InteractWith(p.Vendor, ct);
+                if (p.VendorCategory is { } vendorCat)
+                    await _interactor.SelectStringOption(vendorCat, ct);
                 await _vendor.Purchase(p.Vendor, p.Item, p.Quantity, p.Currency, ct, p.GcCategory, p.GcRankTier);
                 // Mark this dispatch as a Purchase so the next non-Purchase action will
                 // close the shop addon first (see the pre-switch close hook above).

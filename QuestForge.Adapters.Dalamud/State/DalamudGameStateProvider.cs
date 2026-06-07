@@ -385,7 +385,7 @@ public sealed class DalamudGameStateProvider : IGameStateProvider
         if (mgr == null)
             return Task.FromResult<Result<int>>(Result.Fail<int>("noInventoryManager", "InventoryManager.Instance() returned null"));
         // native function routes by id range: Bag0-3 for normal items, KeyItems for id >= 2000000
-        var count = mgr->GetInventoryItemCount(item.Value, isHq: false, checkEquipped: false, checkArmory: false);
+        var count = mgr->GetInventoryItemCount(item.Value, isHq: false, checkEquipped: false, checkArmory: true);
         return Task.FromResult<Result<int>>(Result.Ok(count));
     }
 

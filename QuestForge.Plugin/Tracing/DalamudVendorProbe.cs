@@ -102,8 +102,6 @@ public sealed class DalamudVendorProbe : IVendorProbe
 
     public unsafe IReadOnlyList<(uint ItemId, int Count)> GetChangedItemCounts()
     {
-        // VERIFY IN-GAME: Inventory1-4 cover the four regular inventory bags. Purchases land
-        // in regular bags; reagent bag, equipped, and armory slots are excluded intentionally.
         var mgr = InventoryManager.Instance();
         if (mgr == null) return [];
 
@@ -113,6 +111,19 @@ public sealed class DalamudVendorProbe : IVendorProbe
             InventoryType.Inventory2,
             InventoryType.Inventory3,
             InventoryType.Inventory4,
+            InventoryType.ArmoryMainHand,
+            InventoryType.ArmoryOffHand,
+            InventoryType.ArmoryHead,
+            InventoryType.ArmoryBody,
+            InventoryType.ArmoryHands,
+            InventoryType.ArmoryWaist,
+            InventoryType.ArmoryLegs,
+            InventoryType.ArmoryFeets,
+            InventoryType.ArmoryEar,
+            InventoryType.ArmoryNeck,
+            InventoryType.ArmoryWrist,
+            InventoryType.ArmoryRings,
+            InventoryType.ArmorySoulCrystal,
         };
 
         var current = new Dictionary<uint, int>();

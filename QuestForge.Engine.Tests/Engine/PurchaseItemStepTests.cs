@@ -583,6 +583,118 @@ public sealed class PurchaseItemStepTests
     }
 
     // =========================================================================
+    // V — VendorCategory engine passthrough tests (RED PHASE)
+    //
+    // RED: All V tests fail to compile until Builder adds:
+    //   - VendorCategory: int? to PurchaseItemStep (Schema)
+    //   - VendorCategory: int? to EngineAction.Purchase (Engine)
+    //   - Passthrough in QuestEngine.ResolvePurchaseAction
+    // =========================================================================
+
+    // =========================================================================
+    // V4 — in range, VendorCategory=1, emits Purchase with VendorCategory==1
+    // =========================================================================
+
+    [Fact]
+    public async Task V4_InRange_VendorCategorySet_PurchaseCarriesVendorCategory()
+    {
+        // CONTRACT: step.VendorCategory=1, Currency=Gil →
+        //           Purchase.VendorCategory==1, all other fields correct
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(TestQuestId), TestSeq);
+        harness.GameState.SetPosition(new WorldPosition(10.5f, 0f, -20.0f));
+        harness.GameState.SetItemCount(new ItemId(TestItem), 0);
+        harness.GameState.SetGil(10_000L);
+
+        var quest = BuildQuest(new PurchaseItemStep
+        {
+            Id             = "buy-cat-item",
+            Target         = TargetLoc,
+            ItemId         = TestItem,
+            Quantity       = 1,
+            Currency       = PurchaseCurrency.Gil,
+            VendorCategory = 1   // RED: property does not exist yet
+        });
+        harness.Engine.StartQuest(quest);
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        var purchase = Assert.IsType<EngineAction.Purchase>(action);
+        Assert.Equal(new NpcId(TestVendorNpc), purchase.Vendor);
+        Assert.Equal(new ItemId(TestItem),     purchase.Item);
+        Assert.Equal(1,                        purchase.Quantity);
+        Assert.Equal(PurchaseCurrency.Gil,     purchase.Currency);
+        Assert.Equal(1, purchase.VendorCategory);   // RED: property does not exist on EngineAction.Purchase
+    }
+
+    // =========================================================================
+    // V5 — in range, VendorCategory=null, emits Purchase with VendorCategory null
+    // =========================================================================
+
+    [Fact]
+    public async Task V5_InRange_VendorCategoryNull_PurchaseCarriesNull()
+    {
+        // CONTRACT: VendorCategory=null → Purchase.VendorCategory==null (backward compat)
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(TestQuestId), TestSeq);
+        harness.GameState.SetPosition(new WorldPosition(10.5f, 0f, -20.0f));
+        harness.GameState.SetItemCount(new ItemId(TestItem), 0);
+        harness.GameState.SetGil(10_000L);
+
+        var quest = BuildQuest(new PurchaseItemStep
+        {
+            Id             = "buy-no-cat",
+            Target         = TargetLoc,
+            ItemId         = TestItem,
+            Quantity       = 1,
+            Currency       = PurchaseCurrency.Gil,
+            VendorCategory = null   // RED: property does not exist yet
+        });
+        harness.Engine.StartQuest(quest);
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        var purchase = Assert.IsType<EngineAction.Purchase>(action);
+        Assert.Null(purchase.VendorCategory);   // RED: property does not exist on EngineAction.Purchase
+    }
+
+    // =========================================================================
+    // V6 — VendorCategory + GcCategory coexist in engine passthrough
+    // The engine is a value-passer; it does not enforce mutual exclusivity
+    // (that's the validator's job via E23). Both fields flow through.
+    // =========================================================================
+
+    [Fact]
+    public async Task V6_VendorCategoryAndGcCategory_BothPassThrough()
+    {
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(TestQuestId), TestSeq);
+        harness.GameState.SetPosition(new WorldPosition(10.5f, 0f, -20.0f));
+        harness.GameState.SetItemCount(new ItemId(TestItem), 0);
+        harness.GameState.SetGrandCompanySeals(2000);
+
+        var quest = BuildQuest(new PurchaseItemStep
+        {
+            Id             = "buy-gc-with-vendor-cat",
+            Target         = TargetLoc,
+            ItemId         = TestItem,
+            Quantity       = 1,
+            Currency       = PurchaseCurrency.GcSeals,
+            GcCategory     = 2,
+            GcRankTier     = 0,
+            VendorCategory = 1
+        });
+        harness.Engine.StartQuest(quest);
+
+        var action = await harness.Engine.Tick(CancellationToken.None);
+
+        var purchase = Assert.IsType<EngineAction.Purchase>(action);
+        Assert.Equal(1, purchase.VendorCategory);
+        Assert.Equal(2, purchase.GcCategory);
+        Assert.Equal(0, purchase.GcRankTier);
+    }
+
+    // =========================================================================
     // Factory
     // =========================================================================
 

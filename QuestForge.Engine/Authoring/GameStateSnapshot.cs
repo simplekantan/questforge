@@ -85,7 +85,8 @@ public sealed record PurchaseDetection(
     long GilDropped,
     int SealsDropped,
     int? ActiveGcCategory = null,    // G5: last-seen GC category radio (0..3). Null if not a GC vendor or probe failed.
-    int? ActiveGcRankTier = null);   // G5: last-seen GC rank-tier radio (0..2). Null if not a GC vendor or probe failed.
+    int? ActiveGcRankTier = null,    // G5: last-seen GC rank-tier radio (0..2). Null if not a GC vendor or probe failed.
+    int? ActiveVendorCategory = null); // VC8: last-seen SelectIconString category index. Null until inference slice lands.
 
 /// <summary>
 /// Associates a set of enemy data-ids with the quest variable (or sequence) value that was

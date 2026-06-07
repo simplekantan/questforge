@@ -198,6 +198,31 @@ public sealed class DraftValidator
             }
         }
 
+        // E23: PurchaseItemStep with both VendorCategory and GcCategory/GcRankTier set
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is PurchaseItemStep ps23
+                && ps23.VendorCategory.HasValue
+                && (ps23.GcCategory.HasValue || ps23.GcRankTier.HasValue))
+            {
+                errors.Add(new DraftValidationError("E23",
+                    $"Step '{steps[i].StepId}' has both VendorCategory and GcCategory/GcRankTier set. " +
+                    "These target different vendor UI types and are mutually exclusive.",
+                    [i]));
+            }
+        }
+
+        // E24: PurchaseItemStep with VendorCategory < 0
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is PurchaseItemStep ps24 && ps24.VendorCategory < 0)
+            {
+                errors.Add(new DraftValidationError("E24",
+                    $"Step '{steps[i].StepId}' has VendorCategory={ps24.VendorCategory} which is negative.",
+                    [i]));
+            }
+        }
+
         // E14: UseItemStep with TargetNpcId == 0 (null is allowed; explicit zero is invalid)
         for (var i = 0; i < steps.Count; i++)
         {

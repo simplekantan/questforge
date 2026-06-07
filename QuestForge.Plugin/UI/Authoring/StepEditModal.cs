@@ -167,6 +167,7 @@ public sealed class StepEditModal : Window
                 DrawEditableEnum<PurchaseCurrency>("currency", "Currency", editable);
                 DrawEditableNullableInt("gcCategory", "GC Category", editable, "0=Weapons, 1=Armor, 2=Materiel, 3=Materials");
                 DrawEditableNullableInt("gcRankTier", "GC Rank Tier", editable, "0=lowest, 2=highest");
+                DrawEditableNullableInt("vendorCategory", "Vendor Category", editable, "SelectIconString index (0-based)");
                 break;
             case WaitStep:
                 DrawEditableFloat("seconds", "Seconds", ReadRawFloat("seconds"), editable, null);
