@@ -8,4 +8,4 @@ public interface IGearEquipper
     Task<Result<bool>> IsItemEquipped(uint itemId, CancellationToken ct);
 }
 
-public enum EquipOutcome { Equipped, NoChange, InCombat, InInstance, ItemNotFound, Failed }
+public enum EquipOutcome { Equipped, NoChange, Pending, InCombat, InInstance, ItemNotFound, Failed }

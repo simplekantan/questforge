@@ -279,12 +279,14 @@ public sealed class EngineTestHarness
                         egResult.IsSuccess ? egResult.ValueOrThrow.ToString() : "Failed");
                     break;
 
-                case EngineAction.EquipBestGear:
+                case EngineAction.EquipBestGear ebg:
                     actions.Add(action);
                     EmitActionSubmitted("EquipBestGear", default);
                     var ebgResult = await BestGearEquipper.EquipBestGear(ct);
                     EmitActionCompleted("EquipBestGear",
                         ebgResult.IsSuccess ? ebgResult.ValueOrThrow.ToString() : "Failed");
+                    if (ebgResult.IsSuccess && ebgResult.ValueOrThrow is EquipOutcome.Equipped or EquipOutcome.NoChange)
+                        Engine.NotifyEquipBestGearComplete(ebg.Origin!.Id);
                     break;
 
                 case EngineAction.ChangeJob cj:
@@ -486,6 +488,8 @@ public sealed class HarnessEngine
 
     public string? CurrentRunId => _inner.CurrentRunId;
     public YesNoAnswer? CurrentYesNoAnswer => _inner.CurrentYesNoAnswer;
+
+    public void NotifyEquipBestGearComplete(string stepId) => _inner.NotifyEquipBestGearComplete(stepId);
 
     public void StartQuest(QuestDefinition quest) => _inner.StartQuest(quest);
 

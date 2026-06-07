@@ -649,14 +649,15 @@ public sealed class EngineHost : IDisposable
                 await _gearEquipper.EquipItem(eg.ItemId, ct);
                 break;
 
-            case EngineAction.EquipBestGear:
-                DebounceLog(
-                    "equipbestgear",
-                    "[EquipBestGear] firing");
+            case EngineAction.EquipBestGear ebgAction:
                 if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
                     await _navigator.Stop(ct);
                 TryCutsceneSkipConfirm();
-                await _bestGearEquipper.EquipBestGear(ct);
+                var equipResult = await _bestGearEquipper.EquipBestGear(ct);
+                _services.Log.Debug($"[QuestForge] [EquipBestGear] result={equipResult}");
+                if (equipResult is Result<EquipOutcome>.Success { Value: EquipOutcome.Equipped or EquipOutcome.NoChange }
+                    && ebgAction.Origin?.Id is { } ebgStepId)
+                    _engine!.NotifyEquipBestGearComplete(ebgStepId);
                 break;
 
             case EngineAction.ChangeJob cj:
