@@ -259,6 +259,7 @@ public sealed partial class AuthoringSessionPanel : Window
         string? stepToMoveUp = null;
         string? stepToMoveDown = null;
         DraftStep? stepToEdit = null;
+        DraftStep? stepToDuplicate = null;
 
         var sequences = steps
             .Select((s, i) => (Step: s, GlobalIndex: i))
@@ -294,6 +295,10 @@ public sealed partial class AuthoringSessionPanel : Window
                         stepToEdit = step;
 
                     ImGui.SameLine();
+                    if (ImGui.SmallButton("duplicate"))
+                        stepToDuplicate = step;
+
+                    ImGui.SameLine();
                     if (ImGui.SmallButton("delete"))
                         stepToDelete = step.StepId;
 
@@ -309,6 +314,14 @@ public sealed partial class AuthoringSessionPanel : Window
 
         if (stepToMoveDown is not null)
             dirty = draft.MoveStepDown(stepToMoveDown, DateTimeOffset.UtcNow);
+
+        if (stepToDuplicate is not null)
+        {
+            var newId = stepToDuplicate.StepId + "-copy";
+            var dupe = stepToDuplicate with { StepId = newId };
+            draft.InsertStepAfter(stepToDuplicate.StepId, dupe, DateTimeOffset.UtcNow);
+            dirty = true;
+        }
 
         if (stepToDelete is not null)
         {
@@ -416,6 +429,7 @@ public sealed partial class AuthoringSessionPanel : Window
         string? stepToMoveUp = null;
         string? stepToMoveDown = null;
         DraftStep? stepToEdit = null;
+        DraftStep? stepToDuplicate = null;
 
         for (var i = 0; i < steps.Count; i++)
         {
@@ -441,6 +455,10 @@ public sealed partial class AuthoringSessionPanel : Window
                 stepToEdit = step;
 
             ImGui.SameLine();
+            if (ImGui.SmallButton("duplicate"))
+                stepToDuplicate = step;
+
+            ImGui.SameLine();
             if (ImGui.SmallButton("delete"))
                 stepToDelete = step.StepId;
 
@@ -454,6 +472,14 @@ public sealed partial class AuthoringSessionPanel : Window
 
         if (stepToMoveDown is not null)
             dirty = draft.MoveStepDown(stepToMoveDown, DateTimeOffset.UtcNow);
+
+        if (stepToDuplicate is not null)
+        {
+            var newId = stepToDuplicate.StepId + "-copy";
+            var dupe = stepToDuplicate with { StepId = newId };
+            draft.InsertStepAfter(stepToDuplicate.StepId, dupe, DateTimeOffset.UtcNow);
+            dirty = true;
+        }
 
         if (stepToDelete is not null)
         {
