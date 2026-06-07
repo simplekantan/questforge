@@ -51,9 +51,10 @@ public sealed class SnapshotAggregator
     private int _currentSeals;
     private readonly Dictionary<uint, int> _spanItemDeltas = new();
 
-    // ── purchase span state (additive: GC axes) ────────────────────────────
-    private int? _spanActiveGcCategory;   // last non-null value observed while span is open (§14.9.2)
-    private int? _spanActiveGcRankTier;   // same lifecycle as _spanActiveGcCategory
+    // ── purchase span state (additive: GC axes + vendor category) ────────────
+    private int? _spanActiveGcCategory;      // last non-null value observed while span is open (§14.9.2)
+    private int? _spanActiveGcRankTier;      // same lifecycle as _spanActiveGcCategory
+    private int? _spanActiveVendorCategory;  // transferred from DialogueOptionSelected when shop opens
 
     // ── combat span state ──────────────────────────────────────────────────
     private bool _inCombat;
@@ -273,12 +274,17 @@ public sealed class SnapshotAggregator
             _purchaseBaselineGil    = _currentGil;
             _purchaseBaselineSeals  = _currentSeals;
             _spanItemDeltas.Clear();
-            // New span: clear GC axes before applying the transition's axes (§14.9.2 lifecycle).
+            // New span: clear axes before applying the transition's values.
             _spanActiveGcCategory = null;
             _spanActiveGcRankTier = null;
+            _spanActiveVendorCategory = null;
             // Apply "last seen non-null wins" from the transition's axes.
             if (activeGcCategory is not null) _spanActiveGcCategory = activeGcCategory;
             if (activeGcRankTier is not null) _spanActiveGcRankTier = activeGcRankTier;
+            // If a SelectIconString option was selected before the shop opened,
+            // it was a vendor category selection — transfer it.
+            if (_dialogueOptionSelected is not null)
+                _spanActiveVendorCategory = _dialogueOptionSelected;
         }
         _shopOpen = open;
     }
@@ -475,8 +481,9 @@ public sealed class SnapshotAggregator
         _purchaseSpanStarted    = false;
         _purchaseBaselineGil    = null;
         _purchaseBaselineSeals  = null;
-        _spanActiveGcCategory   = null;    // G5 (§14.9.2)
-        _spanActiveGcRankTier   = null;    // G5 (§14.9.2)
+        _spanActiveGcCategory      = null;
+        _spanActiveGcRankTier      = null;
+        _spanActiveVendorCategory  = null;
 
         // Surfaced by G6 in-game smoke (2026-05-28): if the shop addon is currently open at the
         // moment ResetDeltas runs (e.g. the author clicked "Open" on the Record Step modal while a
@@ -667,8 +674,9 @@ public sealed class SnapshotAggregator
             ItemDeltas:         new Dictionary<uint, int>(_spanItemDeltas),
             GilDropped:         Math.Max(0L, baselineGil - _currentGil),
             SealsDropped:       Math.Max(0, baselineSeals - _currentSeals),
-            ActiveGcCategory:   _spanActiveGcCategory,    // G5 (§14.9.2) — null until Builder wires setters
-            ActiveGcRankTier:   _spanActiveGcRankTier);   // G5 (§14.9.2)
+            ActiveGcCategory:      _spanActiveGcCategory,
+            ActiveGcRankTier:      _spanActiveGcRankTier,
+            ActiveVendorCategory:  _spanActiveVendorCategory);
     }
 
     private IReadOnlyDictionary<NibbleKey, KillCorrelation>? BuildKillCorrelatedTargets()

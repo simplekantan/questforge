@@ -51,6 +51,7 @@ public sealed class RecordStepModal : Window
     private string _editPurchaseCurrency = "gil";
     private string _editPurchaseGcCategory = "";
     private string _editPurchaseGcRankTier = "";
+    private string _editPurchaseVendorCategory = "";
 
     // Async save tracking
     private Task? _saveTask;
@@ -196,6 +197,7 @@ public sealed class RecordStepModal : Window
                 var (gcCat, gcTier) = PurchaseModalSeeder.SeedGcAxes(pd);
                 _editPurchaseGcCategory = gcCat;
                 _editPurchaseGcRankTier = gcTier;
+                _editPurchaseVendorCategory = pd.ActiveVendorCategory?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
             }
             else
             {
@@ -282,6 +284,9 @@ public sealed class RecordStepModal : Window
             ImGui.TextUnformatted("GC Category:");
             ImGui.SetNextItemWidth(80f);
             ImGui.InputText("##purchasegccategory", ref _editPurchaseGcCategory, 16);
+            ImGui.TextUnformatted("Vendor Category (SelectIconString index):");
+            ImGui.SetNextItemWidth(80f);
+            ImGui.InputText("##purchasevendorcategory", ref _editPurchaseVendorCategory, 16);
             ImGui.TextUnformatted("GC Rank Tier:");
             ImGui.SetNextItemWidth(80f);
             ImGui.InputText("##purchasegcranktier", ref _editPurchaseGcRankTier, 16);
@@ -436,6 +441,8 @@ public sealed class RecordStepModal : Window
             int? gcCategory = int.TryParse(_editPurchaseGcCategory.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var catVal) ? catVal : null;
             int? gcRankTier = int.TryParse(_editPurchaseGcRankTier.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var tierVal) ? tierVal : null;
 
+            int? vendorCategory = int.TryParse(_editPurchaseVendorCategory.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var vcVal) ? vcVal : null;
+
             return new PurchaseItemStep
             {
                 Id = stepId,
@@ -447,7 +454,8 @@ public sealed class RecordStepModal : Window
                 Quantity = qty,
                 Currency = currency,
                 GcCategory = gcCategory,
-                GcRankTier = gcRankTier
+                GcRankTier = gcRankTier,
+                VendorCategory = vendorCategory
             };
         }
 
