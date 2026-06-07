@@ -97,6 +97,35 @@ public sealed class QuestScheduler : IQuestScheduler
             return Result.Ok<QuestId?>(null);
         }
 
+        // --- Resume: check for already-accepted quests before selecting new ones -----------------
+        // Runs AFTER Tier 0 (manual chain) so manual-chain blockers still halt automation.
+        // Respects tier opt-in gates (Tier 4 blue, Tier 5 side).
+        var acceptedResult = await _questState.GetAcceptedQuests(ct);
+        if (acceptedResult is Result<IReadOnlyList<QuestId>>.Success acceptedSuccess
+            && acceptedSuccess.Value.Count > 0)
+        {
+            var knownSet = new HashSet<QuestId>(knownQuests);
+            var best = acceptedSuccess.Value
+                .Where(q => knownSet.Contains(q))
+                .Select(q => (Quest: q, Tier: _questData.GetQuestTier(q)))
+                .Where(x => x.Tier is not null)
+                .Where(x => x.Tier != 4 || options.EnableBlueQuests)
+                .Where(x => x.Tier != 5 || options.EnableSideQuests)
+                .OrderBy(x => x.Tier)
+                .ThenBy(x => _questData.GetJournalSortKey(x.Quest))
+                .ThenBy(x => x.Quest.Value)
+                .Select(x => x.Quest)
+                .FirstOrDefault();
+
+            if (best != default)
+            {
+                _logger.LogInformation("Resuming accepted quest {QuestId} (tier {Tier}).",
+                    best, _questData.GetQuestTier(best));
+                _currentStatus = new SchedulerStatus.Running(best);
+                return Result.Ok<QuestId?>(best);
+            }
+        }
+
         // --- Rule 1: Tier 1 — Active-job class quests --------------------------------------------
         var jobResult = await _gameState.GetCurrentJob(ct);
         bool hasJob = jobResult is Result<JobId>.Success;
