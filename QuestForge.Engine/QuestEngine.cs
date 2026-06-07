@@ -882,7 +882,8 @@ public sealed class QuestEngine
                 step, handOver.Target.Position, playerPos,
                 new EngineAction.HandOver(
                     new NpcId(handOver.Target.NpcId),
-                    handOver.Items.Select(id => new ItemId(id)).ToArray())),
+                    handOver.Items.Select(id => new ItemId(id)).ToArray(),
+                    step)),
 
         CutsceneStep => ui.CutscenePlaying
             ? new EngineAction.Wait("cutscene playing")

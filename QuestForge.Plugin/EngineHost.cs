@@ -926,16 +926,24 @@ public sealed class EngineHost : IDisposable
 
     private static Step? ExtractOriginStep(EngineAction action) => action switch
     {
-        EngineAction.Interact a       => a.Origin,
-        EngineAction.InteractObject a => a.Origin,
-        EngineAction.UseAction a      => a.Origin,
-        EngineAction.UseEmote a       => a.Origin,
-        EngineAction.UseItem a        => a.Origin,
-        EngineAction.SayChatMessage a => a.Origin,
-        EngineAction.Purchase a       => a.Origin,
-        EngineAction.Teleport a       => a.Origin,
-        EngineAction.OpenCoffer a     => a.Origin,
-        _                             => null
+        EngineAction.Interact a            => a.Origin,
+        EngineAction.InteractObject a      => a.Origin,
+        EngineAction.HandOver a            => a.Origin,
+        EngineAction.UseAction a           => a.Origin,
+        EngineAction.UseEmote a            => a.Origin,
+        EngineAction.UseItem a             => a.Origin,
+        EngineAction.SayChatMessage a      => a.Origin,
+        EngineAction.Purchase a            => a.Origin,
+        EngineAction.Teleport a            => a.Origin,
+        EngineAction.OpenCoffer a          => a.Origin,
+        EngineAction.EquipGear a           => a.Origin,
+        EngineAction.EquipBestGear a       => a.Origin,
+        EngineAction.ChangeJob a           => a.Origin,
+        EngineAction.RegisterGearset a     => a.Origin,
+        EngineAction.EnterSinglePlayerDuty a => a.Origin,
+        EngineAction.EnterDuty a           => a.Origin,
+        EngineAction.Wait a                => a.Origin,
+        _                                  => null
     };
 
     public void Dispose()
