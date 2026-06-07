@@ -854,7 +854,184 @@ public sealed class QuestSchedulerTests
     }
 
     // =========================================================================
-    // Scenario 26 — BlueUrgentQuest_Tier1_SelectedBeforeTier3
+    // Scenario 26 — AcceptedQuest_ResumedBeforeNewQuests
+    // An in-progress (accepted) quest should be resumed instead of picking a new one.
+    // =========================================================================
+    [Fact]
+    public async Task AcceptedQuest_ResumedBeforeNewQuests()
+    {
+        // Arrange — Q(101) is accepted (in journal), Q(102) is available (not yet started).
+        var questState = new FakeQuestState();
+        var gameState = new FakeGameStateProvider();
+        var questData = new FakeQuestDataProvider()
+            .WithQuest(Q(101), tier: 3, sortKey: 0)
+            .WithQuest(Q(102), tier: 3, sortKey: 1);
+
+        questState.SetQuestStatus(Q(101), QuestStatus.Accepted);
+        questState.AddAcceptedQuest(Q(101));
+        questState.SetQuestStatus(Q(102), QuestStatus.Available);
+
+        var scheduler = BuildScheduler(questState, gameState, questData);
+
+        // Act
+        var result = await scheduler.NextQuestToRun(CancellationToken.None);
+
+        // Assert — Q(101) resumed, not Q(102).
+        Assert.IsType<Result<QuestId?>.Success>(result);
+        Assert.Equal(Q(101), result.ValueOrThrow);
+        var status = Assert.IsType<SchedulerStatus.Running>(scheduler.CurrentStatus);
+        Assert.Equal(Q(101), status.CurrentQuest);
+    }
+
+    // =========================================================================
+    // Scenario 27 — AcceptedQuests_TierPriorityRespected
+    // When multiple quests are accepted, higher-priority tier wins.
+    // =========================================================================
+    [Fact]
+    public async Task AcceptedQuests_TierPriorityRespected()
+    {
+        // Arrange — Q(200) is Tier 1 (class quest), Q(300) is Tier 3. Both accepted.
+        var questState = new FakeQuestState();
+        var gameState = new FakeGameStateProvider();
+        gameState.SetJob(J(2), 1);
+
+        var questData = new FakeQuestDataProvider()
+            .WithQuest(Q(200), tier: 1, classJob: J(2), sortKey: 0)
+            .WithQuest(Q(300), tier: 3, sortKey: 0);
+
+        questState.SetQuestStatus(Q(200), QuestStatus.Accepted);
+        questState.AddAcceptedQuest(Q(200));
+        questState.SetQuestStatus(Q(300), QuestStatus.Accepted);
+        questState.AddAcceptedQuest(Q(300));
+
+        var scheduler = BuildScheduler(questState, gameState, questData);
+
+        // Act
+        var result = await scheduler.NextQuestToRun(CancellationToken.None);
+
+        // Assert — Tier 1 wins over Tier 3, even though both are accepted.
+        Assert.IsType<Result<QuestId?>.Success>(result);
+        Assert.Equal(Q(200), result.ValueOrThrow);
+        var status = Assert.IsType<SchedulerStatus.Running>(scheduler.CurrentStatus);
+        Assert.Equal(Q(200), status.CurrentQuest);
+    }
+
+    // =========================================================================
+    // Scenario 28 — NoAcceptedQuests_FallsThroughToNormalSelection
+    // When no quests are accepted, normal tier evaluation runs as before.
+    // =========================================================================
+    [Fact]
+    public async Task NoAcceptedQuests_FallsThroughToNormalSelection()
+    {
+        // Arrange — no accepted quests; Q(300) is available.
+        var questState = new FakeQuestState();
+        var gameState = new FakeGameStateProvider();
+        var questData = new FakeQuestDataProvider()
+            .WithQuest(Q(300), tier: 3, sortKey: 0);
+
+        questState.SetQuestStatus(Q(300), QuestStatus.Available);
+
+        var scheduler = BuildScheduler(questState, gameState, questData);
+
+        // Act
+        var result = await scheduler.NextQuestToRun(CancellationToken.None);
+
+        // Assert — falls through to normal Tier 3 selection.
+        Assert.IsType<Result<QuestId?>.Success>(result);
+        Assert.Equal(Q(300), result.ValueOrThrow);
+        var status = Assert.IsType<SchedulerStatus.Running>(scheduler.CurrentStatus);
+        Assert.Equal(Q(300), status.CurrentQuest);
+    }
+
+    // =========================================================================
+    // Scenario 29 — AcceptedQuest_ManualChainBlockerStillHalts
+    // Manual chain blocker must stop automation even if an accepted quest exists.
+    // =========================================================================
+    [Fact]
+    public async Task AcceptedQuest_ManualChainBlockerStillHalts()
+    {
+        // Arrange — Q(300) is accepted, but manual chain Q(50) is blocked.
+        var questState = new FakeQuestState();
+        var gameState = new FakeGameStateProvider();
+        var questData = new FakeQuestDataProvider()
+            .WithQuest(Q(300), tier: 3, sortKey: 0);
+
+        questState.SetQuestStatus(Q(300), QuestStatus.Accepted);
+        questState.AddAcceptedQuest(Q(300));
+        questState.SetWhyUnavailable(Q(50), LevelTooLowReason(30));
+
+        var options = SchedulerOptions.Default with { ManualChain = [Q(50)] };
+        var scheduler = BuildScheduler(questState, gameState, questData, options);
+
+        // Act
+        var result = await scheduler.NextQuestToRun(CancellationToken.None);
+
+        // Assert — manual chain blocker wins; AwaitingUser, NOT the accepted quest.
+        Assert.IsType<Result<QuestId?>.Success>(result);
+        Assert.Null(result.ValueOrThrow);
+        var status = Assert.IsType<SchedulerStatus.AwaitingUser>(scheduler.CurrentStatus);
+        Assert.Equal(Q(50), status.BlockedQuest);
+    }
+
+    // =========================================================================
+    // Scenario 30 — AcceptedQuest_Tier4Disabled_NotResumed
+    // Accepted blue quest is NOT resumed when EnableBlueQuests is false.
+    // =========================================================================
+    [Fact]
+    public async Task AcceptedQuest_Tier4Disabled_NotResumed()
+    {
+        // Arrange — Q(400) Tier 4 is accepted, but blue quests are disabled. Q(300) is available.
+        var questState = new FakeQuestState();
+        var gameState = new FakeGameStateProvider();
+        var questData = new FakeQuestDataProvider()
+            .WithQuest(Q(400), tier: 4, sortKey: 0)
+            .WithQuest(Q(300), tier: 3, sortKey: 0);
+
+        questState.SetQuestStatus(Q(400), QuestStatus.Accepted);
+        questState.AddAcceptedQuest(Q(400));
+        questState.SetQuestStatus(Q(300), QuestStatus.Available);
+
+        // Default: EnableBlueQuests = false
+        var scheduler = BuildScheduler(questState, gameState, questData);
+
+        // Act
+        var result = await scheduler.NextQuestToRun(CancellationToken.None);
+
+        // Assert — Tier 4 accepted quest skipped; falls through to Tier 3.
+        Assert.IsType<Result<QuestId?>.Success>(result);
+        Assert.Equal(Q(300), result.ValueOrThrow);
+    }
+
+    // =========================================================================
+    // Scenario 31 — AcceptedQuest_Tier5Disabled_NotResumed
+    // Accepted side quest is NOT resumed when EnableSideQuests is false.
+    // =========================================================================
+    [Fact]
+    public async Task AcceptedQuest_Tier5Disabled_NotResumed()
+    {
+        // Arrange — Q(500) Tier 5 is accepted, but side quests are disabled.
+        var questState = new FakeQuestState();
+        var gameState = new FakeGameStateProvider();
+        var questData = new FakeQuestDataProvider()
+            .WithQuest(Q(500), tier: 5, sortKey: 0);
+
+        questState.SetQuestStatus(Q(500), QuestStatus.Accepted);
+        questState.AddAcceptedQuest(Q(500));
+
+        // Default: EnableSideQuests = false
+        var scheduler = BuildScheduler(questState, gameState, questData);
+
+        // Act
+        var result = await scheduler.NextQuestToRun(CancellationToken.None);
+
+        // Assert — Tier 5 accepted quest skipped; nothing else available → Idle.
+        Assert.IsType<Result<QuestId?>.Success>(result);
+        Assert.Null(result.ValueOrThrow);
+        Assert.IsType<SchedulerStatus.Idle>(scheduler.CurrentStatus);
+    }
+
+    // =========================================================================
+    // Scenario 32 — BlueUrgentQuest_Tier1_SelectedBeforeTier3 (was 26)
     // blue-urgent (Tier 1, no class restriction) beats Tier 3
     // =========================================================================
     [Fact]
