@@ -25,7 +25,7 @@ QuestForge.Schema/           # Quest file schema types + STJ source-generated co
 
 ## Build & Test Commands
 
-**SDK requirement:** This project targets .NET 10. The `global.json` pins SDK `10.0.202` with `rollForward: latestMinor`. The SDK is installed at `C:\Users\publi\.dotnet\` — this path must be on PATH **ahead of** `C:\Program Files\dotnet\` (which has SDK 8.0 and will refuse to build). When spawning subagents, always prepend the path: `$env:PATH = "C:\Users\publi\.dotnet;$env:PATH"` (PowerShell) or `export PATH="/c/Users/publi/.dotnet:$PATH"` (Bash).
+**SDK requirement:** This project targets .NET 10. The `global.json` pins SDK `10.0.202` with `rollForward: latestMinor`. The SDK is installed at `C:\Users\publi\.dotnet\` and the system PATH has it ahead of `C:\Program Files\dotnet\` (which only has SDK 8.0).
 
 ```bash
 dotnet build
