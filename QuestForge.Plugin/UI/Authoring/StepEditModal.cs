@@ -216,10 +216,12 @@ public sealed class StepEditModal : Window
             ImGui.SetNextItemWidth(200f);
             if (ImGui.BeginCombo($"##{jsonKey}pick", "Pick predicate..."))
             {
-                foreach (var option in PredicateOptions.Build(_host.CurrentSnapshot))
+                foreach (var entry in PredicateOptions.Build(_host.CurrentSnapshot))
                 {
-                    if (ImGui.Selectable(option))
-                        _editValue = option == "(none)" ? "" : option;
+                    if (ImGui.Selectable(entry.Option))
+                        _editValue = entry.Option == "(none)" ? "" : entry.Option;
+                    if (entry.Tooltip is not null && ImGui.IsItemHovered())
+                        ImGui.SetTooltip(entry.Tooltip);
                 }
                 ImGui.EndCombo();
             }

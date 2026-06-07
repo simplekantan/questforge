@@ -296,10 +296,12 @@ public sealed class RecordStepModal : Window
         ImGui.SetNextItemWidth(200f);
         if (ImGui.BeginCombo("##predicatepick", "Pick predicate..."))
         {
-            foreach (var option in BuildPredicateOptions())
+            foreach (var entry in BuildPredicateOptions())
             {
-                if (ImGui.Selectable(option))
-                    _editExpect = option == "(none)" ? "" : option;
+                if (ImGui.Selectable(entry.Option))
+                    _editExpect = entry.Option == "(none)" ? "" : entry.Option;
+                if (entry.Tooltip is not null && ImGui.IsItemHovered())
+                    ImGui.SetTooltip(entry.Tooltip);
             }
             ImGui.EndCombo();
         }
@@ -462,7 +464,7 @@ public sealed class RecordStepModal : Window
         return QuestForge.Engine.Authoring.StepFactory.Build(stepType, stepId, expect, after, before);
     }
 
-    private List<string> BuildPredicateOptions() => PredicateOptions.Build(_host.CurrentSnapshot);
+    private List<PredicateOptions.Entry> BuildPredicateOptions() => PredicateOptions.Build(_host.CurrentSnapshot);
 
     private void ResetAndClose()
     {
