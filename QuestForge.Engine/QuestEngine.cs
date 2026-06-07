@@ -66,6 +66,7 @@ public sealed class QuestEngine
     private string? _runId;
     private bool _runStartEmitted;
     private readonly HashSet<string> _confirmedStepIds = new();
+    private readonly HashSet<string> _fireOnceDispatchedIds = new();
     private DateTimeOffset? _waitStepStart;
     private string? _waitStepStartId;
     private DateTimeOffset? _lastActionFiredAt;
@@ -360,6 +361,7 @@ public sealed class QuestEngine
         _runId = runId;
         _runStartEmitted = false;
         _confirmedStepIds.Clear();
+        _fireOnceDispatchedIds.Clear();
         _lastKnownSequence = -1;
         _resumePointExecutedIds.Clear();
         _activeResumeFragment = null;
@@ -549,6 +551,7 @@ public sealed class QuestEngine
         if (_lastKnownSequence != -1 && _lastKnownSequence != currentSeq)
         {
             _confirmedStepIds.Clear();
+            _fireOnceDispatchedIds.Clear();
             _resumePointExecutedIds.Clear();
             _activeResumeFragment = null;
             _waitStepStart = null;
@@ -716,10 +719,17 @@ public sealed class QuestEngine
                 return (equipAction, step.Id, playerPos);
             }
 
-            // 6a6. EquipBestGearStep async arm — no implicit postcondition (relies on authored Expect).
+            // 6a6. EquipBestGearStep async arm — fire-once: self-confirms after first dispatch.
             if (step is EquipBestGearStep bestGearStep)
             {
+                if (_fireOnceDispatchedIds.Contains(step.Id))
+                {
+                    _confirmedStepIds.Add(step.Id);
+                    continue;
+                }
                 var bestGearAction = await ResolveEquipBestGear(bestGearStep, ct);
+                if (bestGearAction is not EngineAction.Wait)
+                    _fireOnceDispatchedIds.Add(step.Id);
                 return (bestGearAction, step.Id, playerPos);
             }
 
@@ -736,10 +746,17 @@ public sealed class QuestEngine
                 return (changeJobAction, step.Id, playerPos);
             }
 
-            // 6a8. RegisterGearsetStep async arm — no implicit postcondition (per RG-2).
+            // 6a8. RegisterGearsetStep async arm — fire-once: self-confirms after first dispatch.
             if (step is RegisterGearsetStep registerGearsetStep)
             {
+                if (_fireOnceDispatchedIds.Contains(step.Id))
+                {
+                    _confirmedStepIds.Add(step.Id);
+                    continue;
+                }
                 var registerGearsetAction = await ResolveRegisterGearset(registerGearsetStep, ct);
+                if (registerGearsetAction is not EngineAction.Wait)
+                    _fireOnceDispatchedIds.Add(step.Id);
                 return (registerGearsetAction, step.Id, playerPos);
             }
 

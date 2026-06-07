@@ -237,11 +237,11 @@ public sealed class EquipBestGearStepTests
     }
 
     // =========================================================================
-    // EB8 -- No Expect -- engine re-fires every tick (stateless retry)
+    // EB8 -- No Expect -- self-confirms after first dispatch (fire-once)
     // =========================================================================
 
     [Fact]
-    public async Task EquipBestGearStep_NoExpect_RefiresEveryTick_EB8()
+    public async Task EquipBestGearStep_NoExpect_SelfConfirmsAfterFirstDispatch_EB8()
     {
         var harness = new EngineTestHarness();
         harness.QuestState.SetQuestSequence(new QuestId(65575), 0);
@@ -259,10 +259,9 @@ public sealed class EquipBestGearStepTests
         var tick1 = await harness.Engine.Tick(CancellationToken.None);
         Assert.IsType<EngineAction.EquipBestGear>(tick1);
 
-        // Tick 2: same action again (no Expect to advance past it)
-        harness.BestGearEquipper.ScriptNextResult(Adapters.Gear.EquipOutcome.Equipped);
+        // Tick 2: self-confirmed; no more steps -> Wait (not EquipBestGear again)
         var tick2 = await harness.Engine.Tick(CancellationToken.None);
-        Assert.IsType<EngineAction.EquipBestGear>(tick2);
+        Assert.IsType<EngineAction.Wait>(tick2);
     }
 
     // =========================================================================

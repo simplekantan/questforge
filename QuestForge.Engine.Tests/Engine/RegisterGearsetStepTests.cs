@@ -61,6 +61,33 @@ public sealed class RegisterGearsetStepTests
     }
 
     // =========================================================================
+    // RG1b -- No Expect -- self-confirms after first dispatch (fire-once)
+    // =========================================================================
+
+    [Fact]
+    public async Task RegisterGearsetStep_NoExpect_SelfConfirmsAfterFirstDispatch_RG1b()
+    {
+        var harness = new EngineTestHarness();
+        harness.QuestState.SetQuestSequence(new QuestId(87001), 0);
+
+        var step = new RegisterGearsetStep
+        {
+            Id = "register-gearset-fire-once",
+            Expect = null
+        };
+
+        harness.Engine.StartQuest(BuildSingleStepQuest(87001, 0, step));
+
+        // Tick 1: RegisterGearset emitted
+        var tick1 = await harness.Engine.Tick(CancellationToken.None);
+        Assert.IsType<EngineAction.RegisterGearset>(tick1);
+
+        // Tick 2: self-confirmed; no more steps -> Wait (not RegisterGearset again)
+        var tick2 = await harness.Engine.Tick(CancellationToken.None);
+        Assert.IsType<EngineAction.Wait>(tick2);
+    }
+
+    // =========================================================================
     // RG2 -- No adapter wired -- AwaitUser
     // =========================================================================
 
