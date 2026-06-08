@@ -158,6 +158,10 @@ public sealed class StepEditModal : Window
             case TeleportStep:
                 DrawEditableUint("aetheryteId", "Aetheryte ID", editable);
                 break;
+            case AethernetStep:
+                DrawEditableUint("from", "From Shard ID", editable);
+                DrawEditableUint("to", "To Shard ID", editable);
+                break;
             case AttunementStep:
                 DrawEditableUint("target", "Aetheryte/Shard ID", editable);
                 break;
