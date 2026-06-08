@@ -42,7 +42,10 @@ public sealed class EngineFixtureTests
         [property: JsonPropertyName("positionX")]      float? PositionX = null,
         [property: JsonPropertyName("positionY")]      float? PositionY = null,
         [property: JsonPropertyName("positionZ")]      float? PositionZ = null,
-        [property: JsonPropertyName("questSequence")]  int? QuestSequence = null);
+        [property: JsonPropertyName("questSequence")]  int? QuestSequence = null,
+        [property: JsonPropertyName("slotsEquipped")]  int[]? SlotsEquipped = null,
+        [property: JsonPropertyName("items")]          Dictionary<string, int>? Items = null,
+        [property: JsonPropertyName("job")]            int? Job = null);
 
     // ---- State machine dispatch ----
     // Maps fixture filename (without extension) to its scripted state builder.

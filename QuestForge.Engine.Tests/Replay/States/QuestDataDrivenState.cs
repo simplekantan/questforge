@@ -178,6 +178,18 @@ internal sealed class QuestDataDrivenState : IFixtureState
 
         if (overrides.QuestSequence is { } seq)
             questState.SetQuestSequence(new QuestId(quest.Id), seq);
+
+        if (overrides.SlotsEquipped is { } slots)
+            foreach (var slot in slots)
+                gameState.SetEquippedItemLevelForSlot(slot, 1);
+
+        if (overrides.Items is { } items)
+            foreach (var (itemIdStr, qty) in items)
+                if (uint.TryParse(itemIdStr, out var itemId))
+                    gameState.SetItemCount(new ItemId(itemId), qty);
+
+        if (overrides.Job is { } job)
+            gameState.SetJob(new JobId((uint)job), 1);
     }
 
     // -------------------------------------------------------------------------
