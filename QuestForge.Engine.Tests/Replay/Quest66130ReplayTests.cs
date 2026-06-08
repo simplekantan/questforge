@@ -30,11 +30,19 @@ public sealed class EngineFixtureTests
         [property: JsonPropertyName("expectedTransitions")] FixtureTransition[] ExpectedTransitions,
         [property: JsonPropertyName("terminalOutcome")] string TerminalOutcome,
         [property: JsonPropertyName("sourceTrace")]   string? SourceTrace = null,
-        [property: JsonPropertyName("initialZone")]   int? InitialZone = null);
+        [property: JsonPropertyName("initialZone")]   int? InitialZone = null,
+        [property: JsonPropertyName("initialOverrides")] FixtureInitialOverrides? InitialOverrides = null);
 
     internal sealed record FixtureTransition(
         [property: JsonPropertyName("stepId")]     string? StepId,
         [property: JsonPropertyName("actionType")] string ActionType);
+
+    internal sealed record FixtureInitialOverrides(
+        [property: JsonPropertyName("zone")]           int? Zone = null,
+        [property: JsonPropertyName("positionX")]      float? PositionX = null,
+        [property: JsonPropertyName("positionY")]      float? PositionY = null,
+        [property: JsonPropertyName("positionZ")]      float? PositionZ = null,
+        [property: JsonPropertyName("questSequence")]  int? QuestSequence = null);
 
     // ---- State machine dispatch ----
     // Maps fixture filename (without extension) to its scripted state builder.
@@ -115,7 +123,7 @@ public sealed class EngineFixtureTests
         }
         else
         {
-            state = QuestDataDrivenState.Create(quest, fragments, fixture.InitialState);  // (2) data-driven default
+            state = QuestDataDrivenState.Create(quest, fragments, fixture.InitialState, fixture.InitialOverrides);  // (2) data-driven default
         }
 
         // ---- Wire engine from IFixtureState ----

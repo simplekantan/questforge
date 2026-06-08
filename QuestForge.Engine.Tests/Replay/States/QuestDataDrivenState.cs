@@ -103,12 +103,14 @@ internal sealed class QuestDataDrivenState : IFixtureState
     public static QuestDataDrivenState Create(
         QuestDefinition quest,
         IReadOnlyDictionary<string, FragmentDefinition>? fragments,
-        string initialState)
+        string initialState,
+        EngineFixtureTests.FixtureInitialOverrides? initialOverrides = null)
     {
         var gameState = new FakeGameStateProvider();
         var questState = new FakeQuestState();
 
         ConfigureInitialState(quest, initialState, gameState, questState);
+        ApplyInitialOverrides(initialOverrides, gameState, questState, quest);
 
         var questId = new QuestId(quest.Id);
         var stepPlans = BuildStepPlans(quest, fragments, questId);
@@ -158,6 +160,24 @@ internal sealed class QuestDataDrivenState : IFixtureState
                 throw new InvalidOperationException(
                     $"Unknown initialState '{initialState}' in fixture.");
         }
+    }
+
+    private static void ApplyInitialOverrides(
+        EngineFixtureTests.FixtureInitialOverrides? overrides,
+        FakeGameStateProvider gameState,
+        FakeQuestState questState,
+        QuestDefinition quest)
+    {
+        if (overrides is null) return;
+
+        if (overrides.Zone is { } zone)
+            gameState.SetZone(new ZoneId((uint)zone));
+
+        if (overrides.PositionX is { } px && overrides.PositionY is { } py && overrides.PositionZ is { } pz)
+            gameState.SetPosition(new WorldPosition(px, py, pz));
+
+        if (overrides.QuestSequence is { } seq)
+            questState.SetQuestSequence(new QuestId(quest.Id), seq);
     }
 
     // -------------------------------------------------------------------------
