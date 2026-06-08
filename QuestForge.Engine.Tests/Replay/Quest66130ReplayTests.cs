@@ -43,7 +43,6 @@ public sealed class EngineFixtureTests
 
     private static readonly Dictionary<string, Func<IFixtureState>> StateFactories = new()
     {
-        ["simple-linear-acceptance"] = () => new SimpleLinearAcceptanceState(),
     };
 
     // ---- Safety overrun constant ----
@@ -107,27 +106,16 @@ public sealed class EngineFixtureTests
                     $"Fixture '{fixtureName}' references stepId '{t.StepId}' which does not exist in '{fixture.QuestFile}'.");
         }
 
-        // ---- Three-way dispatch (§3.5) ----
+        // ---- Two-way dispatch: data-driven default, scripted override ----
         IFixtureState state;
-        string? resolvedTracePath = null;
 
         if (StateFactories.TryGetValue(fixtureName, out var scripted))
         {
-            state = scripted();                              // (1) scripted path — unchanged
-        }
-        else if (TryResolveSourceTrace(fixturePath, fixture.SourceTrace, dataRoot) is { } tracePath)
-        {
-            resolvedTracePath = tracePath;
-            state = TraceReplayFixtureState.FromTraceFile(tracePath);   // (2) generic replay path
+            state = scripted();                              // (1) scripted override
         }
         else
         {
-            Assert.Skip(                                     // (3) neither — skip
-                $"Fixture '{fixtureName}' has no registered scripted state machine and no source " +
-                $"trace (looked for '{fixtureName}.trace.jsonl' beside it, and a 'sourceTrace' field). " +
-                $"Add a trace to enable the generic replay harness, or register a state machine in " +
-                $"EngineFixtureTests.StateFactories.");
-            return; // unreachable after Assert.Skip; present for definite-assignment
+            state = QuestDataDrivenState.Create(quest, fragments, fixture.InitialState);  // (2) data-driven default
         }
 
         // ---- Wire engine from IFixtureState ----
@@ -149,15 +137,12 @@ public sealed class EngineFixtureTests
         var actualTransitions = new List<(string? StepId, string ActionType)>();
         var ct = CancellationToken.None;
         const int maxTicks = 50_000;
-        var traceFileName = resolvedTracePath is not null ? Path.GetFileName(resolvedTracePath) : null;
 
         for (var tick = 0; tick < maxTicks; tick++)
         {
             var eventsBefore = capturingTrace.Events.Count;
-            var action = await WrapTickForStarvation(engine, traceFileName ?? $"{fixtureName}.trace.jsonl", ct);
+            var action = await engine.Tick(ct);
 
-            // The engine emits a DecisionEvent for non-terminal actions.
-            // Done emits run.end instead — exit the loop.
             var newDecision = capturingTrace.Events
                 .Skip(eventsBefore)
                 .OfType<DecisionEvent>()
@@ -165,39 +150,26 @@ public sealed class EngineFixtureTests
 
             if (newDecision is null) break; // terminal action reached
 
-            state.OnTick(action, tick); // advance state machine every tick
+            state.OnTick(action, tick);
 
-            // Two-phase EquipBestGear: the engine re-dispatches until NotifyEquipBestGearComplete
-            // is called. In replay, confirm immediately (the adapter always succeeds).
             if (action is EngineAction.EquipBestGear ebg && ebg.Origin?.Id is { } ebgStepId)
                 engine.NotifyEquipBestGearComplete(ebgStepId);
-
-            // Decision-matching advancement: try to match every decision (including
-            // duplicates) against the trace's recorded decision sequence. This enables
-            // combat replay where the same transition repeats but observations change.
-            if (state is TraceReplayFixtureState trfs)
-                trfs.TryAdvanceForDecision(newDecision.Data.StepId, newDecision.Data.ActionType);
 
             var pair = (newDecision.Data.StepId, ActionTypeString(action));
             if (actualTransitions.Count == 0 || actualTransitions[^1] != pair)
             {
                 actualTransitions.Add(pair);
-                // Scripted fixtures use OnTransitionRecorded for state machine advancement.
-                // Trace-backed fixtures use TryAdvanceForDecision above instead.
-                if (state is not TraceReplayFixtureState)
+                if (state is QuestDataDrivenState qdds)
+                    qdds.OnTransitionRecorded(action, tick, newDecision.Data.StepId);
+                else
                     state.OnTransitionRecorded(action, tick);
             }
 
             if (actualTransitions.Count > fixture.ExpectedTransitions.Length + SafetyOverrunCount)
-                break; // safety: more transitions than expected — will fail assertion below
+                break;
         }
 
         // ---- Assert transition sequence ----
-        // Combat target selection is non-deterministic in replay — filter out engage
-        // transitions and null-stepId decisions (defense, loading zone guard).
-        // Verify all deterministic transitions match exactly. Post-combat transitions
-        // (navigate, interact, etc.) only appear if the engine completed combat, so
-        // their presence proves combat worked even without exact engage matching.
         var expectedDeterministic = fixture.ExpectedTransitions
             .Where(t => t.StepId is not null
                 && !string.Equals(t.ActionType, "engage", StringComparison.OrdinalIgnoreCase))
@@ -214,7 +186,7 @@ public sealed class EngineFixtureTests
         }
 
         // ---- Assert terminal outcome ----
-        var terminalAction = await WrapTickForStarvation(engine, traceFileName ?? $"{fixtureName}.trace.jsonl", ct);
+        var terminalAction = await engine.Tick(ct);
         switch (fixture.TerminalOutcome)
         {
             case "done":      Assert.IsType<EngineAction.Done>(terminalAction);      break;
