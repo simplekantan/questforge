@@ -287,6 +287,7 @@ Twenty step types, each with a clear single responsibility.
 | `accept` | Accept a quest from an NPC |
 | `turn-in` | Hand in a quest, including reward selection |
 | `attune` | Attune to an aetheryte or aethernet shard (`Target: AetheryteId`); use `skipIf: isAttuned(id)` for idempotency |
+| `aethernet` | Intra-zone aethernet hop via Lifestream. Fields: `from` (AetheryteId — the boarding crystal), `to` (AetheryteId — the destination shard), `fromPosition` ({x,y,z} — optional navigation hint to the boarding crystal). Preferred over `travel` + `routeHint.aethernet` for new quests; the old approach remains valid for existing quests. |
 | `combat` | Engage a target or wave of targets |
 | `duty` | Enter and complete a duty (full duty or single-player duty via `kind`) |
 | `cutscene` | Watch (or skip) a cutscene |
@@ -295,8 +296,11 @@ Twenty step types, each with a clear single responsibility.
 | `use-item` | Use a quest item from inventory, optionally on a target (NPC, object, or position) |
 | `use-action` | Execute a specific player action against a specific target |
 | `equip-gear-for-quest` | Equip specific items |
-| `equip-best-gear` | Equip best available gear via game/Stylist |
-| `change-job` | Switch jobs (stubbed in v1; relies on existing gearsets) |
+| `equip-best-gear` | Equip best available gear via game/Stylist. Two-phase dispatch: engine submits the request then waits for a `NotifyEquipBestGearComplete` signal before advancing. |
+| `change-job` | Switch jobs (relies on existing gearsets) |
+| `register-gearset` | Save current gear as a new named gearset. Fire-once: the step self-confirms via postcondition. |
+| `teleport` | Cross-region teleport to a master aetheryte via Lifestream |
+| `purchase-item` | Buy an item from a vendor for gil or GC seals. Optional `vendorCategory` (int) selects a category tab in SelectIconString windows. |
 | `minigame` | Quest minigame; skippable via `IMinigameSkipper` if available |
 | `await-user` | Pause for user-initiated progress |
 | `branch` | Conditional sub-sequence dispatch |
@@ -1069,8 +1073,12 @@ Drawn from `IGameStateProvider`, `IQuestState`, and a few derived helpers.
 | `currentJob()` | string | Current job |
 | `inventoryFreeSlots()` | int | Free inventory slots |
 | `instanceKind()` | string | `InstanceKind` enum value |
-| `playerInCombat()` | bool | In combat |
+| `playerInCombat()` | bool | In combat (also available as bare `playerInCombat` without parentheses) |
 | `playerDead()` | bool | HP zero or death prompt open |
+| `isSlotEquipped(slotIndex)` | bool | True when the equipment slot at the given index contains an item |
+| `isDiscipleOfWar` | bool | True when the current job is Tank, Melee DPS, or Physical Ranged DPS |
+| `isDiscipleOfMagic` | bool | True when the current job is Caster or Healer |
+| `playerJobId` | int | Raw ClassJob row ID of the current job |
 | `interactableActive(id)` | bool | Interactable currently usable |
 | `uiDialogueOpen()` | bool | Dialogue UI shown |
 | `gil()` | long | Current gil |

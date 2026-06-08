@@ -460,26 +460,35 @@ qf-trace extract-quest <runId>.jsonl --quest-data ../questforge-data --out 66130
 |---|---|---|---|
 | `travel` | ✅ Phase 4 | Core | Navigation via vnavmesh |
 | `talk` | ✅ Phase 4 | Core | NPC interaction + dialogue |
-| `attune` | ✅ Phase 11B | New | Aetheryte/aethernet attunement; `IsAetheryteAttuned` now reads UIState; implied navigation applies when `Location` is present |
+| `attune` | ✅ Phase 11B | New | Aetheryte/aethernet attunement; `IsAetheryteAttuned` reads UIState; implied navigation applies when `Location` is present |
+| `aethernet` | ✅ Phase 11 | New | First-class intra-zone aethernet step (`from`, `to`, `fromPosition`). Preferred over `travel` + `routeHint.aethernet` for new quests; old approach still supported. |
 | `cutscene` | ✅ Phase 11 | New | Waits on both skippable + non-skippable flags; skip handled by plugin |
 | `accept` | ✅ Phase 11 | New | Quest accept via plugin's existing AcceptQuest wiring |
 | `turn-in` | ✅ Phase 11 | New | Quest turn-in via plugin's existing CompleteQuest wiring |
 | `hand-over-item` | ✅ Phase 11 | New | FFXIV Request addon hand-over; `Items: uint[]` supports up to 5 slots; places each item via `MoveItemSlot(KeyItems, slot, HandIn, i)` then clicks NodeId 15; implies navigation via NpcLocation.Target |
+| `teleport` | ✅ Phase 11 | New | Cross-region teleport to a master aetheryte via Lifestream |
+| `purchase-item` | ✅ Phase 11 | New | Vendor purchase for gil or GC seals; `vendorCategory` (int?) selects category tab in SelectIconString windows |
+| `equip-best-gear` | ✅ Phase 11 | New | Two-phase dispatch via `NotifyEquipBestGearComplete`; not fire-once |
+| `register-gearset` | ✅ Phase 11 | New | Fire-once; self-confirms via postcondition |
+| `use-item` | ✅ Phase 11 | New | Key-item / inventory-item use; optional NPC, object, or ground-position target |
+| `use-action` | ✅ Phase 11 | New | Execute a game action (combat ability, general action, key item) on an optional target |
+| `use-emote` | ✅ Phase 11 | New | Execute an emote via text command |
+| `interact-object` | ✅ Phase 11 | New | Interact with a world EventObj |
+| `pickup-item` | ✅ Phase 11 | New | Mechanically same as `interact-object`; distinct step type for diagnostics |
+| `say-chat-message` | ✅ Phase 11 | New | Send `/say` (or yell/shout) via chat |
+| `equip-gear-for-quest` | ✅ Phase 11 | New | Equip specific items by slot and itemId |
+| `change-job` | ✅ Phase 11 | New | Switch active job/class via gearset |
+| `open-coffers` | ✅ Phase 11 | New | Open gear coffers from player inventory (post-dungeon) |
 
 **Step types remaining (in difficulty order):**
 
-1. `pickup-item`, `interact-object` (mechanically same as `talk` — good first issues; `hand-over-item` is already done)
-2. `combat` (depends on WrathCombo/RSR IPC wiring)
-3. `duty` (depends on AutoDuty IPC wiring)
+1. `combat` (depends on WrathCombo/RSR IPC wiring)
+2. `duty` (regular; depends on AutoDuty IPC wiring)
+3. `duty` with `kind: "spd"` (SPD retry logic, difficulty selection)
 4. `await-user` (UI work, conceptually simple)
-5. `use-emote`, `say-chat-message` (straightforward once interactor stubs are wired)
-6. `equip-gear-for-quest` / `equip-best-gear` / `change-job` (depends on Stylist IPC)
-7. `use-item` (multiple target variants)
-8. `use-action` (combat infrastructure + cooldown awareness)
-9. `branch` (engine HSM changes)
-10. `fragment` (composition + parameter substitution)
-11. `duty` with `kind: "spd"` (SPD retry logic, difficulty selection)
-12. `minigame` (one minigame type at a time)
+5. `branch` (engine HSM changes)
+6. `fragment` (composition + parameter substitution)
+7. `minigame` (one minigame type at a time)
 
 **Other Phase 11 work completed:**
 - `IsAetheryteAttuned` ClientStructs implementation (UIState, not PlayerState)
@@ -495,19 +504,10 @@ qf-trace extract-quest <runId>.jsonl --quest-data ../questforge-data --out 66130
 - NuGet Package Source Mapping (eliminates dalamud.dev 404 errors locally and in CI)
 - Debug commands for authoring: `/qf debug addon <name>` (AtkValue dump), `/qf debug offered-quest` (reads JournalAccept AtkValue[261] to identify offered quest ID without accepting), `/qf debug target` (NPC/quest-index diagnostics), enhanced `/qf debug quest <id>` (full job coverage from ClassJobCategory)
 - `InteractionPanel` now auto-opens when entering inspect or author mode via `/qf inspect` or `/qf author`
-
-**At each step:** author quest, extract fixture, add CI coverage entry.
-5. `duty` (regular only first; SPD logic is more complex)
-6. `await-user` (UI work, but conceptually simple)
-7. `use-emote`, `say-chat-message` (straightforward)
-8. `equip-gear-for-quest` (depends on IGearManager being fleshed out)
-9. `equip-best-gear`, `change-job` (depends on Stylist or gearset infrastructure)
-10. `use-item` (multiple target variants make this more complex)
-11. `use-action` (combat infrastructure + cooldown awareness)
-12. `branch` (engine HSM changes)
-13. `fragment` (composition + parameter substitution)
-14. `duty` with `kind: "spd"` (SPD retry logic, difficulty selection)
-15. `minigame` (one minigame type at a time)
+- **New predicates:** `isSlotEquipped(slotIndex)`, `isDiscipleOfWar`, `isDiscipleOfMagic`, `playerInCombat` (bare form), `playerJobId` — registered in `FunctionRegistry` and `PredicateEvaluator`
+- **Scheduler resume of accepted quests:** `QuestScheduler` calls `GetAcceptedQuests` before selecting new quests; accepted quests are resumed in tier-priority order, respecting `EnableBlueQuests`/`EnableSideQuests` gates
+- **Quest-data-driven fixtures:** `QuestDataDrivenState` replaces trace-replay as the primary CI fixture driver; `PredicateAnalyzer` extracts state mutations from `expect` predicates; `initialOverrides` supports branch coverage; 7 fixtures across 4 quests including 4 branch variants for quest 65999
+- **VnavmeshNavigator fly re-pathfinding:** navigator re-pathfinds with fly when `CanFly` becomes available mid-navigation (fixes ground-only paths after zone transitions)
 
 **At each step:** author quest, extract fixture, add CI coverage entry.
 

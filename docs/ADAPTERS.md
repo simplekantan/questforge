@@ -581,6 +581,10 @@ Engine behavior on `Generating`: emit `navmesh.wait` trace event, surface UI sta
 
 **Does not:** teleport (that's `ITeleporter`), engage combat (that's `ICombat`), interact with NPCs or objects (that's `IInteractor`).
 
+### 6.3.1 Mid-navigation fly detection
+
+`VnavmeshNavigator` monitors `PlayerState.CanFly` while a navigation is in progress. When `CanFly` transitions from `false` to `true` mid-navigation (for example, after a zone transition where aether currents are already attuned), the navigator cancels the current ground-only path and re-pathfinds with flight enabled. This prevents the case where the navigator commits to a ground path at zone-entry time before the game has confirmed flight capability.
+
 ### 6.4 Engine recovery on navigation failure
 
 Recovery is engine-side, not in this interface. The interface returns what happened; the engine decides what to do next. Default recovery ladders for each `NavigationOutcome` are documented in §15.
