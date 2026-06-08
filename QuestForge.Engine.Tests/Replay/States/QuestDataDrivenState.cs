@@ -437,12 +437,29 @@ internal sealed class QuestDataDrivenState : IFixtureState
             return;
         }
 
-        // Implied navigation for non-TravelStep (QD8): set player to target position.
-        if (action is EngineAction.Navigate && currentPlan.Step is not TravelStep)
+        // Implied navigation for non-TravelStep (QD8): set player to navigate destination.
+        // Also handles fragment-expanded steps whose stepId isn't in the step plan.
+        if (action is EngineAction.Navigate nav2 && currentPlan.Step is not TravelStep)
         {
-            var targetPos = GetTargetPosition(currentPlan.Step);
-            if (targetPos is not null)
-                _gameState.SetPosition(new WorldPosition(targetPos.X, targetPos.Y, targetPos.Z));
+            _gameState.SetPosition(nav2.Destination);
+            return;
+        }
+
+        // UseAethernet from fragment-expanded steps: apply zone change + loading zone.
+        // Fragment steps aren't in the step plan, so we handle UseAethernet generically here.
+        if (action is EngineAction.UseAethernet && currentPlan.Step is not TravelStep and not AethernetStep)
+        {
+            // The fragment step's expect typically contains playerZone() == N.
+            // We don't have access to the fragment step's expect here, but the engine
+            // will re-evaluate expect on the next tick. Set zone from the quest's
+            // accept step requiredZone (the zone the fragment is navigating TO).
+            var acceptStep = _stepPlans.FirstOrDefault()?.Step;
+            if (acceptStep?.RequiredZone is { } rz && int.TryParse(rz, out var targetZone))
+            {
+                _gameState.SetZone(new ZoneId((uint)targetZone));
+                _gameState.SetUiState(new UiState(false, false, true, false, false, false, false, false, null));
+                _loadingZoneCountdown = 1;
+            }
             return;
         }
 
@@ -501,6 +518,18 @@ internal sealed class QuestDataDrivenState : IFixtureState
                 _gameState.SetJob(cj.Job, 90);
 
             ApplyMutations(currentPlan.Mutations);
+
+            // If this is the last step in the current sequence block and the next step
+            // is in a different sequence, advance questSequence now. This ensures the
+            // engine sees the new sequence on its next tick (before OnTransitionRecorded
+            // fires PrepareForStep).
+            if (_cursor + 1 < _stepPlans.Count
+                && _stepPlans[_cursor + 1].SequenceNumber != currentPlan.SequenceNumber
+                && _questId.HasValue)
+            {
+                _questState.SetQuestSequence(_questId.Value, _stepPlans[_cursor + 1].SequenceNumber);
+            }
+
             return;
         }
     }

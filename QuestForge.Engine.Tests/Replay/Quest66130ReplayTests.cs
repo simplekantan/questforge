@@ -139,7 +139,10 @@ public sealed class EngineFixtureTests
             state.Minigames, state.Dialogue,
             state.Timing,
             capturingTrace, NullLogger<QuestEngine>.Instance,
-            clock: state.Clock);
+            clock: state.Clock,
+            gearEquipper: state.GearEquipper,
+            bestGearEquipper: state.BestGearEquipper,
+            jobChanger: state.JobChanger);
 
         engine.StartQuest(quest, fragments);
         engine.BeginRun("fixture-run");
