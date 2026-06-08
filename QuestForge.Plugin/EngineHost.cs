@@ -875,7 +875,7 @@ public sealed class EngineHost : IDisposable
         return result;
     }
 
-    private QuestDefinition? TryLoadQuest(QuestId questId)
+    internal QuestDefinition? TryLoadQuest(QuestId questId)
     {
         var path = _questFileIndex?.GetPath(questId)
             ?? Path.Combine(

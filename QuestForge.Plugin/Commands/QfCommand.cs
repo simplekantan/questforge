@@ -226,26 +226,10 @@ internal sealed class QfCommand : IDisposable
             return;
         }
 
-        var questDir = Path.Combine(_pi.GetPluginConfigDirectory(), "quests");
-        var path     = Path.Combine(questDir, $"{questId}.json");
-
-        if (!File.Exists(path))
-        {
-            _chat.PrintError($"QuestForge: quest file not found: {path}");
-            return;
-        }
-
-        QuestDefinition? quest;
-        try { quest = QuestFileLoader.Load(path); }
-        catch (Exception ex)
-        {
-            _chat.PrintError($"QuestForge: failed to load quest {questId}: {ex.Message}");
-            return;
-        }
-
+        var quest = _host.TryLoadQuest(new QuestId(questId));
         if (quest is null)
         {
-            _chat.PrintError($"QuestForge: quest file {questId} deserialized to null");
+            _chat.PrintError($"QuestForge: quest file not found for ID {questId}");
             return;
         }
 
