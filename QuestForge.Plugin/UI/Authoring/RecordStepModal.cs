@@ -38,7 +38,7 @@ public sealed class RecordStepModal : Window
         "hand-over-item", "pickup-item", "interact-object", "cutscene",
         "use-item", "use-emote", "use-action", "say-chat-message",
         "equip-gear-for-quest", "equip-best-gear", "change-job",
-        "register-gearset", "open-coffers", "teleport", "purchase-item",
+        "register-gearset", "open-coffers", "teleport", "aethernet", "purchase-item",
         "wait", "duty", "combat", "await-user"
     ];
 
@@ -233,6 +233,7 @@ public sealed class RecordStepModal : Window
         "register-gearset"    => "register-gearset",
         "open-coffers"        => "open-coffers",
         "teleport"            => "teleport-step",
+        "aethernet"           => "aethernet-step",
         "purchase-item"       => "purchase-item",
         "wait"                => "wait-step",
         "duty"                => "duty-step",

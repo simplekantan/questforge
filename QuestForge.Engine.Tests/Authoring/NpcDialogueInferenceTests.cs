@@ -182,7 +182,7 @@ public sealed class NpcDialogueInferenceTests
         var result = engine.Infer(before, after);
 
         // Assert
-        Assert.Equal("travel", result.StepType);
+        Assert.Equal("aethernet", result.StepType);
         Assert.Contains("aethernet", result.SuggestedStepId, StringComparison.OrdinalIgnoreCase);
     }
 

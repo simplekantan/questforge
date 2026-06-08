@@ -122,6 +122,7 @@ public static class StepFactory
                 Target = npcLoc,
                 Items = itemsOverride ?? (after?.KeyItemsRemoved?.ToArray() ?? [])
             },
+            "aethernet" => BuildAethernetStep(stepId, expectValue, zoneStr, before, after, effectiveSourceShard),
             "teleport" => new TeleportStep
             {
                 Id = stepId,
@@ -367,6 +368,40 @@ public static class StepFactory
             RequiredZone = ZoneStr(before.Zone.Value),
             Destination = new TravelDestination(Zone: zone, Position: destPos),
             RouteHint = routeHint
+        };
+    }
+
+    private static AethernetStep BuildAethernetStep(
+        string stepId,
+        ExpectValue? expectValue,
+        string? zoneStr,
+        GameStateSnapshot? before,
+        GameStateSnapshot? after,
+        Adapters.Types.AetheryteId? sourceShard)
+    {
+        var hop = after?.AethernetTeleportCompleted;
+        var toValue = hop?.To.Value
+            ?? before?.AethernetDestinationSelected?.Value
+            ?? (after?.LastAethernetShardInteracted is { } ds && sourceShard.HasValue && ds.Value != sourceShard.Value.Value
+                ? ds.Value
+                : 0u);
+        var fromValue = hop?.From?.Value ?? sourceShard?.Value ?? 0u;
+
+        var lastNpcWasShard = before?.LastNpcInteracted?.Value == sourceShard?.Value;
+        var shardPos = (lastNpcWasShard ? before?.LastNpcPosition : null) ?? before?.Position;
+        var fromPosition = shardPos is { } sp
+            ? new Position3(sp.X, sp.Y, sp.Z)
+            : new Position3(0, 0, 0);
+
+        return new AethernetStep
+        {
+            Id = stepId,
+            Expect = expectValue,
+            Zone = zoneStr,
+            RequiredZone = ZoneStr(before?.Zone.Value ?? 0u),
+            From = fromValue,
+            To = toValue,
+            FromPosition = fromPosition
         };
     }
 
