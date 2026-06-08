@@ -100,7 +100,7 @@ When a dependency plugin changes its IPC contract, only the `QuestForge.Adapters
 1. **Schema validation** — structural JSON schema checks on every quest data PR
 2. **Semantic validation** — references exist, coordinates in bounds, predicates valid, no DAG cycles (build this first; catches ~60-70% of contributor bugs)
 3. **Engine unit tests** — xUnit against fake adapters, ≥80% line coverage target
-4. **Trace replay** — canonical traces replayed against current engine on every PR (the regression workhorse once corpus exists)
+4. **Quest-data-driven fixtures** — state machines derived from quest data (expect predicates) drive the engine through full quest paths; supports branch coverage via `initialOverrides` (zone, position, equipped slots, items, job); traces are archival proof, not replay inputs
 5. **E2E smoke** — manual, optional alt account
 
 ## Specification Documents
@@ -131,7 +131,7 @@ All design is in `docs/`:
 | 10 | Trace extractor CLI (`qf-trace`) | 2-3 weeks |
 | 11 | Corpus expansion: new step types as quests require them | Ongoing |
 
-**Current status: Phase 11 in progress. AttunementStep, HandOverItemStep, and playerHasItem predicate implemented and validated in-game. Expanding quest corpus.**
+**Current status: Phase 11 in progress. Step types: AttunementStep, HandOverItemStep, AethernetStep, PurchaseItemStep (with vendorCategory), EquipBestGearStep (two-phase), RegisterGearsetStep, ChangeJobStep all implemented and validated in-game. Predicates: isSlotEquipped, isDiscipleOfWar/Magic, playerInCombat added. Fixture infrastructure replaced trace replay with quest-data-driven state machines (7 fixtures across 4 quests). Scheduler resumes accepted quests from game journal. Expanding quest corpus.**
 
 ## Adding a New Step Type — Fixed Slice Order
 

@@ -310,7 +310,7 @@ The engine exposes a single `Travel` step type. Underneath, a strategy selector 
 | 1 | Schema validation | tools repo, runs in data repo CI | Necessary, low value |
 | 2 | **Semantic validation** | tools repo, runs in data repo CI | **Highest — build first** |
 | 3 | Engine unit tests | plugin repo CI | Moderate; catches deterministic logic bugs |
-| 4 | **Trace replay** | data repo CI | High after corpus exists |
+| 4 | **Quest-data-driven fixtures** | plugin repo CI | High; `QuestDataDrivenState` drives fake adapters from `expect` predicates; 7 fixtures across 4 quests |
 | 5 | E2E smoke (manual) | optional alt account | Highest reliability, expensive |
 
 ### 6.2 Tier 2 — semantic validation (the workhorse)
@@ -328,13 +328,14 @@ Validates that quest data is internally consistent and externally references val
 
 Runs on every PR. Catches roughly 60-70% of contributor bugs at author time, before any code runs.
 
-### 6.3 Tier 4 — trace replay (the regression workhorse)
+### 6.3 Tier 4 — quest-data-driven fixtures (the regression workhorse)
 
-Traces from real quest runs are anonymized and committed to `traces/`. CI replays each trace against the current engine code and asserts that the same input state produces the same action decision.
+Fixture JSON files pair with `QuestDataDrivenState` (in `QuestForge.Engine.Tests/Replay/States/`), which drives fake adapters by deriving state mutations from each step's `expect` predicate via `PredicateAnalyzer`. Navigation resolves instantly; combat completes via the same mutation mechanism. No trace recording is required to run or maintain a fixture.
 
-- Tagged with the game patch they were recorded against
-- Schema or engine changes that would break real quests fail loudly before shipping
-- Same format as the runtime logger (see §11) so user-submitted bug-report logs are valid replay inputs
+- `initialOverrides` (zone, position, questSequence, slotsEquipped, items, job) provides branch coverage without separate quest files
+- Adding a new fixture file automatically adds a new parametric test case — zero test code changes
+- Schema or engine changes that break any fixture fail loudly in CI before shipping
+- Trace files (`.jsonl`) remain as archival records and `qf-trace` CLI inputs; they are not consumed by the fixture harness
 
 ### 6.4 Engine unit test target
 

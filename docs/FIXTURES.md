@@ -78,7 +78,8 @@ Fixtures are **not** co-located with quest definitions. They are test infrastruc
 | `questFile` | string | ✅ | Path to the quest definition, relative to the `questforge-data` root, forward slashes. |
 | `expectedTransitions` | object[] | ✅ | Ordered unique consecutive `(stepId, actionType)` pairs. See below. |
 | `terminalOutcome` | string | ✅ | The `run.end.outcome` value: `"done"` or `"awaitUser"`. |
-| `sourceTrace` | path string | Optional | Path to the source JSONL trace (engine inputs) for the generic replay harness, relative to `questforge-data` root, forward slashes. When omitted, the harness uses the `<name>.trace.jsonl` sibling convention. See "Trace-backed fixtures" below. Path must match filesystem case exactly (CI is Linux). |
+| `initialOverrides` | object | Optional | Override starting world state for branch coverage. Supported keys: `zone` (int), `position` ({x,y,z}), `questSequence` (int), `slotsEquipped` (bool[]), `items` ({itemId, count}[]), `job` (string). When absent, `QuestDataDrivenState` uses the quest file's starting conditions. |
+| `sourceTrace` | path string | Optional | Archival path to the source JSONL trace, relative to `questforge-data` root, forward slashes. Used by `qf-trace` CLI and local debugging only — not consumed by the CI fixture harness. Path must match filesystem case exactly (CI is Linux). |
 
 ### `initialState` vocabulary
 
@@ -86,7 +87,7 @@ Fixtures are **not** co-located with quest definitions. They are test infrastruc
 |---|---|
 | `"fresh"` | Quest not yet accepted. Player in the appropriate starting zone for the quest (e.g., zone 182 for quest 66130). No prior progress. |
 
-Further values will be added as multi-stage or mid-quest fixtures are created. All Phase 7–11 fixtures use `"fresh"`.
+All current fixtures use `"fresh"`. Use `initialOverrides` for branch variants instead of introducing new `initialState` values.
 
 ### `capabilities` taxonomy
 
@@ -110,6 +111,7 @@ Capabilities use a `namespace:name` format. Readers may filter by namespace pref
 | `step:use-action` | `UseActionStep` |
 | `step:use-emote` | `UseEmoteStep` |
 | `step:teleport` | `TeleportStep` |
+| `step:aethernet` | `AethernetStep` — first-class intra-zone aethernet hop (use for new quests; `step:travel` with `routeHint.aethernet` is the legacy form) |
 | `step:purchase-item` | `PurchaseItemStep` |
 | `step:interact-object` | `InteractObjectStep` |
 | `step:pickup-item` | `PickupItemStep` |
@@ -139,8 +141,11 @@ Capabilities use a `namespace:name` format. Readers may filter by namespace pref
 | `predicate:playerHasItem` | `playerHasItem(itemId, qty?)` |
 | `predicate:not` | `not(pred)` |
 | `predicate:inCombat` | `inCombat()` |
-
-Add further tags as the predicate language expands.
+| `predicate:isSlotEquipped` | `isSlotEquipped(slotIndex)` |
+| `predicate:isDiscipleOfWar` | `isDiscipleOfWar` |
+| `predicate:isDiscipleOfMagic` | `isDiscipleOfMagic` |
+| `predicate:playerInCombat` | `playerInCombat` |
+| `predicate:playerJobId` | `playerJobId` |
 
 **Engine behaviours** (`engine:`)
 
@@ -166,7 +171,7 @@ Example: if the engine emits Navigate 1,847 times followed by Interact 312 times
 | `"navigate"` | `EngineAction.Navigate` | |
 | `"interact"` | `EngineAction.Interact` | Also covers `AttunementStep` and similar — those steps dispatch as Interact actions on the target NPC/object. |
 | `"handover"` | `EngineAction.HandOver` | `HandOverItemStep` dispatch — player handing over quest items to an NPC. |
-| `"useaethernet"` | `EngineAction.UseAethernet` | `TravelStep` with `routeHint.aethernet` — Lifestream aethernet shortcut. |
+| `"useaethernet"` | `EngineAction.UseAethernet` | `TravelStep` with `routeHint.aethernet` (legacy) or `AethernetStep` (preferred for new quests) — Lifestream aethernet shortcut. |
 | `"teleport"` | `EngineAction.Teleport` | `TeleportStep` dispatch — cross-region teleport to a master aetheryte. |
 | `"purchase"` | `EngineAction.Purchase` | `PurchaseItemStep` dispatch — buy item from vendor (gil or GC seals). |
 | `"useaction"` | `EngineAction.UseAction` | `UseActionStep` dispatch — execute a game action (combat ability, general action, key item) on an optional NPC target. |
@@ -258,13 +263,14 @@ Each fixture type also requires a **scripted fake state machine** — test code 
 
 The state machine is responsible for advancing game state at the right moments: making `playerNear` flip to true when the engine has navigated long enough, advancing `questSequence` from 0 to 255 after the acceptance interaction, and marking `isQuestComplete` true after the completion interaction. The exact implementation is test-code detail; the fixture JSON describes only the expected outcome.
 
-**State machine dispatch:** the parametric test uses a three-way dispatch:
+**State machine dispatch:** the parametric test uses a two-path dispatch:
 
-1. **Scripted path** — if a scripted state machine is registered in `EngineFixtureTests.StateFactories` for the fixture's name, it runs that machine. The existing `simple-linear-acceptance` fixture uses this path.
-2. **Generic trace-replay path** — if no scripted machine is registered but a source trace resolves (either via the `sourceTrace` field or the `<name>.trace.jsonl` sibling convention), the test constructs a `TraceReplayFixtureState` automatically. See "Trace-backed fixtures" below.
-3. **Skip** — if neither applies, the test emits `Assert.Skip` with an actionable message naming both resolution methods. This makes it safe to commit fixture files before their state machines or traces are available.
+1. **Quest-data-driven path** — the primary path for all current fixtures. `QuestDataDrivenState` (in `QuestForge.Engine.Tests/Replay/States/`) drives the fake adapters by deriving state mutations directly from the quest definition's `expect` predicates. `PredicateAnalyzer` inspects each step's postcondition to determine which fake-state fields must flip (zone, position, questSequence, questFlags, items, slotsEquipped, job). Navigation is resolved instantly; combat steps complete via the same predicate-mutation mechanism. No trace file is required.
+2. **Skip** — if the fixture file exists but neither a `QuestDataDrivenState` registration nor a state factory is present, the test emits `Assert.Skip` with an actionable message. This makes it safe to commit fixture files before their drivers are wired.
 
-When adding a new fixture for an already-exercised capability shape (e.g., a second `step:travel + step:talk` quest), commit a source trace alongside it and use the generic replay path — no hand-written state machine required.
+`initialOverrides` (see field reference) provides branch coverage: different initial assumptions (different zone, questSequence, items in inventory, job, slotsEquipped) exercise alternate engine paths without separate quest files.
+
+**Trace files are archival.** The `sourceTrace` field and `<name>.trace.jsonl` sibling convention are retained for `qf-trace` CLI tooling and local debugging. They are not used as primary fixture inputs. Trace-backed replay via `TraceReplayFixtureState` / `SegmentedObservationScanner` remains available for edge cases but is not the default path.
 
 **The test loop:**
 ```
@@ -288,9 +294,9 @@ A fixture with a typo in a step ID fails immediately with a clear message, not w
 
 ---
 
-## Trace-backed fixtures (generic replay harness)
+## Trace-backed fixtures (archival / qf-trace CLI)
 
-A **trace-backed fixture** pairs a fixture JSON with a source `.jsonl` trace, enabling a fully generic replay path that requires no hand-written state machine.
+A **trace-backed fixture** pairs a fixture JSON with a source `.jsonl` trace. Traces are no longer the primary fixture driver — `QuestDataDrivenState` is. Traces are retained as archival records and consumed by `qf-trace replay` for local debugging. The description below documents the format for that use case.
 
 ### Two-file model
 
@@ -422,13 +428,15 @@ predicate:playerHasItem ✅ with-attunement.json
 predicate:inCombat      ❌
 ```
 
-A new fixture automatically fills coverage gaps. The `capabilities` list is **informational** — it is not verified against the quest file's actual predicates in Phase 7. The `qf-trace validate-fixture` tool (Phase 10) will cross-validate capabilities against the quest definition.
+**Current corpus:** 7 fixtures across 4 quests, including 4 branch variants for quest 65999 exercising `initialOverrides`. All driven by `QuestDataDrivenState`.
+
+A new fixture automatically fills coverage gaps. The `capabilities` list is **informational** — it is not verified against the quest file's actual predicates at commit time. The `qf-trace validate-fixture` tool cross-validates capabilities against the quest definition.
 
 ---
 
 ## Known limitations
 
-- **Linear sequences only.** `expectedTransitions` is an ordered list with no branching support. Fixtures for branching quests require one fixture per branch (Phase 11 concern).
+- **Linear sequences only.** `expectedTransitions` is an ordered list with no branching support. Fixtures for branching quests use one fixture per branch with `initialOverrides` to set the starting state that routes into each branch.
 - **Happy path only.** Error recovery paths (player death, NPC not found, duty failure) are covered by engine unit tests, not fixtures.
 - **Fresh initial state only.** Mid-quest fixtures (`initialState: "quest-accepted"`) are not yet supported.
 - **No parameter assertions.** `expectedTransitions` captures `actionType` and `stepId` only. Asserting the *exact destination* of a Navigate action (e.g., specific coordinates) requires a future fixture format extension.
