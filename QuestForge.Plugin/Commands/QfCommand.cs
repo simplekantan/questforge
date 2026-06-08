@@ -103,6 +103,9 @@ internal sealed class QfCommand : IDisposable
             case "run" when parts.Length >= 2:
                 HandleRun(parts[1]);
                 break;
+            case "fragment" when parts.Length >= 2:
+                HandleFragment(string.Join(" ", parts[1..]));
+                break;
             case "start":
                 _host.StartAutoMode(_scheduler, _config.UserTracingEnabled);
                 break;
@@ -241,6 +244,60 @@ internal sealed class QfCommand : IDisposable
         _host.BeginRun(quest, runId, _config.UserTracingEnabled);
         var traceNote = _config.UserTracingEnabled ? " (tracing on)" : "";
         _chat.Print($"QuestForge: run {runId} started for quest {questId}{traceNote}");
+    }
+
+    private void HandleFragment(string fragmentId)
+    {
+        var fragmentsDir = Path.Combine(_pi.GetPluginConfigDirectory(), "fragments");
+        if (!Directory.Exists(fragmentsDir))
+        {
+            _chat.PrintError("QuestForge: no fragments directory found");
+            return;
+        }
+
+        FragmentDefinition? fragment = null;
+        foreach (var file in Directory.EnumerateFiles(fragmentsDir, "*.json", SearchOption.AllDirectories))
+        {
+            try
+            {
+                var def = QuestFileLoader.LoadFragment(file);
+                if (def is not null && def.FragmentId == fragmentId)
+                {
+                    fragment = def;
+                    break;
+                }
+            }
+            catch { }
+        }
+
+        if (fragment is null)
+        {
+            _chat.PrintError($"QuestForge: fragment '{fragmentId}' not found");
+            return;
+        }
+
+        var syntheticQuest = new QuestDefinition
+        {
+            SchemaVersion = "1.0.0",
+            Id = 0,
+            Name = $"Fragment: {fragmentId}",
+            Expansion = "arr",
+            Category = "side",
+            Enabled = true,
+            SupportStatus = new SupportStatus { Implementation = "complete", KnownIssues = [] },
+            LastVerifiedPatch = "0",
+            Requirements = new Requirements { MinLevel = 1, Prereqs = [] },
+            AcceptFrom = null,
+            Sequences =
+            [
+                new QuestSequence { Sequence = 0, Steps = fragment.Steps }
+            ]
+        };
+
+        var runId = $"frag-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"[..28];
+        _host.BeginRun(syntheticQuest, runId, _config.UserTracingEnabled);
+        var traceNote = _config.UserTracingEnabled ? " (tracing on)" : "";
+        _chat.Print($"QuestForge: running fragment '{fragmentId}'{traceNote}");
     }
 
     private void HandleStop()
@@ -1155,7 +1212,7 @@ internal sealed class QfCommand : IDisposable
     }
 
     private void PrintUsage()
-        => _chat.Print("QuestForge: /qf run <id> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf author-fragment <fragmentId> | /qf author-fragment stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf debug close-shop | /qf debug mount | /qf debug dismount | /qf config trace on|off");
+        => _chat.Print("QuestForge: /qf run <id> | /qf fragment <fragmentId> | /qf start | /qf stop | /qf ui | /qf inspect | /qf author <questId> | /qf author stop | /qf author-fragment <fragmentId> | /qf author-fragment stop | /qf quest <name> | /qf debug offered-quest | /qf debug quest <id> | /qf debug hostiles [radius] | /qf debug rotation start|stop | /qf debug currency | /qf debug shop | /qf debug hookshop on|off [addonName] | /qf debug addon <name> [maxCount] | /qf debug buy <itemId> [qty] [gil|gcSeals] | /qf debug close-shop | /qf debug mount | /qf debug dismount | /qf config trace on|off");
 
     public void Dispose()
     {
