@@ -824,6 +824,8 @@ public sealed class QuestEngine
 
         // Aethernet routing: navigate to the source shard (Destination.Position) first,
         // then emit UseAethernet once in range. Lifestream chains from there automatically.
+        // DEPRECATED: prefer AethernetStep for new quests. This arm handles legacy
+        // TravelStep quests that encode aethernet hops via routeHint.aethernet.
         // If no source position is specified, emit UseAethernet directly (caller ensures proximity).
         TravelStep travel when travel.RouteHint?.Aethernet is { To: > 0 } hop =>
             travel.Destination.Position is { } sourcePos
@@ -891,6 +893,13 @@ public sealed class QuestEngine
                 defaultStopDistance: DefaultAetheryteStopDistance),
 
         AttunementStep attune => new EngineAction.Interact(new NpcId(attune.Target.Value), Origin: step),
+
+        AethernetStep aethernet =>
+            ResolveInteractOrNavigate(
+                step, aethernet.FromPosition, playerPos,
+                new EngineAction.UseAethernet(
+                    new AethernetId(aethernet.To),
+                    new WorldPosition(aethernet.FromPosition.X, aethernet.FromPosition.Y, aethernet.FromPosition.Z))),
 
         HandOverItemStep handOver =>
             ResolveInteractOrNavigate(

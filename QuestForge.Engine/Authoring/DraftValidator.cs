@@ -223,6 +223,28 @@ public sealed class DraftValidator
             }
         }
 
+        // E25: AethernetStep with From == 0
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is AethernetStep aes25 && aes25.From == 0)
+            {
+                errors.Add(new DraftValidationError("E25",
+                    $"Step '{steps[i].StepId}' is an AethernetStep with From == 0.",
+                    [i]));
+            }
+        }
+
+        // E26: AethernetStep with To == 0
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is AethernetStep aes26 && aes26.To == 0)
+            {
+                errors.Add(new DraftValidationError("E26",
+                    $"Step '{steps[i].StepId}' is an AethernetStep with To == 0.",
+                    [i]));
+            }
+        }
+
         // E14: UseItemStep with TargetNpcId == 0 (null is allowed; explicit zero is invalid)
         for (var i = 0; i < steps.Count; i++)
         {
@@ -318,6 +340,7 @@ public sealed class DraftValidator
                 and not UseItemStep
                 and not EquipGearForQuestStep
                 and not ChangeJobStep
+                and not AethernetStep
                 && step.Raw is not DutyStep { Kind: "duty" })
             {
                 warnings.Add(new DraftValidationWarning("W1",
@@ -384,6 +407,19 @@ public sealed class DraftValidator
                     $"Step '{step.StepId}' is a DutyStep(kind:duty) with no 'expect' predicate " +
                     "-- without it the engine will spin-loop re-dispatching EnterDuty. " +
                     "Add an expect predicate (e.g. questSequence).",
+                    [i]));
+            }
+        }
+
+        // W12: AethernetStep with no Expect — engine spin-loops without one
+        for (var i = 0; i < steps.Count; i++)
+        {
+            var step = steps[i];
+            if (step.Raw is AethernetStep aes && aes.Expect is null)
+            {
+                warnings.Add(new DraftValidationWarning("W12",
+                    $"Step '{step.StepId}' is an AethernetStep with no 'expect' predicate " +
+                    "-- without it the engine will spin-loop re-emitting UseAethernet. Add an expect predicate.",
                     [i]));
             }
         }

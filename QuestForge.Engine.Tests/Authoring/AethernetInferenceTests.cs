@@ -339,7 +339,7 @@ public sealed class AethernetInferenceTests
 
         var result = engine.Infer(before, after);
 
-        Assert.Equal("travel", result.StepType);
+        Assert.Equal("aethernet", result.StepType);
         Assert.Contains("aethernet", result.SuggestedStepId, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(Confidence.High, result.Confidence);
         Assert.NotNull(result.Notes);
@@ -373,7 +373,7 @@ public sealed class AethernetInferenceTests
 
         var result = engine.Infer(before, after);
 
-        Assert.Equal("travel", result.StepType);
+        Assert.Equal("aethernet", result.StepType);
         Assert.Equal(Confidence.Medium, result.Confidence);
         Assert.NotNull(result.Notes);
         Assert.Contains("destination shard", result.Notes, StringComparison.OrdinalIgnoreCase);
@@ -404,7 +404,7 @@ public sealed class AethernetInferenceTests
 
         var result = engine.Infer(before, after);
 
-        Assert.Equal("travel", result.StepType);
+        Assert.Equal("aethernet", result.StepType);
         Assert.Equal(Confidence.Medium, result.Confidence);
         Assert.NotNull(result.Notes);
         Assert.Contains("destination shard", result.Notes, StringComparison.OrdinalIgnoreCase);
@@ -640,7 +640,7 @@ public sealed class AethernetInferenceTests
 
         var result = engine.Infer(before, after);
 
-        Assert.Equal("travel", result.StepType);
+        Assert.Equal("aethernet", result.StepType);
         Assert.StartsWith("aethernet-", result.SuggestedStepId, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("travel-", result.SuggestedStepId, StringComparison.OrdinalIgnoreCase);
     }

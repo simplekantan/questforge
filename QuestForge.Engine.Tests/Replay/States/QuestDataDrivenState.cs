@@ -389,6 +389,14 @@ internal sealed class QuestDataDrivenState : IFixtureState
             return;
         }
 
+        // Navigate for AethernetStep: move to source shard position.
+        if (action is EngineAction.Navigate && currentPlan.Step is AethernetStep aethernetStep)
+        {
+            var shardPos = aethernetStep.FromPosition;
+            _gameState.SetPosition(new WorldPosition(shardPos.X, shardPos.Y, shardPos.Z));
+            return;
+        }
+
         // Implied navigation for non-TravelStep (QD8): set player to target position.
         if (action is EngineAction.Navigate && currentPlan.Step is not TravelStep)
         {
@@ -632,6 +640,7 @@ internal sealed class QuestDataDrivenState : IFixtureState
         TravelStep { RouteHint.NpcDialogue: not null } => action is EngineAction.Interact,
         TravelStep { RouteHint.Aethernet: not null } => action is EngineAction.UseAethernet,
         TravelStep => action is EngineAction.Navigate,
+        AethernetStep => action is EngineAction.UseAethernet,
         TalkStep => action is EngineAction.Interact,
         AcceptStep => action is EngineAction.Interact,
         TurnInStep => action is EngineAction.Interact,

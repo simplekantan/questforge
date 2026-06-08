@@ -495,7 +495,7 @@ public sealed class StepInferenceEngine
                 var fromId = hopInterZone.From?.Value; // uint?
                 var toId   = hopInterZone.To.Value;
                 return new InferenceResult(
-                    StepType: "travel",
+                    StepType: "aethernet",
                     SuggestedStepId: $"aethernet-to-zone-{after.Zone.Value}",
                     SuggestedExpect: $"playerZone() == {after.Zone.Value}",
                     Confidence: Confidence.High,
@@ -546,7 +546,7 @@ public sealed class StepInferenceEngine
                 var fromId = hop?.From?.Value ?? sourceShardId;
 
                 return new InferenceResult(
-                    StepType: "travel",
+                    StepType: "aethernet",
                     SuggestedStepId: $"aethernet-to-zone-{after.Zone.Value}",
                     SuggestedExpect: $"playerZone() == {after.Zone.Value}",
                     Confidence: destId.HasValue ? Confidence.High : Confidence.Medium,
@@ -575,7 +575,7 @@ public sealed class StepInferenceEngine
         {
             var hop = hop2;
             return new InferenceResult(
-                StepType: "travel",
+                StepType: "aethernet",
                 SuggestedStepId: $"aethernet-intra-zone-{hop.To.Value}",
                 SuggestedExpect: null,
                 Confidence: Confidence.High,

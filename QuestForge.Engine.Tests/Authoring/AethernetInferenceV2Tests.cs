@@ -101,7 +101,7 @@ public sealed class AethernetInferenceV2Tests
 
         var result = engine.Infer(before, after);
 
-        Assert.Equal("travel", result.StepType);
+        Assert.Equal("aethernet", result.StepType);
         Assert.Equal(Confidence.High, result.Confidence);
         Assert.NotNull(result.Notes);
         // Notes should reference 77 (AethernetDestinationSelected), not 33 (after.LastShard)
@@ -144,7 +144,7 @@ public sealed class AethernetInferenceV2Tests
 
         var result = engine.Infer(before, after);
 
-        Assert.Equal("travel", result.StepType);
+        Assert.Equal("aethernet", result.StepType);
         Assert.Equal(Confidence.High, result.Confidence);
         Assert.NotNull(result.Notes);
         Assert.Contains("33", result.Notes!, StringComparison.Ordinal);
@@ -185,7 +185,7 @@ public sealed class AethernetInferenceV2Tests
 
         var result = engine.Infer(before, after);
 
-        Assert.Equal("travel", result.StepType);
+        Assert.Equal("aethernet", result.StepType);
         Assert.Equal(Confidence.High, result.Confidence);
         Assert.Contains("125", result.Notes!, StringComparison.Ordinal);
         Assert.Contains("77", result.Notes!, StringComparison.Ordinal);
@@ -222,7 +222,7 @@ public sealed class AethernetInferenceV2Tests
 
         var result = engine.Infer(before, after);
 
-        Assert.Equal("travel", result.StepType);
+        Assert.Equal("aethernet", result.StepType);
         Assert.Equal(Confidence.Medium, result.Confidence);
     }
 

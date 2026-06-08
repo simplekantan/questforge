@@ -1916,6 +1916,116 @@ public class RoundTripTests
     }
 
     // =========================================================================
+    // A9 -- AethernetStep round-trip serialization
+    // Spec: docs/AETHERNET_STEP_PLAN.md scenario A9
+    // RED: AethernetStep does not exist yet in Step.cs.
+    // =========================================================================
+
+    /// <summary>
+    /// A9 -- AethernetStep round-trips through JSON with correct From, To, FromPosition,
+    /// and the "aethernet" type discriminator.
+    /// RED: Will fail to compile until Builder adds AethernetStep to Step.cs,
+    /// [JsonDerivedType(typeof(AethernetStep), "aethernet")] to Step,
+    /// and [JsonSerializable(typeof(AethernetStep))] to QuestForgeJsonContext.
+    /// </summary>
+    [Fact]
+    public void AethernetStep_RoundTrips_A9()
+    {
+        /*
+         * CONTRACT: Given AethernetStep { Id="aethernet-to-guild", From=8, To=48,
+         *                FromPosition=(-218.9, 16.0, 51.4) },
+         *           When serialized as Step then deserialized,
+         *           Then result is AethernetStep with From==8, To==48,
+         *                FromPosition.X approximately -218.9.
+         *           AND compact JSON contains "type":"aethernet", "from":8, "to":48,
+         *                and "fromPosition".
+         *
+         * BUILDER GUIDANCE:
+         *   1. Add AethernetStep class to Step.cs:
+         *        public sealed class AethernetStep : Step
+         *        {
+         *            public uint From { get; init; }
+         *            public uint To { get; init; }
+         *            public Position3 FromPosition { get; init; } = default!;
+         *        }
+         *   2. Add [JsonDerivedType(typeof(AethernetStep), "aethernet")] to Step.
+         *   3. Add [JsonSerializable(typeof(AethernetStep))] to QuestForgeJsonContext.
+         */
+
+        // Arrange
+        var step = new AethernetStep
+        {
+            Id = "aethernet-to-guild",
+            From = 8,
+            To = 48,
+            FromPosition = new Position3(-218.9f, 16.0f, 51.4f)
+        };
+
+        // Act
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        // Assert -- discriminator present
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"type\":\"aethernet\"", compactJson, StringComparison.Ordinal);
+        Assert.Contains("\"from\":8", compactJson, StringComparison.Ordinal);
+        Assert.Contains("\"to\":48", compactJson, StringComparison.Ordinal);
+        Assert.Contains("\"fromPosition\":", compactJson, StringComparison.Ordinal);
+
+        // Assert -- round-trip fidelity
+        Assert.Equal("aethernet-to-guild", result.Id);
+        Assert.Equal(8u, result.From);
+        Assert.Equal(48u, result.To);
+        Assert.Equal(-218.9f, result.FromPosition.X, precision: 1);
+        Assert.Equal(16.0f, result.FromPosition.Y, precision: 1);
+        Assert.Equal(51.4f, result.FromPosition.Z, precision: 1);
+    }
+
+    /// <summary>
+    /// A9b -- AethernetStep with Expect round-trips: verifies base Step property preserved.
+    /// </summary>
+    [Fact]
+    public void AethernetStep_WithExpect_RoundTrips_A9b()
+    {
+        var step = new AethernetStep
+        {
+            Id = "aethernet-with-expect",
+            From = 8,
+            To = 48,
+            FromPosition = new Position3(-218.9f, 16.0f, 51.4f),
+            Expect = new PredicateExpect { Predicate = "playerZone() == 128" }
+        };
+
+        var result = RoundTrip(step);
+
+        Assert.Equal(8u, result.From);
+        Assert.Equal(48u, result.To);
+        var expect = Assert.IsType<PredicateExpect>(result.Expect);
+        Assert.Equal("playerZone() == 128", expect.Predicate);
+    }
+
+    /// <summary>
+    /// A9c -- AethernetStep missing fields in JSON: From/To default to 0, FromPosition to default.
+    /// Structural validation is the validator's job, not the deserializer's.
+    /// </summary>
+    [Fact]
+    public void AethernetStep_MissingFields_DefaultToZero_A9c()
+    {
+        const string json = """
+            {
+              "type": "aethernet",
+              "id": "aethernet-minimal"
+            }
+            """;
+
+        var step = System.Text.Json.JsonSerializer.Deserialize<Step>(json, QuestForgeJsonContext.QuestFileOptions);
+
+        var aethernet = Assert.IsType<AethernetStep>(step);
+        Assert.Equal(0u, aethernet.From);
+        Assert.Equal(0u, aethernet.To);
+    }
+
+    // =========================================================================
     // OC_RT1 -- OpenCoffersStep round-trip serialization
     // =========================================================================
 
