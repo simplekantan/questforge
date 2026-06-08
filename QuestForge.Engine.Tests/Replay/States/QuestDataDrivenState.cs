@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using QuestForge.Adapters;
+using QuestForge.Engine.Tests.Engine;
 using QuestForge.Adapters.Combat;
 using QuestForge.Adapters.Fakes.Combat;
 using QuestForge.Adapters.Fakes.Gear;
@@ -58,7 +59,7 @@ internal sealed class QuestDataDrivenState : IFixtureState
     public IMinigameSkipper Minigames { get; }
     public IDialogueResolver Dialogue { get; }
     public ITimingProfile Timing { get; }
-    public TimeProvider? Clock => null;
+    public TimeProvider? Clock { get; }
 
     // -------------------------------------------------------------------------
     // Cursor and state
@@ -73,6 +74,8 @@ internal sealed class QuestDataDrivenState : IFixtureState
     // Private constructor
     // -------------------------------------------------------------------------
 
+    private readonly ManualTimeProvider _clock;
+
     private QuestDataDrivenState(
         FakeGameStateProvider gameState,
         FakeQuestState questState,
@@ -83,6 +86,8 @@ internal sealed class QuestDataDrivenState : IFixtureState
         _questState = questState;
         _stepPlans = stepPlans;
         _questId = questId;
+        _clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        Clock = _clock;
 
         Navigator = new FakeNavigator(_gameState);
         Teleporter = new FakeTeleporter(_gameState);
@@ -361,6 +366,9 @@ internal sealed class QuestDataDrivenState : IFixtureState
 
     public void OnTick(EngineAction action, int tick)
     {
+        // Advance clock 1 second per tick so WaitSteps complete without real-time delay.
+        _clock.Advance(TimeSpan.FromSeconds(1));
+
         // Loading-zone countdown (QD9): decrement and clear when done.
         if (_loadingZoneCountdown > 0)
         {
