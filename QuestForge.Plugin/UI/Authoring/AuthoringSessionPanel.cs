@@ -4,6 +4,7 @@ using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using QuestForge.Engine.Authoring;
 using QuestForge.Plugin.Authoring;
+using QuestForge.Schema;
 
 namespace QuestForge.Plugin.UI.Authoring;
 
@@ -26,6 +27,11 @@ public sealed partial class AuthoringSessionPanel : Window
     private string _fragmentIdInput = "";
     private string? _fragmentModalWarning;
     private string? _fragmentModalError;
+
+    // Insert fragment modal state
+    private bool _insertFragmentModalOpen;
+    private List<string>? _availableFragmentIds;
+    private string? _selectedFragmentId;
 
     public AuthoringSessionPanel(AuthoringHost host,
         RecordStepModal recordModal, StepEditModal editModal, ExportDialog exportDialog,
@@ -179,6 +185,13 @@ public sealed partial class AuthoringSessionPanel : Window
         {
             _recordModal.Open();
             _recordModal.IsOpen = true;
+        }
+        ImGui.SameLine();
+        if (ImGui.Button("+ Insert Fragment"))
+        {
+            _insertFragmentModalOpen = true;
+            _selectedFragmentId = null;
+            _availableFragmentIds = ScanAvailableFragments();
         }
         ImGui.SameLine();
         if (ImGui.Button("Validate"))
@@ -337,6 +350,114 @@ public sealed partial class AuthoringSessionPanel : Window
 
         if (stepToEdit is not null)
             _editModal.OpenFor(stepToEdit);
+
+        DrawInsertFragmentModal(draft, target.Value);
+    }
+
+    private List<string> ScanAvailableFragments()
+    {
+        var dir = System.IO.Path.Combine(
+            _pi.GetPluginConfigDirectory(), "fragments");
+        if (!System.IO.Directory.Exists(dir))
+            return [];
+
+        var ids = new List<string>();
+        foreach (var file in System.IO.Directory.EnumerateFiles(dir, "*.json", System.IO.SearchOption.AllDirectories))
+        {
+            if (file.Contains(".draft.", StringComparison.OrdinalIgnoreCase))
+                continue;
+            try
+            {
+                var def = QuestFileLoader.LoadFragment(file);
+                if (def?.FragmentId is not null)
+                    ids.Add(def.FragmentId);
+            }
+            catch { }
+        }
+        ids.Sort(StringComparer.Ordinal);
+        return ids;
+    }
+
+    private void DrawInsertFragmentModal(QuestDraft draft, Adapters.Types.QuestId questId)
+    {
+        if (!_insertFragmentModalOpen) return;
+
+        ImGui.OpenPopup("Insert Fragment");
+        var center = ImGui.GetMainViewport().GetCenter();
+        ImGui.SetNextWindowPos(center, ImGuiCond.Appearing, new System.Numerics.Vector2(0.5f, 0.5f));
+
+        if (ImGui.BeginPopupModal("Insert Fragment", ref _insertFragmentModalOpen, ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            ImGui.TextUnformatted("Select a fragment to insert:");
+            ImGui.Spacing();
+
+            if (_availableFragmentIds is null || _availableFragmentIds.Count == 0)
+            {
+                ImGui.TextUnformatted("No fragments found in fragments/ directory.");
+            }
+            else
+            {
+                var preview = _selectedFragmentId ?? "(none)";
+                if (ImGui.BeginCombo("##fragment-select", preview))
+                {
+                    foreach (var id in _availableFragmentIds)
+                    {
+                        if (ImGui.Selectable(id, id == _selectedFragmentId))
+                            _selectedFragmentId = id;
+                    }
+                    ImGui.EndCombo();
+                }
+            }
+
+            ImGui.Spacing();
+            ImGui.BeginDisabled(_selectedFragmentId is null);
+            if (ImGui.Button("Insert", new System.Numerics.Vector2(120, 0)))
+            {
+                var fragmentId = _selectedFragmentId!;
+                var stepId = $"fragment-{fragmentId.Replace('/', '-')}";
+                var lastStep = draft.Steps.Count > 0 ? draft.Steps[^1] : null;
+                var seqNum = lastStep?.SequenceNumber ?? 0;
+
+                var fragmentStep = new FragmentStep
+                {
+                    Id = stepId,
+                    Ref = fragmentId,
+                };
+                var emptySnapshot = new GameStateSnapshot(
+                    DateTimeOffset.UtcNow,
+                    default, default, null, 0, 0, false, false, null, null, null, null, 0, null);
+                var draftStep = new DraftStep(
+                    StepId: stepId,
+                    StepType: "fragment",
+                    SequenceNumber: seqNum,
+                    InferredFrom: InferredFrom.Manual,
+                    ObservedBefore: emptySnapshot,
+                    ObservedAfter: emptySnapshot,
+                    SuggestedExpect: null,
+                    Notes: null,
+                    Raw: fragmentStep);
+
+                if (lastStep is not null)
+                    draft.InsertStepAfter(lastStep.StepId, draftStep, DateTimeOffset.UtcNow);
+                else
+                    draft.AddStep(draftStep, DateTimeOffset.UtcNow);
+
+                _host.DraftManager.MarkDirty(questId);
+                _ = _host.DraftManager.SaveNow(questId, CancellationToken.None);
+
+                _insertFragmentModalOpen = false;
+                ImGui.CloseCurrentPopup();
+            }
+            ImGui.EndDisabled();
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel", new System.Numerics.Vector2(120, 0)))
+            {
+                _insertFragmentModalOpen = false;
+                ImGui.CloseCurrentPopup();
+            }
+
+            ImGui.EndPopup();
+        }
     }
 
     private void DrawFragmentAuthorMode()
