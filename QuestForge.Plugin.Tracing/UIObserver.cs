@@ -73,8 +73,8 @@ public sealed class UIObserver : IDisposable
     private const string TeleportAddonName = "Teleport";
     private DateTimeOffset _teleportAddonLastOpenAt = DateTimeOffset.MinValue;
 
-    // ── SelectIconString (dialogue) tracking ─────────────────────────────
-    private bool _dialogueIconStringWasOpen;
+    // ── SelectIconString / SelectString (dialogue) tracking ─────────────
+    private bool _dialogueMenuWasOpen;
     private int? _pendingDialogueIdx;
 
     // ── SelectYesno tracking ──────────────────────────────────────────────
@@ -211,7 +211,7 @@ public sealed class UIObserver : IDisposable
         _aethernetMenuWasOpen    = false;
         _pendingAethernetFromId  = null;
         _pendingAethernetToId    = null;
-        _dialogueIconStringWasOpen = false;
+        _dialogueMenuWasOpen       = false;
         _pendingDialogueIdx        = null;
         _selectYesnoWasOpen        = false;
         _lastTargetBaseId          = 0;
@@ -954,11 +954,13 @@ public sealed class UIObserver : IDisposable
     {
         if (_addonProbe is null) return;
 
-        var menuIsOpen = _addonProbe.IsAddonOpen("SelectIconString");
+        var iconStringOpen = _addonProbe.IsAddonOpen("SelectIconString");
+        var selectStringOpen = _addonProbe.IsAddonOpen("SelectString");
+        var menuIsOpen = iconStringOpen || selectStringOpen;
 
-        if (menuIsOpen && !_dialogueIconStringWasOpen)
+        if (menuIsOpen && !_dialogueMenuWasOpen)
         {
-            _dialogueIconStringWasOpen = true;
+            _dialogueMenuWasOpen = true;
             // Capture NPC from ITargetProbe: tier 1 = hard target, tier 2 = previous target,
             // tier 3 = aggregator fallback (LastNpcInteracted from last PollTargetNpc heartbeat).
             var npcInfo = _targetProbe?.GetInteractableNpcTarget()
@@ -998,10 +1000,8 @@ public sealed class UIObserver : IDisposable
 
         if (!menuIsOpen)
         {
-            if (_dialogueIconStringWasOpen && _pendingDialogueIdx.HasValue)
+            if (_dialogueMenuWasOpen && _pendingDialogueIdx.HasValue)
             {
-                // Menu just closed with a selection — use captured NPC ID as argument so
-                // qf-trace extract-quest can attribute the choice without time-proximity heuristics.
                 var idx    = _pendingDialogueIdx.Value;
                 var npcId  = _aggregator?.Current.DialogueNpcSource?.NpcId ?? 0u;
                 var now    = _clock.UtcNow;
@@ -1009,13 +1009,13 @@ public sealed class UIObserver : IDisposable
                 WriteObservation("DialogueOptionSelected", npcId, idx, runId, now);
                 _aggregator?.OnDialogueOptionSelected(idx);
             }
-            _dialogueIconStringWasOpen = false;
-            _pendingDialogueIdx        = null;
+            _dialogueMenuWasOpen = false;
+            _pendingDialogueIdx  = null;
             return;
         }
 
-        // Latch selected index while menu is open
-        var selectedIdx = _addonProbe.GetSelectedItemIndex("SelectIconString");
+        var activeAddon = iconStringOpen ? "SelectIconString" : "SelectString";
+        var selectedIdx = _addonProbe.GetSelectedItemIndex(activeAddon);
         if (selectedIdx.HasValue && selectedIdx.Value >= 0)
             _pendingDialogueIdx = selectedIdx.Value;
     }

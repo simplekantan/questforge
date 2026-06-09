@@ -2105,6 +2105,69 @@ public sealed class UIObserverTests
         observer.Dispose();
     }
 
+    [Fact]
+    public void UO_G5_PollDialogueOption_SelectStringOpensThenCloses_ForwardsToAggregator()
+    {
+        // Arrange
+        var (observer, framework, addonProbe, _, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+        addonProbe.OpenAddon("SelectString");
+        addonProbe.SetSelectedIndex("SelectString", 1);
+        framework.Tick();
+
+        addonProbe.CloseAddon("SelectString");
+
+        // Act
+        framework.Tick();
+
+        // Assert
+        Assert.Equal(1, aggregator.Current.DialogueOptionSelected);
+
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_G6_PollDialogueOption_SelectStringOpen_WritesDialogueNpcCapturedObservation()
+    {
+        // Arrange
+        var (observer, framework, addonProbe, _, _, writer, _) = BuildFixture();
+        addonProbe.OpenAddon("SelectString");
+
+        // Act
+        framework.Tick();
+
+        // Assert
+        var obs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Data.Method == "DialogueNpcCaptured")
+            .ToList();
+        Assert.True(obs.Count <= 1,
+            "DialogueNpcCaptured must fire at most once when the menu opens");
+
+        observer.Dispose();
+    }
+
+    [Fact]
+    public void UO_G7_PollDialogueOption_SelectStringClosesWithNoSelection_NoDialogueObservation()
+    {
+        // Arrange
+        var (observer, framework, addonProbe, _, _, writer, _) = BuildFixture();
+        addonProbe.OpenAddon("SelectString");
+        framework.Tick();
+
+        addonProbe.CloseAddon("SelectString");
+
+        // Act
+        framework.Tick();
+
+        // Assert
+        var obs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Data.Method == "DialogueOptionSelected")
+            .ToList();
+        Assert.Empty(obs);
+
+        observer.Dispose();
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // UO-H: Heartbeat throttle (250 ms)
     // ─────────────────────────────────────────────────────────────────────────

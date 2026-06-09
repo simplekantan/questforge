@@ -148,7 +148,7 @@ public sealed class DalamudInteractor : IInteractor
             return Task.FromResult<Result<Unit>>(Result.Ok());
         }
 
-        // Fall back to SelectString
+        // Fall back to SelectString (single AtkValue — no trailing padding)
         var strPtr = _svc.GameGui.GetAddonByName("SelectString");
         if (!strPtr.IsNull && strPtr.IsReady)
         {
@@ -157,7 +157,7 @@ public sealed class DalamudInteractor : IInteractor
                 var addon = (AtkUnitBase*)strPtr.Address;
                 var values = stackalloc AtkValue[1];
                 values[0] = new AtkValue { Type = AtkValueType.Int, Int = zeroBasedIndex };
-                addon->FireCallback(2, values);
+                addon->FireCallback(1, values, true);
             }
             return Task.FromResult<Result<Unit>>(Result.Ok());
         }
