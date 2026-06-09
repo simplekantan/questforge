@@ -1,4 +1,5 @@
 using System.Numerics;
+using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using QuestForge.Adapters.Dalamud.Ipc;
 using QuestForge.Adapters.Movement;
@@ -58,9 +59,10 @@ public sealed class VnavmeshNavigator : INavigator
         return Task.FromResult<Result<Unit>>(Result.Ok());
     }
 
-    public Task<Result<Unit>> Jump(CancellationToken ct)
+    public unsafe Task<Result<Unit>> Jump(CancellationToken ct)
     {
-        // Stub: Dalamud implementation is a Slice 3 deliverable.
+        var am = ActionManager.Instance();
+        if (am != null) am->UseAction(ActionType.GeneralAction, 2);
         return Task.FromResult<Result<Unit>>(Result.Ok());
     }
 
