@@ -200,11 +200,14 @@ public sealed class EngineHost : IDisposable
     // synchronously (Task.FromResult), so DispatchAction never parks across frames.
     public void StopRun() => EndRun();
 
+    private bool _pendingAutoModeEquip;
+
     public void StartAutoMode(IQuestScheduler scheduler, bool enableTracing)
     {
         StopAutoMode();
         _scheduler = scheduler;
         _autoMode = true;
+        _pendingAutoModeEquip = _config.EquipBestGearOnStart;
         _tracingEnabled = enableTracing;
         _lastSchedulerPollAt = DateTimeOffset.MinValue; // fire immediately on first tick
         _services.Log.Info("QuestForge: auto mode started");
@@ -312,6 +315,15 @@ public sealed class EngineHost : IDisposable
     {
         if (_engine is null)
         {
+            if (_autoMode && _pendingAutoModeEquip)
+            {
+                var equipResult = await _bestGearEquipper.EquipBestGear(ct);
+                _services.Log.Debug($"[QuestForge] [StartAutoMode] equip-best-gear result={equipResult}");
+                if (equipResult is not Result<EquipOutcome>.Success { Value: EquipOutcome.Pending })
+                    _pendingAutoModeEquip = false;
+                return;
+            }
+
             if (_autoMode && _scheduler is { } scheduler
                 && DateTimeOffset.UtcNow - _lastSchedulerPollAt > SchedulerPollInterval)
             {

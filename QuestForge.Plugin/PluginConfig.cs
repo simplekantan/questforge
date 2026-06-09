@@ -60,6 +60,11 @@ public sealed class PluginConfig
     public bool PreferStylist { get; set; } = true;
 
     /// <summary>
+    /// When true, fires EquipBestGear before the scheduler picks the first quest on Start All Questing.
+    /// </summary>
+    public bool EquipBestGearOnStart { get; set; } = true;
+
+    /// <summary>
     /// Preferred difficulty when retrying a Single Player Duty.
     /// Selected when the DifficultySelectYesNo addon appears after an SPD failure.
     /// Default: Normal.
