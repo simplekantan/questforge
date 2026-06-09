@@ -142,7 +142,9 @@ public sealed class EngineFixtureTests
             clock: state.Clock,
             gearEquipper: state.GearEquipper,
             bestGearEquipper: state.BestGearEquipper,
-            jobChanger: state.JobChanger);
+            jobChanger: state.JobChanger,
+            questBattleRunner: new QuestForge.Adapters.Fakes.Duty.FakeQuestBattleRunner(),
+            objectInteractor: new QuestForge.Adapters.Fakes.Interaction.FakeObjectInteractor());
 
         engine.StartQuest(quest, fragments);
         engine.BeginRun("fixture-run");
