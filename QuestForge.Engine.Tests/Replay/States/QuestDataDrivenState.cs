@@ -669,10 +669,12 @@ internal sealed class QuestDataDrivenState : IFixtureState
                     break;
 
                 case StateMutation.SetNotPredicate notM:
-                    // "not X" means X should be FALSE after the step completes.
-                    // Clear item counts to make "not(playerHasItem(...))" true.
                     if (notM.Inner is StateMutation.SetPlayerHasItem clearItem)
                         _gameState.SetItemCount(new ItemId(clearItem.ItemId), 0);
+                    else if (notM.Inner is StateMutation.SetObjectExistsInRange clearObj)
+                        _gameState.RemoveNpc(new NpcId(clearObj.DataId));
+                    else if (notM.Inner is StateMutation.SetNpcExistsNearby clearNpc)
+                        _gameState.RemoveNpc(new NpcId(clearNpc.DataId));
                     break;
             }
         }
