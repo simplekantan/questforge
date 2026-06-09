@@ -88,6 +88,12 @@ public sealed class PlayerStatePanel : Window
         ImGui.TextUnformatted(PlayerStateFormatter.FormatHp(hpCurrent, hpMax));
         ImGui.TextUnformatted(PlayerStateFormatter.FormatInstance(instanceKind));
 
+        var target = _objectTable.LocalPlayer?.TargetObject;
+        if (target is not null)
+            ImGui.TextUnformatted($"Target: {target.Name} (BaseId: {target.BaseId})");
+        else
+            ImGui.TextUnformatted("Target: (none)");
+
         ImGui.Separator();
         ImGui.TextUnformatted($"Captured at: {snapshot.CapturedAt:HH:mm:ss.fff}");
     }

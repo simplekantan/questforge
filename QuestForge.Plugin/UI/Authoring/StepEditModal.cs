@@ -63,7 +63,8 @@ public sealed class StepEditModal : Window
         DrawEditableString("id", "Step ID", _stepId, isEditable,
             "Unique identifier for this step within the quest/fragment.");
         DrawReadOnly("Step Type", _stepType);
-        DrawReadOnly("Sequence", _sequenceNumber);
+        DrawEditableString("sequence", "Sequence", _sequenceNumber, isEditable,
+            "Sequence block number (e.g. 0, 1, 255). Determines which quest sequence block this step belongs to.");
 
         ImGui.Spacing();
         DrawPredicateField("expect", "Expect", _suggestedExpect, isEditable,
@@ -561,6 +562,16 @@ public sealed class StepEditModal : Window
         if (jsonKey == "id" && newValue is not null && newValue != _editingStep.StepId)
         {
             ApplyStepIdChange(newValue);
+            return;
+        }
+
+        // Special case: Sequence number is a DraftStep property, not a raw JSON field
+        if (jsonKey == "sequence" && newValue is not null && int.TryParse(newValue, out var newSeq))
+        {
+            var seqUpdated = _editingStep with { SequenceNumber = newSeq };
+            SaveUpdatedStep(seqUpdated);
+            _sequenceNumber = newSeq.ToString();
+            _saveStatus = "Sequence updated.";
             return;
         }
 
