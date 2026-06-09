@@ -79,6 +79,15 @@ public sealed class ConfigWindow : Window
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("When enabled, EquipBestGearStep uses the Stylist plugin.\nFalls back to native Recommended Gear if Stylist is unavailable.");
 
+        var equipOnStart = _config.EquipBestGearOnStart;
+        if (ImGui.Checkbox("Equip best gear on Start All Questing", ref equipOnStart))
+        {
+            _config.EquipBestGearOnStart = equipOnStart;
+            Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Automatically equip best available gear before the first quest starts.");
+
         ImGui.Spacing();
 
         ImGui.SetNextItemWidth(100f);
