@@ -32,6 +32,7 @@ public sealed partial class AuthoringSessionPanel : Window
     private bool _insertFragmentModalOpen;
     private List<string>? _availableFragmentIds;
     private string? _selectedFragmentId;
+    private string _fragmentFilterText = "";
 
     public AuthoringSessionPanel(AuthoringHost host,
         RecordStepModal recordModal, StepEditModal editModal, ExportDialog exportDialog,
@@ -193,6 +194,7 @@ public sealed partial class AuthoringSessionPanel : Window
         {
             _insertFragmentModalOpen = true;
             _selectedFragmentId = null;
+            _fragmentFilterText = "";
             _availableFragmentIds = ScanAvailableFragments();
         }
         ImGui.SameLine();
@@ -388,27 +390,52 @@ public sealed partial class AuthoringSessionPanel : Window
         var center = ImGui.GetMainViewport().GetCenter();
         ImGui.SetNextWindowPos(center, ImGuiCond.Appearing, new System.Numerics.Vector2(0.5f, 0.5f));
 
-        if (ImGui.BeginPopupModal("Insert Fragment", ref _insertFragmentModalOpen, ImGuiWindowFlags.AlwaysAutoResize))
+        ImGui.SetNextWindowSize(new System.Numerics.Vector2(400, 350), ImGuiCond.Appearing);
+        if (ImGui.BeginPopupModal("Insert Fragment", ref _insertFragmentModalOpen, ImGuiWindowFlags.None))
         {
-            ImGui.TextUnformatted("Select a fragment to insert:");
-            ImGui.Spacing();
-
             if (_availableFragmentIds is null || _availableFragmentIds.Count == 0)
             {
                 ImGui.TextUnformatted("No fragments found in fragments/ directory.");
             }
             else
             {
-                var preview = _selectedFragmentId ?? "(none)";
-                if (ImGui.BeginCombo("##fragment-select", preview))
+                ImGui.SetNextItemWidth(-1);
+                ImGui.InputTextWithHint("##fragment-filter", "Search fragments...", ref _fragmentFilterText, 128);
+                ImGui.Spacing();
+
+                var filtered = string.IsNullOrEmpty(_fragmentFilterText)
+                    ? _availableFragmentIds
+                    : _availableFragmentIds.Where(id =>
+                        id.Contains(_fragmentFilterText, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                var availableHeight = ImGui.GetContentRegionAvail().Y - 32;
+                if (ImGui.BeginChild("##fragment-list", new System.Numerics.Vector2(-1, availableHeight), true))
                 {
-                    foreach (var id in _availableFragmentIds)
+                    string? lastGroup = null;
+                    foreach (var id in filtered)
                     {
-                        if (ImGui.Selectable(id, id == _selectedFragmentId))
+                        var slashIdx = id.IndexOf('/');
+                        var group = slashIdx >= 0 ? id[..slashIdx] : "(ungrouped)";
+
+                        if (group != lastGroup)
+                        {
+                            if (lastGroup is not null) ImGui.Spacing();
+                            ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(0.6f, 0.8f, 1f, 1f));
+                            ImGui.TextUnformatted(group.ToUpperInvariant());
+                            ImGui.PopStyleColor();
+                            ImGui.Separator();
+                            lastGroup = group;
+                        }
+
+                        var label = slashIdx >= 0 ? id[(slashIdx + 1)..] : id;
+                        if (ImGui.Selectable($"  {label}###{id}", id == _selectedFragmentId))
                             _selectedFragmentId = id;
                     }
-                    ImGui.EndCombo();
+
+                    if (filtered.Count == 0)
+                        ImGui.TextUnformatted("No matches.");
                 }
+                ImGui.EndChild();
             }
 
             ImGui.Spacing();
