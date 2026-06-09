@@ -180,6 +180,8 @@ public sealed partial class AuthoringSessionPanel : Window
         var target = _host.AuthoringTarget;
         if (target is null) return;
 
+        var draft = _host.DraftManager.Get(target.Value, CancellationToken.None).GetAwaiter().GetResult();
+
         // Controls row
         if (ImGui.Button("+ Record Next Step"))
         {
@@ -196,10 +198,9 @@ public sealed partial class AuthoringSessionPanel : Window
         ImGui.SameLine();
         if (ImGui.Button("Validate"))
         {
-            var draftForValidation = _host.DraftManager.Get(target.Value, CancellationToken.None).GetAwaiter().GetResult();
-            if (draftForValidation is not null)
+            if (draft is not null)
             {
-                var (errors, warnings) = _validator.Validate(draftForValidation);
+                var (errors, warnings) = _validator.Validate(draft);
                 _lastErrors = errors.ToList();
                 _lastWarnings = warnings.ToList();
                 _validationRan = true;
@@ -216,6 +217,10 @@ public sealed partial class AuthoringSessionPanel : Window
             _host.ExitAuthoring();
             return;
         }
+
+        // Modal must be drawn before any early returns
+        if (draft is not null)
+            DrawInsertFragmentModal(draft, target.Value);
 
         ImGui.Separator();
 
@@ -251,7 +256,6 @@ public sealed partial class AuthoringSessionPanel : Window
         }
 
         // Steps table
-        var draft = _host.DraftManager.Get(target.Value, CancellationToken.None).GetAwaiter().GetResult();
         if (draft is null)
         {
             ImGui.TextUnformatted("No draft loaded.");
@@ -350,8 +354,6 @@ public sealed partial class AuthoringSessionPanel : Window
 
         if (stepToEdit is not null)
             _editModal.OpenFor(stepToEdit);
-
-        DrawInsertFragmentModal(draft, target.Value);
     }
 
     private List<string> ScanAvailableFragments()
