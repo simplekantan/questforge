@@ -1,5 +1,7 @@
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Config;
+using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using QuestForge.Adapters;
 using Microsoft.Extensions.Logging;
@@ -658,8 +660,10 @@ public sealed class EngineHost : IDisposable
                 if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
                     await _navigator.Stop(ct);
                 TryCutsceneSkipConfirm();
-                await _objectInteractor.InteractWithObject(uio.Target, ct);
-                await _itemUser.UseItem(uio.Kind, uio.ItemId, null, null, ct);
+                if (IsInventoryEventGridOpen())
+                    UseItemViaInventoryContext(uio.ItemId, uio.Kind);
+                else
+                    await _objectInteractor.InteractWithObject(uio.Target, ct);
                 break;
 
             case EngineAction.EquipGear eg:
@@ -991,6 +995,39 @@ public sealed class EngineHost : IDisposable
         if (addonPtr.IsNull || !addonPtr.IsReady) return;
 
         ((AtkUnitBase*)addonPtr.Address)->FireCallbackInt(0);
+    }
+
+    private unsafe bool IsInventoryEventGridOpen()
+    {
+        var addonPtr = _services.GameGui.GetAddonByName("InventoryEventGrid");
+        return !addonPtr.IsNull && addonPtr.IsReady && ((AtkUnitBase*)addonPtr.Address)->IsVisible;
+    }
+
+    // Uses a key/inventory item via AgentInventoryContext, which is the same path the game
+    // takes when the player right-clicks an item in the InventoryEventGrid and selects "Use".
+    // ActionManager.UseAction alone does not work within the InventoryEvent context.
+    private unsafe void UseItemViaInventoryContext(uint itemId, Schema.ItemKind kind)
+    {
+        var invType = kind == Schema.ItemKind.KeyItem
+            ? InventoryType.KeyItems
+            : InventoryType.Inventory1;
+
+        var mgr = InventoryManager.Instance();
+        if (mgr is null) return;
+
+        var container = mgr->GetInventoryContainer(invType);
+        if (container is null) return;
+
+        for (var i = 0; i < container->Size; i++)
+        {
+            var slot = container->GetInventorySlot(i);
+            if (slot is null || slot->ItemId != itemId) continue;
+
+            var agent = AgentInventoryContext.Instance();
+            if (agent is null) return;
+            agent->UseItem(itemId, invType, (uint)i);
+            return;
+        }
     }
 
     // When the DifficultySelectYesNo addon appears (SPD retry), select the configured

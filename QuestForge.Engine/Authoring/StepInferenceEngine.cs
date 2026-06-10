@@ -142,7 +142,10 @@ public sealed class StepInferenceEngine
         }
 
         // Rule 2.4: Key item handed over (removed from KeyItems inventory)
-        if (after.KeyItemsRemoved is { Count: > 0 } removedItems)
+        // RequestAddonSeen guard: the Request addon is the confirmation dialog for handing over items
+        // to an NPC. Without it, a key item removal could be triggered by UseItemOnObjectStep
+        // (InventoryEvent addon), which must be handled by Rule 3.5n instead.
+        if (after.KeyItemsRemoved is { Count: > 0 } removedItems && after.RequestAddonSeen)
         {
             var itemId = removedItems[0];
             var expect = removedItems.Count == 1
@@ -284,6 +287,26 @@ public sealed class StepInferenceEngine
                 Confidence:      Confidence.High,
                 InferredFrom:    InferredFrom.SayChatMessageSent,
                 Notes:           $"Author MUST write the Expect predicate (no universal say-chat-message postcondition). Message=\"{Truncate(saySignal.Message, 40)}\"");
+        }
+
+        // Rule 3.5n — UseItemOnObject — InventoryEvent addon seen + item used in same window
+        // Fires when both InventoryEventAddonSeen and ItemUsed are set, indicating the player used
+        // an item on an interactable object. Beats Rule 3.5i (ItemUsed alone) and Rule 3.5o
+        // (ObjectInteracted alone) because the combination is the more specific signal.
+        // PRIORITY: below Rule 3.5s (SayChatMessageSent) — chat is always intentional.
+        // PRIORITY: below Rules 1, 2, 2.1, 2.2, 2.2b, 2.3, 2.4, 2.5, 2.6.
+        // CONFIDENCE: High. EXPECT: null — author MUST write the postcondition.
+        if (after.InventoryEventAddonSeen && after.ItemUsed is { } invItemSig)
+        {
+            var objSig = after.ObjectInteracted;
+            var interactableId = objSig?.InteractableId ?? 0u;
+            return new InferenceResult(
+                StepType: "use-item-on-object",
+                SuggestedStepId: $"use-item-{invItemSig.ItemId}-on-{interactableId}",
+                SuggestedExpect: null,
+                Confidence: Confidence.High,
+                InferredFrom: InferredFrom.InventoryEventItemUsed,
+                Notes: $"Author MUST write the Expect predicate. InteractableId={interactableId}, Kind={invItemSig.Kind}, ItemId={invItemSig.ItemId}");
         }
 
         // Rule 3.5i — ItemUsed

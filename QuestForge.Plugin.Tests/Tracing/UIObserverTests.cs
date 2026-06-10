@@ -5269,4 +5269,208 @@ public sealed class UIObserverTests
 
         observer.Dispose();
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UO_RA* / UO_IE*: Request addon + InventoryEvent addon polling
+    //
+    // Covers spec USE_ITEM_ON_OBJECT_INFERENCE_PLAN.md, Section 5.4.
+    //
+    // ALL tests in this group will fail to compile/runtime until Builder adds:
+    //   - GameStateSnapshot.RequestAddonSeen (bool)                            (Task S5-T1)
+    //   - GameStateSnapshot.InventoryEventAddonSeen (bool)                     (Task S5-T1)
+    //   - SnapshotAggregator.OnRequestAddonSeen / OnInventoryEventAddonSeen   (Task S5-T2)
+    //   - UIObserver.PollRequestAddon (using IAddonProbe.IsAddonOpen)          (Task S5-T6)
+    //   - UIObserver.PollInventoryEventAddon (using IAddonProbe.IsAddonOpen)   (Task S5-T6)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // =========================================================================
+    // UO_RA1 -- Request addon open -> RequestAddonSeen=true on snapshot
+    // =========================================================================
+
+    [Fact]
+    public void UO_RA1_RequestAddonOpen_SetsRequestAddonSeen()
+    {
+        // CONTRACT: Given UIObserver with aggregator set,
+        //           FakeAddonProbe.OpenAddon("Request"),
+        //           When framework.Tick() fires,
+        //           Then aggregator.Current.RequestAddonSeen == true.
+
+        var (observer, framework, addonProbe, _, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        addonProbe.OpenAddon("Request");
+
+        framework.Tick();
+
+        Assert.True(aggregator.Current.RequestAddonSeen);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_IE1 -- InventoryEvent addon open -> InventoryEventAddonSeen=true
+    // =========================================================================
+
+    [Fact]
+    public void UO_IE1_InventoryEventAddonOpen_SetsInventoryEventAddonSeen()
+    {
+        // CONTRACT: Given UIObserver with aggregator set,
+        //           FakeAddonProbe.OpenAddon("InventoryEventGrid"),
+        //           When framework.Tick() fires,
+        //           Then aggregator.Current.InventoryEventAddonSeen == true.
+
+        var (observer, framework, addonProbe, _, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        addonProbe.OpenAddon("InventoryEventGrid");
+
+        framework.Tick();
+
+        Assert.True(aggregator.Current.InventoryEventAddonSeen);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_RA2 -- Neither addon open -> both flags false
+    // =========================================================================
+
+    [Fact]
+    public void UO_RA2_NeitherAddonOpen_BothFlagsFalse()
+    {
+        // CONTRACT: Given UIObserver with aggregator set, no addons open,
+        //           When framework.Tick() fires,
+        //           Then aggregator.Current.RequestAddonSeen == false
+        //                AND aggregator.Current.InventoryEventAddonSeen == false.
+
+        var (observer, framework, _, _, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        framework.Tick();
+
+        Assert.False(aggregator.Current.RequestAddonSeen);
+        Assert.False(aggregator.Current.InventoryEventAddonSeen);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_RA3 -- ResetWindowState does not throw; addon flag lifecycle is
+    //           controlled by ResetDeltas (called from OpenRecordModal),
+    //           not ResetWindowState
+    // =========================================================================
+
+    [Fact]
+    public void UO_RA3_ResetWindowState_DoesNotThrow_FlagLifecycleViaResetDeltas()
+    {
+        // CONTRACT: Given Request addon was open (flag set via tick),
+        //           Then addon closes, ResetWindowState is called, another tick fires,
+        //           Then no exception is thrown.
+        //           The flag lifecycle is controlled by ResetDeltas (called separately
+        //           from OpenRecordModal), not by ResetWindowState.
+
+        var (observer, framework, addonProbe, _, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Set the flag
+        addonProbe.OpenAddon("Request");
+        framework.Tick();
+        Assert.True(aggregator.Current.RequestAddonSeen); // sanity
+
+        // Close the addon
+        addonProbe.CloseAddon("Request");
+
+        // Act: ResetWindowState should not throw
+        var ex = Record.Exception(() =>
+        {
+            observer.ResetWindowState();
+            framework.Tick();
+        });
+
+        Assert.Null(ex);
+
+        // The flag was set because the addon WAS open during this window.
+        // ResetDeltas (which the author calls separately) would clear it.
+        // ResetWindowState itself does not directly clear addon flags.
+        // After ResetDeltas, the flag should be cleared:
+        aggregator.ResetDeltas();
+        Assert.False(aggregator.Current.RequestAddonSeen);
+        Assert.False(aggregator.Current.InventoryEventAddonSeen);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_IE2 -- InventoryEvent open with EventObj target -> ObjectInteracted captured
+    // =========================================================================
+
+    [Fact]
+    public void UO_IE2_InventoryEventOpen_WithEventObjTarget_CapturesObjectInteracted()
+    {
+        // CONTRACT: Given FakeTargetProbe has an EventObj target (BaseId=99001, position),
+        //           When InventoryEvent addon opens (closed->open transition),
+        //           Then aggregator.Current.ObjectInteracted is set with the EventObj data.
+        //           This is critical because OccupiedInEvent does NOT fire for InventoryEvent,
+        //           so PollEventObjInteraction never captures the target.
+
+        var writer  = new FakeTraceWriter();
+        var session = new TraceSession(TraceMode.Always, Path.GetTempPath(), _ => writer);
+        session.OnPluginStart();
+
+        var clock       = new FakeClock(T0);
+        var addonProbe  = new FakeAddonProbe();
+        var gameProbe   = new FakeGameProbe();
+        var targetProbe = new FakeTargetProbe();
+        var framework   = new FakeFramework();
+        var aggregator  = new SnapshotAggregator(null, clock);
+
+        var observer = new UIObserver(
+            framework:    framework,
+            traceSession: session,
+            passiveRunId: PassiveRunId,
+            addonProbe:   addonProbe,
+            gameProbe:    gameProbe,
+            clock:        clock,
+            targetProbe:  targetProbe);
+
+        observer.SetAggregator(aggregator, activeRunId: "active-001");
+
+        targetProbe.SetEventObjTarget(99001u, 10.5f, 7.0f, 32.2f, 132);
+        addonProbe.OpenAddon("InventoryEventGrid");
+
+        framework.Tick();
+
+        Assert.True(aggregator.Current.InventoryEventAddonSeen);
+        Assert.NotNull(aggregator.Current.ObjectInteracted);
+        Assert.Equal(99001u, aggregator.Current.ObjectInteracted!.InteractableId);
+        Assert.Equal(10.5f, aggregator.Current.ObjectInteracted.X, 1);
+        Assert.Equal(7.0f, aggregator.Current.ObjectInteracted.Y, 1);
+        Assert.Equal(32.2f, aggregator.Current.ObjectInteracted.Z, 1);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_IE3 -- InventoryEvent open without EventObj target -> no ObjectInteracted
+    // =========================================================================
+
+    [Fact]
+    public void UO_IE3_InventoryEventOpen_NoEventObjTarget_NoObjectInteracted()
+    {
+        // CONTRACT: Given no EventObj target (NPC case or target cleared),
+        //           When InventoryEvent addon opens,
+        //           Then ObjectInteracted is NOT set (null).
+
+        var (observer, framework, addonProbe, _, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        addonProbe.OpenAddon("InventoryEventGrid");
+
+        framework.Tick();
+
+        Assert.True(aggregator.Current.InventoryEventAddonSeen);
+        Assert.Null(aggregator.Current.ObjectInteracted);
+
+        observer.Dispose();
+    }
 }

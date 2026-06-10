@@ -301,17 +301,25 @@ public sealed class UseItemInferenceTests
     public void UseItemInference_LosesToKeyItemsRemoved_Rule24Wins_UII8()
     {
         // CONTRACT: Given KeyItemsRemoved=[2000456] AND ItemUsed set (same item),
+        //           AND RequestAddonSeen=true (models the real game flow where
+        //           the Request addon opens during a hand-over),
         //           When Infer is called,
         //           Then StepType="hand-over-item" (Rule 2.4), NOT "use-item".
         //
-        // Pins the natural disambiguation: when a key item is used AND consumed (removed),
-        // hand-over-item wins because item removal is the observable game state change.
+        // Pins the natural disambiguation: when a key item is used AND consumed (removed)
+        // AND the Request addon was open, hand-over-item wins because the Request addon
+        // confirms this was a hand-over interaction, not an item-on-object use.
+        //
+        // NOTE (S5-D9): Rule 2.4 now requires RequestAddonSeen=true. Without it,
+        // bare KeyItemsRemoved + ItemUsed falls through to Rule 3.5i ("use-item").
+        // This test models the complete hand-over game flow.
 
         var engine = new StepInferenceEngine();
         var before = MakeSnapshot();
         var after  = before with
         {
             KeyItemsRemoved = [2000456u],
+            RequestAddonSeen = true,
             ItemUsed = new ItemUsedSignal(
                 QuestForge.Schema.ItemKind.KeyItem,
                 ItemId:       2000456u,

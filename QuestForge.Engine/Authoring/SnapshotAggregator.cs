@@ -41,6 +41,8 @@ public sealed class SnapshotAggregator
     private JobChangedSignal? _jobChanged;
     private GearsetRegisteredSignal? _gearsetRegistered;
     private ObjectInteractedSignal? _objectInteracted;
+    private bool _requestAddonSeen;
+    private bool _inventoryEventAddonSeen;
 
     // ── purchase span state ────────────────────────────────────────────────
     private bool _shopOpen;
@@ -124,7 +126,9 @@ public sealed class SnapshotAggregator
         EquipmentChanged             = _equipmentChanged,
         JobChanged                   = _jobChanged,
         GearsetRegistered            = _gearsetRegistered,
-        ObjectInteracted             = _objectInteracted
+        ObjectInteracted             = _objectInteracted,
+        RequestAddonSeen             = _requestAddonSeen,
+        InventoryEventAddonSeen      = _inventoryEventAddonSeen
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -465,6 +469,8 @@ public sealed class SnapshotAggregator
         _keyItemsAdded = null;
         _keyItemsRemoved = null;
         _foreignQuestAccepted = null;
+        _requestAddonSeen = false;
+        _inventoryEventAddonSeen = false;
         // WHY: _lastAethernetShardInteracted persists across windows (never auto-cleared). If left
         // set from a previous aethernet step it makes isAethernet=true in the new before-snapshot,
         // causing the isAethernet fallback in Rule 4 to fire when it shouldn't (e.g. after aethernet
@@ -661,6 +667,32 @@ public sealed class SnapshotAggregator
     /// the object-interacted signal so it does not bleed into the next recording window.
     /// </summary>
     public void OnObjectInteractedConsumed() => _objectInteracted = null;
+
+    /// <summary>
+    /// Called by UIObserver.PollRequestAddon when the "Request" addon is observed open.
+    /// Flags that the Request confirmation dialog was visible this recording window.
+    /// Cleared by ResetDeltas (per-window delta signal).
+    /// </summary>
+    public void OnRequestAddonSeen() => _requestAddonSeen = true;
+
+    /// <summary>
+    /// Called by UIObserver.PollInventoryEventAddon when the "InventoryEvent" addon is observed open.
+    /// Flags that the InventoryEvent dialog was visible this recording window.
+    /// Cleared by ResetDeltas (per-window delta signal).
+    /// </summary>
+    public void OnInventoryEventAddonSeen() => _inventoryEventAddonSeen = true;
+
+    /// <summary>
+    /// Called from UIObserver.ResetWindowState and AuthoringHost.ConsumeAllSignals to clear the
+    /// RequestAddonSeen flag so it does not bleed into the next recording window.
+    /// </summary>
+    public void OnRequestAddonSeenConsumed() => _requestAddonSeen = false;
+
+    /// <summary>
+    /// Called from UIObserver.ResetWindowState and AuthoringHost.ConsumeAllSignals to clear the
+    /// InventoryEventAddonSeen flag so it does not bleed into the next recording window.
+    /// </summary>
+    public void OnInventoryEventAddonSeenConsumed() => _inventoryEventAddonSeen = false;
 
     // ── Private span-correlation helper ──────────────────────────────────────
 

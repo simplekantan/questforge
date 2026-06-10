@@ -575,7 +575,7 @@ public sealed class InventoryHashInferenceTests
             inventoryHash: 6u,
             keyItems: new Dictionary<uint, int>(),
             keyItemsRemoved: new List<uint> { 2000456u },  // Rule 2.4 trigger
-            capturedAt: T1);
+            capturedAt: T1) with { RequestAddonSeen = true }; // Rule 2.4 requires RequestAddonSeen
 
         // Act
         var result = engine.Infer(before, after);
