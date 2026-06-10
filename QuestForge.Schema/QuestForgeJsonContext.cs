@@ -39,6 +39,7 @@ namespace QuestForge.Schema;
 [JsonSerializable(typeof(RegisterGearsetStep))]
 [JsonSerializable(typeof(OpenCoffersStep))]
 [JsonSerializable(typeof(AethernetStep))]
+[JsonSerializable(typeof(UseItemOnObjectStep))]
 // RecoverAction subtypes
 [JsonSerializable(typeof(RetryRecoverAction))]
 [JsonSerializable(typeof(GotoRecoverAction))]

@@ -947,6 +947,7 @@ public sealed class EngineHost : IDisposable
         EngineAction.UseAction a           => a.Origin,
         EngineAction.UseEmote a            => a.Origin,
         EngineAction.UseItem a             => a.Origin,
+        EngineAction.UseItemOnObject a     => a.Origin,
         EngineAction.SayChatMessage a      => a.Origin,
         EngineAction.Purchase a            => a.Origin,
         EngineAction.Teleport a            => a.Origin,

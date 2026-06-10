@@ -479,6 +479,7 @@ qf-trace extract-quest <runId>.jsonl --quest-data ../questforge-data --out 66130
 | `equip-gear-for-quest` | ✅ Phase 11 | New | Equip specific items by slot and itemId |
 | `change-job` | ✅ Phase 11 | New | Switch active job/class via gearset |
 | `open-coffers` | ✅ Phase 11 | New | Open gear coffers from player inventory (post-dungeon) |
+| `use-item-on-object` | ✅ Phase 11 | New | Approach EventObj, interact to open InventoryEvent addon, use key/inventory item within event context |
 
 **Step types remaining (in difficulty order):**
 

@@ -328,6 +328,28 @@ public sealed class DraftValidator
             }
         }
 
+        // E27: UseItemOnObjectStep with InteractableId == 0
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is UseItemOnObjectStep uio27 && uio27.InteractableId == 0)
+            {
+                errors.Add(new DraftValidationError("E27",
+                    $"Step '{steps[i].StepId}' is a UseItemOnObjectStep with InteractableId == 0.",
+                    [i]));
+            }
+        }
+
+        // E28: UseItemOnObjectStep with ItemId == 0
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is UseItemOnObjectStep uio28 && uio28.ItemId == 0)
+            {
+                errors.Add(new DraftValidationError("E28",
+                    $"Step '{steps[i].StepId}' is a UseItemOnObjectStep with ItemId == 0.",
+                    [i]));
+            }
+        }
+
         // W1: Step has no Expect
         for (var i = 0; i < steps.Count; i++)
         {
@@ -338,6 +360,7 @@ public sealed class DraftValidator
                 and not UseEmoteStep
                 and not SayChatMessageStep
                 and not UseItemStep
+                and not UseItemOnObjectStep
                 and not EquipGearForQuestStep
                 and not ChangeJobStep
                 and not AethernetStep
@@ -420,6 +443,18 @@ public sealed class DraftValidator
                 warnings.Add(new DraftValidationWarning("W12",
                     $"Step '{step.StepId}' is an AethernetStep with no 'expect' predicate " +
                     "-- without it the engine will spin-loop re-emitting UseAethernet. Add an expect predicate.",
+                    [i]));
+            }
+        }
+
+        // W13: UseItemOnObjectStep with no Expect — engine spin-loops without one
+        for (var i = 0; i < steps.Count; i++)
+        {
+            var step = steps[i];
+            if (step.Raw is UseItemOnObjectStep uio && uio.Expect is null)
+            {
+                warnings.Add(new DraftValidationWarning("W13",
+                    $"Step '{step.StepId}' is a UseItemOnObjectStep with no 'expect' predicate — without it the engine will spin-loop re-emitting the action. Add an expect predicate.",
                     [i]));
             }
         }

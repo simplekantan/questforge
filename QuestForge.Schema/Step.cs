@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace QuestForge.Schema;
 
 // ---------------------------------------------------------------------------
-// Step base class — all 20 step types inherit from this.
+// Step base class — all 29 step types inherit from this.
 // Uses [JsonPolymorphic] with "type" as the discriminator.
 // ---------------------------------------------------------------------------
 
@@ -37,6 +37,7 @@ namespace QuestForge.Schema;
 [JsonDerivedType(typeof(RegisterGearsetStep),   "register-gearset")]
 [JsonDerivedType(typeof(OpenCoffersStep),       "open-coffers")]
 [JsonDerivedType(typeof(AethernetStep),         "aethernet")]
+[JsonDerivedType(typeof(UseItemOnObjectStep),   "use-item-on-object")]
 public class Step
 {
     public string Id { get; init; } = default!;
@@ -306,6 +307,14 @@ public sealed class AethernetStep : Step
     public uint From { get; init; }
     public uint To { get; init; }
     public Position3 FromPosition { get; init; } = default!;
+}
+
+public sealed class UseItemOnObjectStep : Step
+{
+    public uint InteractableId { get; init; }
+    public Position3 Position { get; init; } = default!;
+    public ItemKind Kind { get; init; }
+    public uint ItemId { get; init; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<PurchaseCurrency>))]
