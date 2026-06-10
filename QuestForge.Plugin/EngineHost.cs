@@ -562,6 +562,8 @@ public sealed class EngineHost : IDisposable
                     !ssp.IsNull && ssp.IsReady,
                     ref _dialogueChoiceProgress,
                     _interactor, ct);
+                if (!choiceDispatched && !sip.IsNull && sip.IsReady)
+                    choiceDispatched = TrySelectQuestInIconString(sip);
                 if (!choiceDispatched)
                     await _interactor.AdvanceDialogue(ct);
                 await _interactor.TryFillRequestAddon(ct);
@@ -995,6 +997,41 @@ public sealed class EngineHost : IDisposable
         if (addonPtr.IsNull || !addonPtr.IsReady) return;
 
         ((AtkUnitBase*)addonPtr.Address)->FireCallbackInt(0);
+    }
+
+    // When an NPC offers multiple quests via SelectIconString, find the entry matching
+    // the current quest's name (resolved from Lumina) and select it. AtkValues layout:
+    // [5]=count, then triplets at [6+i*3]=handlerId, [7+i*3]=questName, [8+i*3]=flags.
+    private unsafe bool TrySelectQuestInIconString(nint addonPtr)
+    {
+        if (_currentQuestDef is null) return false;
+
+        var questSheet = _services.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Quest>();
+        var questRow = questSheet?.GetRowOrDefault(_currentQuestId.Value);
+        if (questRow is null) return false;
+
+        var questName = questRow.Value.Name.ToString();
+        if (string.IsNullOrEmpty(questName)) return false;
+
+        var addon = (AtkUnitBase*)addonPtr;
+        if (addon->AtkValuesCount < 8) return false;
+
+        var count = addon->AtkValues[5].Int;
+        for (var i = 0; i < count; i++)
+        {
+            var nameIdx = 7 + (i * 3);
+            if (nameIdx >= addon->AtkValuesCount) break;
+
+            var entryName = addon->AtkValues[nameIdx].String.ToString();
+            if (string.Equals(entryName, questName, StringComparison.Ordinal))
+            {
+                _services.Log.Debug($"[QuestForge] [SelectIconString] selecting index {i} for quest '{questName}'");
+                _interactor.SelectStringOption(i, CancellationToken.None);
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private unsafe bool IsInventoryEventGridOpen()
