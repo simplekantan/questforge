@@ -293,4 +293,16 @@ public sealed record GameStateSnapshot(
     // UIObserver.ResetWindowState) so it does not bleed into the next recording window.
     // Does NOT clear in ResetDeltas — survives per-window.
     public ObjectInteractedSignal? ObjectInteracted { get; init; }
+
+    // Non-positional. True when the "Request" addon was observed open during this recording
+    // window (UIObserver.PollRequestAddon). Indicates the player used a key item on an NPC
+    // that required handing over an item via the Request confirmation dialog.
+    // Cleared by ResetDeltas (per-window delta signal).
+    public bool RequestAddonSeen { get; init; }
+
+    // Non-positional. True when the "InventoryEvent" addon was observed open during this
+    // recording window (UIObserver.PollInventoryEventAddon). Indicates the player used an
+    // item on an interactable object that triggered an inventory event.
+    // Cleared by ResetDeltas (per-window delta signal).
+    public bool InventoryEventAddonSeen { get; init; }
 }

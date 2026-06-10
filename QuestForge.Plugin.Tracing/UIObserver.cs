@@ -136,6 +136,12 @@ public sealed class UIObserver : IDisposable
     private (float X, float Y, float Z, int Zone) _lastEventObjPosition;
     private bool _lastOccupiedInEvent;
 
+    // ── InventoryEvent addon tracking ─────────────────────────────────────
+    // Tracks whether the InventoryEvent addon was open on the previous frame.
+    // On closed→open transition: capture the EventObj target and fire OnObjectInteracted
+    // (the OccupiedInEvent condition flag does NOT fire for InventoryEvent interactions).
+    private bool _inventoryEventWasOpen;
+
     // ── disposal ──────────────────────────────────────────────────────────
     private bool _disposed;
 
@@ -244,7 +250,10 @@ public sealed class UIObserver : IDisposable
 
         _lastEventObjBaseId  = 0;
         _lastOccupiedInEvent = false;
+        _inventoryEventWasOpen = false;
         _aggregator?.OnObjectInteractedConsumed();
+        _aggregator?.OnRequestAddonSeenConsumed();
+        _aggregator?.OnInventoryEventAddonSeenConsumed();
     }
 
     /// <summary>
@@ -287,6 +296,8 @@ public sealed class UIObserver : IDisposable
         PollJobChange();
         PollGearsetCount();
         PollEventObjInteraction();
+        PollRequestAddon();
+        PollInventoryEventAddon();
 
         // Heartbeat pollers (throttled to 250 ms)
         var now = _clock.UtcNow;
@@ -948,6 +959,40 @@ public sealed class UIObserver : IDisposable
             _lastEventObjBaseId = 0; // prevent re-fire until target is re-latched
         }
         _lastOccupiedInEvent = occupied;
+    }
+
+    private void PollRequestAddon()
+    {
+        if (_addonProbe is null) return;
+        if (_addonProbe.IsAddonOpen("Request"))
+            _aggregator?.OnRequestAddonSeen();
+    }
+
+    private void PollInventoryEventAddon()
+    {
+        if (_addonProbe is null) return;
+        var open = _addonProbe.IsAddonOpen("InventoryEventGrid");
+
+        if (open)
+            _aggregator?.OnInventoryEventAddonSeen();
+
+        // On closed→open transition: capture the EventObj target and fire OnObjectInteracted.
+        // The OccupiedInEvent condition flag does NOT fire for InventoryEvent interactions,
+        // so PollEventObjInteraction never captures the target. We do it here instead.
+        if (open && !_inventoryEventWasOpen && _targetProbe is not null)
+        {
+            var eventObj = _targetProbe.GetEventObjTarget();
+            if (eventObj.HasValue)
+            {
+                _aggregator?.OnObjectInteracted(
+                    eventObj.Value.BaseId,
+                    eventObj.Value.X,
+                    eventObj.Value.Y,
+                    eventObj.Value.Z);
+            }
+        }
+
+        _inventoryEventWasOpen = open;
     }
 
     private void PollDialogueOption()

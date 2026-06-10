@@ -172,6 +172,17 @@ public static class StepFactory
                 TargetNpcId = after?.ItemUsed?.TargetBaseId,
                 TargetPosition = after?.ItemUsed?.TargetPosition,
             },
+            "use-item-on-object" => new QuestForge.Schema.UseItemOnObjectStep
+            {
+                Id = stepId,
+                InteractableId = after?.ObjectInteracted?.InteractableId ?? 0u,
+                Position = after?.ObjectInteracted is { } obj
+                    ? new Position3(obj.X, obj.Y, obj.Z)
+                    : new Position3(0, 0, 0),
+                Kind = after?.ItemUsed?.Kind ?? QuestForge.Schema.ItemKind.KeyItem,
+                ItemId = after?.ItemUsed?.ItemId ?? 0u,
+                Expect = expect is not null ? new PredicateExpect { Predicate = expect } : null
+            },
             "say-chat-message" => new QuestForge.Schema.SayChatMessageStep
             {
                 Id = stepId,

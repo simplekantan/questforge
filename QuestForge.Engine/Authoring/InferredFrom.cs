@@ -24,4 +24,5 @@ public enum InferredFrom
     JobChanged,
     GearsetRegistered,
     ObjectInteracted,
+    InventoryEventItemUsed,
 }

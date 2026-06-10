@@ -88,7 +88,7 @@ public sealed class KeyItemRemovedInferenceTests
         // Arrange
         var engine = new StepInferenceEngine();
         var before = MakeSnapshot();
-        var after  = MakeSnapshot(keyItemsRemoved: new List<uint> { 5001u }, capturedAt: T1);
+        var after  = MakeSnapshot(keyItemsRemoved: new List<uint> { 5001u }, capturedAt: T1) with { RequestAddonSeen = true };
 
         // Act
         var result = engine.Infer(before, after);
@@ -124,7 +124,7 @@ public sealed class KeyItemRemovedInferenceTests
         // Arrange
         var engine = new StepInferenceEngine();
         var before = MakeSnapshot();
-        var after  = MakeSnapshot(keyItemsRemoved: new List<uint> { 5001u, 5002u }, capturedAt: T1);
+        var after  = MakeSnapshot(keyItemsRemoved: new List<uint> { 5001u, 5002u }, capturedAt: T1) with { RequestAddonSeen = true };
 
         // Act
         var result = engine.Infer(before, after);
@@ -317,7 +317,7 @@ public sealed class KeyItemRemovedInferenceTests
         var after  = MakeSnapshot(
             lastAttuned:     new AetheryteId(1000),
             keyItemsRemoved: new List<uint> { 9001u },
-            capturedAt: T1);
+            capturedAt: T1) with { RequestAddonSeen = true };
 
         // Act
         var result = engine.Infer(before, after);
