@@ -651,6 +651,17 @@ public sealed class EngineHost : IDisposable
                 await _itemUser.UseItem(ui.Kind, ui.ItemId, ui.TargetNpcId, ui.TargetPosition, ct);
                 break;
 
+            case EngineAction.UseItemOnObject uio:
+                DebounceLog(
+                    $"useitemonobject:{uio.Target.Value}:{uio.Kind}:{uio.ItemId}",
+                    $"[UseItemOnObject] interactableId={uio.Target.Value} kind={uio.Kind} itemId={uio.ItemId}");
+                if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
+                    await _navigator.Stop(ct);
+                TryCutsceneSkipConfirm();
+                await _objectInteractor.InteractWithObject(uio.Target, ct);
+                await _itemUser.UseItem(uio.Kind, uio.ItemId, null, null, ct);
+                break;
+
             case EngineAction.EquipGear eg:
                 DebounceLog(
                     $"equipgear:{eg.ItemId}",

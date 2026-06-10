@@ -121,6 +121,7 @@ Capabilities use a `namespace:name` format. Readers may filter by namespace pref
 | `step:change-job` | `ChangeJobStep` |
 | `step:register-gearset` | `RegisterGearsetStep` |
 | `step:open-coffers` | `OpenCoffersStep` — open gear coffers from player inventory (post-dungeon) |
+| `step:use-item-on-object` | `UseItemOnObjectStep` — approach EventObj, interact to open InventoryEvent, use key item |
 | `step:minigame` | `MinigameStep` |
 | `step:await-user` | `AwaitUserStep` |
 | `step:wait` | `WaitStep` |
@@ -177,6 +178,7 @@ Example: if the engine emits Navigate 1,847 times followed by Interact 312 times
 | `"useaction"` | `EngineAction.UseAction` | `UseActionStep` dispatch — execute a game action (combat ability, general action, key item) on an optional NPC target. |
 | `"useemote"` | `EngineAction.UseEmote` | `UseEmoteStep` dispatch — execute an emote via text command. |
 | `"useitem"` | `EngineAction.UseItem` | `UseItemStep` dispatch — use a key item or inventory item on an optional NPC or ground-position target. |
+| `"useitemonobject"` | `EngineAction.UseItemOnObject` | `UseItemOnObjectStep` dispatch — interact with EventObj, then use key/inventory item within the InventoryEvent event context. |
 | `"saychatmessage"` | `EngineAction.SayChatMessage` | `SayChatMessageStep` dispatch — send `/say <message>` via chat. |
 | `"engage"` | `EngineAction.Engage` | `CombatStep` dispatch AND global defense rule — engage an attacker before advancing. |
 | `"equipgear"` | `EngineAction.EquipGear` | `EquipGearForQuestStep` dispatch — equip a specific quest-required item. |
@@ -230,6 +232,7 @@ with-equip-best-gear.json       # quest with EquipBestGearStep (equip recommende
 with-change-job.json            # quest with ChangeJobStep (switch active job/class)
 with-register-gearset.json      # quest with RegisterGearsetStep (save current gear as gearset)
 with-open-coffers.json          # quest with OpenCoffersStep (open gear coffers from inventory)
+with-use-item-on-object.json    # quest with UseItemOnObjectStep (approach EventObj + InventoryEvent item use)
 with-dialogue-choices.json      # quest with SelectString branch (Phase 11+ TBD)
 with-escort.json                # quest with escort NPC (Phase 11+ TBD)
 with-spd.json                   # single-player duty
@@ -422,10 +425,6 @@ step:purchase-item      ❌ (no fixture yet)
 step:say-chat-message   ❌ (no fixture yet — record from any /say-password quest)
 step:duty               ❌
 step:combat             ❌
-predicate:playerNear    ✅ simple-linear-acceptance.json
-predicate:isAttuned     ✅ with-attunement.json
-predicate:playerHasItem ✅ with-attunement.json
-predicate:inCombat      ❌
 ```
 
 **Current corpus:** 7 fixtures across 4 quests, including 4 branch variants for quest 65999 exercising `initialOverrides`. All driven by `QuestDataDrivenState`.
