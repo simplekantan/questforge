@@ -53,6 +53,12 @@ public abstract record EngineAction
         Position3? TargetPosition,
         Step? Origin = null) : EngineAction;
 
+    public sealed record UseItemOnObject(
+        InteractableId Target,
+        ItemKind Kind,
+        uint ItemId,
+        Step? Origin = null) : EngineAction;
+
     public sealed record EquipGear(uint ItemId, Step? Origin = null) : EngineAction;
 
     public sealed record EquipBestGear(Step? Origin = null) : EngineAction;

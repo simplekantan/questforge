@@ -2026,6 +2026,69 @@ public class RoundTripTests
     }
 
     // =========================================================================
+    // UIO_T18 -- UseItemOnObjectStep round-trip serialization (RED PHASE)
+    // Will fail to compile until Builder adds UseItemOnObjectStep to Step.cs,
+    // [JsonDerivedType(typeof(UseItemOnObjectStep), "use-item-on-object")] to Step,
+    // and [JsonSerializable(typeof(UseItemOnObjectStep))] to QuestForgeJsonContext.
+    // =========================================================================
+
+    /// <summary>
+    /// UIO_T18 -- UseItemOnObjectStep round-trips through JSON with correct InteractableId,
+    /// Position, Kind, ItemId, Expect, and the "use-item-on-object" type discriminator.
+    /// Spec: docs/USE_ITEM_ON_OBJECT_STEP_PLAN.md -- Task 1 / GWT UIO_T18.
+    /// </summary>
+    [Fact]
+    public void UseItemOnObjectStep_RoundTrips_UIO_T18()
+    {
+        /*
+         * RED: Will fail to compile -- UseItemOnObjectStep does not exist yet.
+         *
+         * CONTRACT: Given UseItemOnObjectStep with Id="use-key-on-device",
+         *               InteractableId=2001500, Position=(81.5, 7.0, 32.2),
+         *               Kind=KeyItem, ItemId=2002001,
+         *               Expect="questFlag(65657, 5)",
+         *           When serialized as Step then deserialized,
+         *           Then result is UseItemOnObjectStep with all fields preserved,
+         *                AND compact JSON contains "type":"use-item-on-object".
+         *
+         * BUILDER GUIDANCE:
+         *   1. Add sealed class UseItemOnObjectStep : Step { InteractableId, Position, Kind, ItemId }
+         *   2. Add [JsonDerivedType(typeof(UseItemOnObjectStep), "use-item-on-object")] to Step.
+         *   3. Add [JsonSerializable(typeof(UseItemOnObjectStep))] to QuestForgeJsonContext.
+         */
+
+        // Arrange
+        var step = new UseItemOnObjectStep
+        {
+            Id = "use-key-on-device",
+            InteractableId = 2001500u,
+            Position = new Position3(81.5f, 7.0f, 32.2f),
+            Kind = ItemKind.KeyItem,
+            ItemId = 2002001u,
+            Expect = new PredicateExpect { Predicate = "questFlag(65657, 5)" }
+        };
+
+        // Act
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        // Assert -- discriminator present
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"type\":\"use-item-on-object\"", compactJson, StringComparison.Ordinal);
+
+        // Assert -- round-trip fidelity
+        Assert.Equal("use-key-on-device", result.Id);
+        Assert.Equal(2001500u, result.InteractableId);
+        Assert.Equal(81.5f, result.Position.X, precision: 3);
+        Assert.Equal(7.0f, result.Position.Y, precision: 3);
+        Assert.Equal(32.2f, result.Position.Z, precision: 3);
+        Assert.Equal(ItemKind.KeyItem, result.Kind);
+        Assert.Equal(2002001u, result.ItemId);
+        var expect = Assert.IsType<PredicateExpect>(result.Expect);
+        Assert.Equal("questFlag(65657, 5)", expect.Predicate);
+    }
+
+    // =========================================================================
     // OC_RT1 -- OpenCoffersStep round-trip serialization
     // =========================================================================
 

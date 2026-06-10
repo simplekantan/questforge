@@ -711,6 +711,13 @@ public sealed class QuestEngine
                 return (useItem, step.Id, playerPos);
             }
 
+            // 6a4b. UseItemOnObjectStep async arm
+            if (step is UseItemOnObjectStep useItemOnObjStep)
+            {
+                var useItemOnObj = await ResolveUseItemOnObject(useItemOnObjStep, playerPos, ct);
+                return (useItemOnObj, step.Id, playerPos);
+            }
+
             // 6a5. EquipGearForQuestStep async arm — implicit postcondition: all ItemIds equipped.
             if (step is EquipGearForQuestStep equipStep)
             {
@@ -1191,6 +1198,33 @@ public sealed class QuestEngine
         var target = step.TargetNpcId is { } id ? new NpcId(id) : (NpcId?)null;
         RecordActionFired(step);
         return new EngineAction.UseItem(step.Kind, step.ItemId, target, step.TargetPosition, Origin: step);
+    }
+
+    private async Task<EngineAction> ResolveUseItemOnObject(UseItemOnObjectStep step, WorldPosition? playerPos, CancellationToken ct)
+    {
+        if (_objectInteractor is null)
+            return new EngineAction.AwaitUser(
+                "UseItemOnObjectStep dispatched but no IObjectInteractor wired — host must supply one");
+
+        var action = new EngineAction.UseItemOnObject(
+            new InteractableId(step.InteractableId),
+            step.Kind,
+            step.ItemId,
+            Origin: step);
+
+        var navOrAction = ResolveInteractOrNavigate(step, step.Position, playerPos, action);
+        if (navOrAction is EngineAction.Navigate)
+            return navOrAction;
+
+        var stateResult = await _gameState.GetPlayerState(ct);
+        if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
+            return new EngineAction.Wait("player casting; deferring use-item-on-object", Origin: step);
+
+        var cooldown = CheckActionCooldown(step);
+        if (cooldown is not null) return cooldown;
+
+        RecordActionFired(step);
+        return action;
     }
 
     private async Task<EngineAction?> ResolveEquipGear(EquipGearForQuestStep step, CancellationToken ct)

@@ -331,6 +331,20 @@ public sealed class EngineTestHarness
                     }
                     break;
 
+                case EngineAction.UseItemOnObject uio:
+                    actions.Add(action);
+                    EmitActionSubmitted("UseItemOnObject", JsonSerializer.SerializeToElement(
+                        new {
+                            target = uio.Target.Value,
+                            kind = uio.Kind.ToString(),
+                            itemId = uio.ItemId
+                        },
+                        _jsonOpts));
+                    await ObjectInteractor.InteractWithObject(uio.Target, ct);
+                    await ItemUser.UseItem(uio.Kind, uio.ItemId, null, null, ct);
+                    EmitActionCompleted("UseItemOnObject", "Done");
+                    break;
+
                 case EngineAction.UseItem ui:
                     actions.Add(action);
                     EmitActionSubmitted("UseItem", JsonSerializer.SerializeToElement(
