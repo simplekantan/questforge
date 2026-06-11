@@ -169,4 +169,10 @@ public sealed unsafe class DalamudGameProbe : IGameProbe
         var cond = Conditions.Instance();
         return cond != null && cond->OccupiedInEvent;
     }
+
+    public ushort? GetCurrentContentFinderConditionId()
+    {
+        var gm = GameMain.Instance();
+        return gm != null ? gm->CurrentContentFinderConditionId : null;
+    }
 }

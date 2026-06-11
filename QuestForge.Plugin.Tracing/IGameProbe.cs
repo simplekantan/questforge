@@ -67,6 +67,13 @@ public interface IGameProbe
     /// cutscene trigger, etc.). Read from Conditions.OccupiedInEvent (offset 31).
     /// </summary>
     bool IsOccupiedInEvent();
+
+    /// <summary>
+    /// Returns GameMain.Instance()-&gt;CurrentContentFinderConditionId (ushort).
+    /// 0 = not in instanced content. Non-zero = CFC row ID of the current instance.
+    /// null when GameMain is unavailable.
+    /// </summary>
+    ushort? GetCurrentContentFinderConditionId();
 }
 
 /// <summary>

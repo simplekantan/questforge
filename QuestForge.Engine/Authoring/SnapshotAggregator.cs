@@ -43,6 +43,7 @@ public sealed class SnapshotAggregator
     private ObjectInteractedSignal? _objectInteracted;
     private bool _requestAddonSeen;
     private bool _inventoryEventAddonSeen;
+    private SpdEntryDetectedSignal? _spdEntryDetected;
 
     // ── purchase span state ────────────────────────────────────────────────
     private bool _shopOpen;
@@ -128,7 +129,8 @@ public sealed class SnapshotAggregator
         GearsetRegistered            = _gearsetRegistered,
         ObjectInteracted             = _objectInteracted,
         RequestAddonSeen             = _requestAddonSeen,
-        InventoryEventAddonSeen      = _inventoryEventAddonSeen
+        InventoryEventAddonSeen      = _inventoryEventAddonSeen,
+        SpdEntryDetected             = _spdEntryDetected
     };
 
     public void OnZoneChanged(ZoneId zone, WorldPosition position)
@@ -693,6 +695,21 @@ public sealed class SnapshotAggregator
     /// InventoryEventAddonSeen flag so it does not bleed into the next recording window.
     /// </summary>
     public void OnInventoryEventAddonSeenConsumed() => _inventoryEventAddonSeen = false;
+
+    /// <summary>
+    /// Called by UIObserver.PollContentFinderCondition when GameMain.CurrentContentFinderConditionId
+    /// transitions from 0 to a non-zero value. Records the CFC row id for SPD entry inference.
+    /// Survives ResetDeltas; cleared by OnSpdEntryConsumed.
+    /// Last-write-wins on multiple calls within the same window.
+    /// </summary>
+    public void OnSpdEntryDetected(ushort cfcId)
+        => _spdEntryDetected = new SpdEntryDetectedSignal(cfcId);
+
+    /// <summary>
+    /// Called at the end of AuthoringHost.ConsumeAllSignals and UIObserver.ResetWindowState to
+    /// consume the SPD entry signal so it does not bleed into the next recording window.
+    /// </summary>
+    public void OnSpdEntryConsumed() => _spdEntryDetected = null;
 
     // ── Private span-correlation helper ──────────────────────────────────────
 

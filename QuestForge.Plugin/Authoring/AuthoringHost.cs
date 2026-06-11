@@ -236,7 +236,7 @@ public sealed class AuthoringHost : IDisposable
     {
         var after = _aggregator.Current;
         var pd = after.PurchaseDetected;
-        _services.Log.Debug($"[QF-DIAG] PreviewInference: zone {before.Zone.Value}→{after.Zone.Value} AethernetTeleportCompleted={after.AethernetTeleportCompleted?.To.Value} TeleportCompleted={after.TeleportCompleted?.Value} ActionCompleted={after.ActionCompleted?.ActionId} EmoteCompleted={after.EmoteCompleted?.EmoteId} SayChatMessageSent={TruncateForLog(after.SayChatMessageSent?.Message, 30)} ItemUsed={after.ItemUsed?.ItemId} EquipmentChanged={after.EquipmentChanged?.NewItemIds.Count} JobChanged={after.JobChanged?.NewJobId} GearsetRegistered={after.GearsetRegistered?.NewCount} ObjectInteracted={after.ObjectInteracted?.InteractableId} RequestAddonSeen={after.RequestAddonSeen} InventoryEventAddonSeen={after.InventoryEventAddonSeen} DialogueOptionSelected={after.DialogueOptionSelected} DialogueNpcSource={after.DialogueNpcSource?.NpcId} isAethernet_before_shard={before.LastAethernetShardInteracted?.Value} isAethernet_before_npc={before.LastNpcInteracted?.Value} PurchaseDetected={pd is not null} PD.ShopWasOpen={pd?.ShopWasOpen} PD.ItemDeltas={pd?.ItemDeltas.Count} PD.GilDropped={pd?.GilDropped} PD.SealsDropped={pd?.SealsDropped} PD.VendorCategory={pd?.ActiveVendorCategory}");
+        _services.Log.Debug($"[QF-DIAG] PreviewInference: zone {before.Zone.Value}→{after.Zone.Value} AethernetTeleportCompleted={after.AethernetTeleportCompleted?.To.Value} TeleportCompleted={after.TeleportCompleted?.Value} ActionCompleted={after.ActionCompleted?.ActionId} EmoteCompleted={after.EmoteCompleted?.EmoteId} SayChatMessageSent={TruncateForLog(after.SayChatMessageSent?.Message, 30)} ItemUsed={after.ItemUsed?.ItemId} EquipmentChanged={after.EquipmentChanged?.NewItemIds.Count} JobChanged={after.JobChanged?.NewJobId} GearsetRegistered={after.GearsetRegistered?.NewCount} ObjectInteracted={after.ObjectInteracted?.InteractableId} RequestAddonSeen={after.RequestAddonSeen} InventoryEventAddonSeen={after.InventoryEventAddonSeen} DialogueOptionSelected={after.DialogueOptionSelected} DialogueNpcSource={after.DialogueNpcSource?.NpcId} isAethernet_before_shard={before.LastAethernetShardInteracted?.Value} isAethernet_before_npc={before.LastNpcInteracted?.Value} PurchaseDetected={pd is not null} PD.ShopWasOpen={pd?.ShopWasOpen} PD.ItemDeltas={pd?.ItemDeltas.Count} PD.GilDropped={pd?.GilDropped} PD.SealsDropped={pd?.SealsDropped} PD.VendorCategory={pd?.ActiveVendorCategory} SpdEntryDetected={after.SpdEntryDetected?.ContentFinderConditionId}");
         return _inferenceEngine.Infer(before, after);
     }
 
@@ -450,6 +450,7 @@ public sealed class AuthoringHost : IDisposable
         _aggregator.OnObjectInteractedConsumed();
         _aggregator.OnRequestAddonSeenConsumed();
         _aggregator.OnInventoryEventAddonSeenConsumed();
+        _aggregator.OnSpdEntryConsumed();
     }
 
     // --- Dalamud event handlers ---

@@ -230,6 +230,14 @@ public sealed class FakeGameProbe : IGameProbe
     public void SetOccupiedInEvent(bool value) => _occupiedInEvent = value;
 
     public bool IsOccupiedInEvent() => _occupiedInEvent;
+
+    // -- UO_CFC*: ContentFinderCondition scripting --
+    private ushort? _currentCfcId = 0;
+
+    public void SetCurrentContentFinderConditionId(ushort cfcId) => _currentCfcId = cfcId;
+    public void ClearCurrentContentFinderConditionId() => _currentCfcId = null;
+
+    public ushort? GetCurrentContentFinderConditionId() => _currentCfcId;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5470,6 +5478,256 @@ public sealed class UIObserverTests
 
         Assert.True(aggregator.Current.InventoryEventAddonSeen);
         Assert.Null(aggregator.Current.ObjectInteracted);
+
+        observer.Dispose();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UO_CFC*: ContentFinderCondition polling (momentary-state pattern)
+    //
+    // Covers spec SPD_INFERENCE_PLAN.md Decision SPDI3, UO_CFC1-CFC6.
+    //
+    // ALL tests in this group will fail to compile/runtime until Builder adds:
+    //   - SpdEntryDetectedSignal record in GameStateSnapshot.cs               (Task 1)
+    //   - GameStateSnapshot.SpdEntryDetected property                          (Task 1)
+    //   - SnapshotAggregator.OnSpdEntryDetected / OnSpdEntryConsumed           (Task 3)
+    //   - IGameProbe.GetCurrentContentFinderConditionId()                      (Task 6)
+    //   - FakeGameProbe.SetCurrentContentFinderConditionId / Clear              (Task 10)
+    //   - UIObserver.PollContentFinderCondition                                (Task 8)
+    //   - UIObserver.ResetWindowState calls OnSpdEntryConsumed                (Task 8)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // =========================================================================
+    // UO_CFC1 -- CFC ID 0 -> N fires OnSpdEntryDetected
+    // =========================================================================
+
+    [Fact]
+    public void UO_CFC1_CfcIdZeroToNonZero_FiresOnSpdEntryDetected()
+    {
+        // CONTRACT: Given UIObserver with aggregator set.
+        //           FakeGameProbe.SetCurrentContentFinderConditionId(0). Tick once (baseline).
+        //           When FakeGameProbe.SetCurrentContentFinderConditionId(123). Tick once.
+        //           Then aggregator.Current.SpdEntryDetected is new SpdEntryDetectedSignal(123).
+        //                Trace contains observation "ContentFinderConditionChanged" with value 123.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Tick 1: baseline at 0
+        gameProbe.SetCurrentContentFinderConditionId(0);
+        framework.Tick();
+
+        Assert.Null(aggregator.Current.SpdEntryDetected); // no fire for 0
+
+        // Tick 2: transition 0 -> 123
+        gameProbe.SetCurrentContentFinderConditionId(123);
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.SpdEntryDetected);
+        Assert.Equal((ushort)123, aggregator.Current.SpdEntryDetected!.ContentFinderConditionId);
+
+        // Verify trace observation was written
+        var cfcObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Data.Method == "ContentFinderConditionChanged")
+            .ToList();
+        Assert.Single(cfcObs);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_CFC2 -- CFC ID stays at N -- no re-fire
+    // =========================================================================
+
+    [Fact]
+    public void UO_CFC2_CfcIdStaysAtN_NoReFire()
+    {
+        // CONTRACT: Given CFC ID already at 123 (after UO_CFC1 scenario).
+        //           Aggregator consumed the signal (OnSpdEntryConsumed).
+        //           When Tick again (CFC ID still 123),
+        //           Then aggregator.Current.SpdEntryDetected remains null (was consumed).
+        //                No new trace observation.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Establish baseline and fire
+        gameProbe.SetCurrentContentFinderConditionId(0);
+        framework.Tick();
+        gameProbe.SetCurrentContentFinderConditionId(123);
+        framework.Tick();
+        Assert.NotNull(aggregator.Current.SpdEntryDetected); // sanity
+
+        // Consume the signal
+        aggregator.OnSpdEntryConsumed();
+        Assert.Null(aggregator.Current.SpdEntryDetected);
+
+        var countBefore = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Count(e => e.Data.Method == "ContentFinderConditionChanged");
+
+        // Tick again with same CFC ID
+        framework.Tick();
+
+        // No new signal (consumed, and value hasn't changed)
+        Assert.Null(aggregator.Current.SpdEntryDetected);
+
+        var countAfter = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Count(e => e.Data.Method == "ContentFinderConditionChanged");
+        Assert.Equal(countBefore, countAfter);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_CFC3 -- CFC ID N -> 0 -- silent reset, no fire
+    // =========================================================================
+
+    [Fact]
+    public void UO_CFC3_CfcIdNToZero_SilentReset_NoFire()
+    {
+        // CONTRACT: Given CFC ID at 123 (from UO_CFC1).
+        //           When FakeGameProbe.SetCurrentContentFinderConditionId(0). Tick once.
+        //           Then No new SpdEntryDetected signal fires.
+        //                Trace does NOT contain a new "ContentFinderConditionChanged"
+        //                observation for value 0.
+
+        var (observer, framework, _, gameProbe, _, writer, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Setup: 0 -> 123 (fires once)
+        gameProbe.SetCurrentContentFinderConditionId(0);
+        framework.Tick();
+        gameProbe.SetCurrentContentFinderConditionId(123);
+        framework.Tick();
+
+        // Consume the entry signal
+        aggregator.OnSpdEntryConsumed();
+
+        var countBefore = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Count(e => e.Data.Method == "ContentFinderConditionChanged");
+
+        // CFC ID transitions back to 0 (exit)
+        gameProbe.SetCurrentContentFinderConditionId(0);
+        framework.Tick();
+
+        // No new SpdEntryDetected signal
+        Assert.Null(aggregator.Current.SpdEntryDetected);
+
+        // No new trace observation for exit
+        var countAfter = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Count(e => e.Data.Method == "ContentFinderConditionChanged");
+        Assert.Equal(countBefore, countAfter);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_CFC4 -- CFC ID 0 -> N -> 0 -> M -- second entry fires
+    // =========================================================================
+
+    [Fact]
+    public void UO_CFC4_CfcIdSecondEntry_AfterExitAndReEntry_FiresAgain()
+    {
+        // CONTRACT: Given CFC ID transitions 0 -> 123 (first entry, consumed).
+        //           Then 123 -> 0 (exit). Then 0 -> 456 (second entry).
+        //           When Full sequence of SetCurrentContentFinderConditionId + Tick calls,
+        //           Then After the final tick,
+        //                aggregator.Current.SpdEntryDetected is new SpdEntryDetectedSignal(456).
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Phase 1: 0 -> 123 (first entry)
+        gameProbe.SetCurrentContentFinderConditionId(0);
+        framework.Tick();
+        gameProbe.SetCurrentContentFinderConditionId(123);
+        framework.Tick();
+        Assert.NotNull(aggregator.Current.SpdEntryDetected);
+        Assert.Equal((ushort)123, aggregator.Current.SpdEntryDetected!.ContentFinderConditionId);
+
+        // Consume first entry
+        aggregator.OnSpdEntryConsumed();
+        Assert.Null(aggregator.Current.SpdEntryDetected);
+
+        // Phase 2: 123 -> 0 (exit)
+        gameProbe.SetCurrentContentFinderConditionId(0);
+        framework.Tick();
+
+        // Phase 3: 0 -> 456 (second entry)
+        gameProbe.SetCurrentContentFinderConditionId(456);
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.SpdEntryDetected);
+        Assert.Equal((ushort)456, aggregator.Current.SpdEntryDetected!.ContentFinderConditionId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_CFC5 -- ResetWindowState clears _lastObservedCfcId and consumes signal
+    // =========================================================================
+
+    [Fact]
+    public void UO_CFC5_ResetWindowState_ClearsCfcIdAndConsumesSignal()
+    {
+        // CONTRACT: Given CFC ID at 123 (signal fired).
+        //           Aggregator has SpdEntryDetected=new(123).
+        //           When observer.ResetWindowState() is called,
+        //           Then aggregator.Current.SpdEntryDetected is null.
+        //                Internal _lastObservedCfcId is 0 (verified indirectly: setting
+        //                CFC ID back to 123 and ticking fires a new signal).
+
+        var (observer, framework, _, gameProbe, _, _, _, aggregator) =
+            BuildFixtureWithAggregator();
+
+        // Fire the signal: 0 -> 123
+        gameProbe.SetCurrentContentFinderConditionId(0);
+        framework.Tick();
+        gameProbe.SetCurrentContentFinderConditionId(123);
+        framework.Tick();
+        Assert.NotNull(aggregator.Current.SpdEntryDetected); // sanity
+
+        // Act: ResetWindowState
+        observer.ResetWindowState();
+
+        // Signal should be consumed
+        Assert.Null(aggregator.Current.SpdEntryDetected);
+
+        // Verify _lastObservedCfcId was reset: setting 123 again should fire
+        gameProbe.SetCurrentContentFinderConditionId(123);
+        framework.Tick();
+
+        Assert.NotNull(aggregator.Current.SpdEntryDetected);
+        Assert.Equal((ushort)123, aggregator.Current.SpdEntryDetected!.ContentFinderConditionId);
+
+        observer.Dispose();
+    }
+
+    // =========================================================================
+    // UO_CFC6 -- null GameProbe -- poller is a no-op
+    // =========================================================================
+
+    [Fact]
+    public void UO_CFC6_NullGameProbe_PollerIsNoOp()
+    {
+        // CONTRACT: Given UIObserver constructed with gameProbe: null.
+        //           When Tick once,
+        //           Then No exceptions. No trace observations for "ContentFinderConditionChanged".
+
+        var writer  = new FakeTraceWriter();
+        var session = new TraceSession(TraceMode.Always, Path.GetTempPath(), _ => writer);
+        session.OnPluginStart();
+        var framework = new FakeFramework();
+
+        var observer = new UIObserver(framework, session, PassiveRunId, gameProbe: null);
+
+        var ex = Record.Exception(() => framework.Tick());
+        Assert.Null(ex);
+
+        var cfcObs = writer.RecordedEvents.OfType<ObservationEvent>()
+            .Where(e => e.Data.Method == "ContentFinderConditionChanged")
+            .ToList();
+        Assert.Empty(cfcObs);
 
         observer.Dispose();
     }
