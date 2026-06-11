@@ -9,6 +9,9 @@ public static class PlayerStateFormatter
     public static string FormatZone(uint zoneId)
         => $"Zone: {zoneId}";
 
+    public static string FormatCfc(ushort cfcId)
+        => $"CFC: {cfcId}";
+
     public static string FormatPosition(WorldPosition pos)
         => string.Format(
             CultureInfo.InvariantCulture,
