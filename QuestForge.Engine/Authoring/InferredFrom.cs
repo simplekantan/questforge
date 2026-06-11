@@ -25,4 +25,5 @@ public enum InferredFrom
     GearsetRegistered,
     ObjectInteracted,
     InventoryEventItemUsed,
+    SpdEntryDetected,
 }

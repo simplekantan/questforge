@@ -142,6 +142,13 @@ public sealed class UIObserver : IDisposable
     // (the OccupiedInEvent condition flag does NOT fire for InventoryEvent interactions).
     private bool _inventoryEventWasOpen;
 
+    // ── ContentFinderCondition tracking ───────────────────────────────────
+    // Tracks the most recently observed CurrentContentFinderConditionId.
+    // 0 = not in instanced content (or just initialized).
+    // Transition 0 -> N fires OnSpdEntryDetected. Transition N -> 0 silently resets.
+    // Reset in ResetWindowState so a re-entry to the same CFC fires again.
+    private ushort _lastObservedCfcId;
+
     // ── disposal ──────────────────────────────────────────────────────────
     private bool _disposed;
 
@@ -254,6 +261,9 @@ public sealed class UIObserver : IDisposable
         _aggregator?.OnObjectInteractedConsumed();
         _aggregator?.OnRequestAddonSeenConsumed();
         _aggregator?.OnInventoryEventAddonSeenConsumed();
+
+        _lastObservedCfcId = 0;
+        _aggregator?.OnSpdEntryConsumed();
     }
 
     /// <summary>
@@ -298,6 +308,7 @@ public sealed class UIObserver : IDisposable
         PollEventObjInteraction();
         PollRequestAddon();
         PollInventoryEventAddon();
+        PollContentFinderCondition();
 
         // Heartbeat pollers (throttled to 250 ms)
         var now = _clock.UtcNow;
@@ -995,6 +1006,28 @@ public sealed class UIObserver : IDisposable
         _inventoryEventWasOpen = open;
     }
 
+    private void PollContentFinderCondition()
+    {
+        if (_gameProbe is null) return;
+
+        var current = _gameProbe.GetCurrentContentFinderConditionId();
+        if (current is null) return;
+        var cfcId = current.Value;
+
+        if (cfcId == _lastObservedCfcId) return;
+
+        var previousCfcId  = _lastObservedCfcId;
+        _lastObservedCfcId = cfcId;
+
+        // Only fire on 0 -> non-zero transition (entry). Non-zero -> 0 (exit) is silent.
+        if (cfcId == 0) return;
+
+        var now   = _clock.UtcNow;
+        var runId = CurrentRunId;
+        WriteObservation("ContentFinderConditionChanged", cfcId, previousCfcId, runId, now);
+        _aggregator?.OnSpdEntryDetected(cfcId);
+    }
+
     private void PollDialogueOption()
     {
         if (_addonProbe is null) return;
@@ -1074,39 +1107,60 @@ public sealed class UIObserver : IDisposable
         if (menuIsOpen && !_selectYesnoWasOpen)
         {
             _selectYesnoWasOpen = true;
-            // NPC capture: same tier strategy as PollDialogueOption.
-            var npcInfo = _targetProbe?.GetInteractableNpcTarget()
-                       ?? _targetProbe?.GetInteractableNpcPreviousTarget();
 
-            NpcLocation? npcLoc = null;
-            if (npcInfo.HasValue)
+            // Check EventObj target first — SelectYesno can be triggered by EventObjs
+            // (e.g. inn doors). Without this, stale LastNpcInteracted wins and the
+            // inference incorrectly produces a talk step instead of interact-object.
+            var eventObj = _targetProbe?.GetEventObjTarget();
+            if (eventObj.HasValue)
             {
-                npcLoc = new NpcLocation(
-                    NpcId: npcInfo.Value.BaseId,
-                    Zone: npcInfo.Value.Zone,
-                    Position: new Position3(npcInfo.Value.X, npcInfo.Value.Y, npcInfo.Value.Z));
-            }
-            else if (_aggregator is not null)
-            {
-                var cur = _aggregator.Current;
-                if (cur.LastNpcInteracted.HasValue && cur.LastNpcPosition.HasValue)
-                    npcLoc = new NpcLocation(
-                        NpcId: cur.LastNpcInteracted.Value.Value,
-                        Zone: (int)cur.Zone.Value,
-                        Position: new Position3(
-                            cur.LastNpcPosition.Value.X,
-                            cur.LastNpcPosition.Value.Y,
-                            cur.LastNpcPosition.Value.Z));
-            }
-
-            if (npcLoc is not null)
-            {
-                _aggregator?.OnDialogueNpcCaptured(npcLoc);
+                _aggregator?.OnObjectInteracted(
+                    eventObj.Value.BaseId,
+                    eventObj.Value.X,
+                    eventObj.Value.Y,
+                    eventObj.Value.Z);
                 var now   = _clock.UtcNow;
                 var runId = CurrentRunId;
-                WriteObservation("DialogueNpcCaptured", npcLoc.NpcId,
-                    new { zone = npcLoc.Zone, x = npcLoc.Position.X, y = npcLoc.Position.Y, z = npcLoc.Position.Z },
+                WriteObservation("ObjectInteracted", eventObj.Value.BaseId,
+                    new { x = eventObj.Value.X, y = eventObj.Value.Y, z = eventObj.Value.Z, zone = eventObj.Value.Zone },
                     runId, now);
+            }
+            else
+            {
+                // NPC capture: same tier strategy as PollDialogueOption.
+                var npcInfo = _targetProbe?.GetInteractableNpcTarget()
+                           ?? _targetProbe?.GetInteractableNpcPreviousTarget();
+
+                NpcLocation? npcLoc = null;
+                if (npcInfo.HasValue)
+                {
+                    npcLoc = new NpcLocation(
+                        NpcId: npcInfo.Value.BaseId,
+                        Zone: npcInfo.Value.Zone,
+                        Position: new Position3(npcInfo.Value.X, npcInfo.Value.Y, npcInfo.Value.Z));
+                }
+                else if (_aggregator is not null)
+                {
+                    var cur = _aggregator.Current;
+                    if (cur.LastNpcInteracted.HasValue && cur.LastNpcPosition.HasValue)
+                        npcLoc = new NpcLocation(
+                            NpcId: cur.LastNpcInteracted.Value.Value,
+                            Zone: (int)cur.Zone.Value,
+                            Position: new Position3(
+                                cur.LastNpcPosition.Value.X,
+                                cur.LastNpcPosition.Value.Y,
+                                cur.LastNpcPosition.Value.Z));
+                }
+
+                if (npcLoc is not null)
+                {
+                    _aggregator?.OnDialogueNpcCaptured(npcLoc);
+                    var now   = _clock.UtcNow;
+                    var runId = CurrentRunId;
+                    WriteObservation("DialogueNpcCaptured", npcLoc.NpcId,
+                        new { zone = npcLoc.Zone, x = npcLoc.Position.X, y = npcLoc.Position.Y, z = npcLoc.Position.Z },
+                        runId, now);
+                }
             }
         }
 

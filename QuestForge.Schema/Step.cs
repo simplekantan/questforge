@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace QuestForge.Schema;
 
 // ---------------------------------------------------------------------------
-// Step base class — all 29 step types inherit from this.
+// Step base class — all 31 step types inherit from this.
 // Uses [JsonPolymorphic] with "type" as the discriminator.
 // ---------------------------------------------------------------------------
 
@@ -38,6 +38,8 @@ namespace QuestForge.Schema;
 [JsonDerivedType(typeof(OpenCoffersStep),       "open-coffers")]
 [JsonDerivedType(typeof(AethernetStep),         "aethernet")]
 [JsonDerivedType(typeof(UseItemOnObjectStep),   "use-item-on-object")]
+[JsonDerivedType(typeof(DungeonTrialStep),      "dungeon-trial")]
+[JsonDerivedType(typeof(SinglePlayerDutyStep),  "single-player-duty")]
 public class Step
 {
     public string Id { get; init; } = default!;
@@ -324,4 +326,29 @@ public enum PurchaseCurrency
     Gil,
     [System.Text.Json.Serialization.JsonStringEnumMemberName("gcSeals")]
     GcSeals
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<SpdEntryKind>))]
+public enum SpdEntryKind
+{
+    [System.Text.Json.Serialization.JsonStringEnumMemberName("talk")]
+    Talk,
+    [System.Text.Json.Serialization.JsonStringEnumMemberName("interact")]
+    Interact,
+    [System.Text.Json.Serialization.JsonStringEnumMemberName("proximity")]
+    Proximity
+}
+
+public sealed class DungeonTrialStep : Step
+{
+    public uint ContentFinderConditionId { get; init; }
+}
+
+public sealed class SinglePlayerDutyStep : Step
+{
+    public uint ContentFinderConditionId { get; init; }
+    public SpdEntryKind EntryKind { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public uint? EntryTargetId { get; init; }
+    public Position3 EntryPosition { get; init; } = default!;
 }

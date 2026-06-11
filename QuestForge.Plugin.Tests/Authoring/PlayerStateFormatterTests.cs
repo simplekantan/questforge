@@ -247,6 +247,24 @@ public sealed class PlayerStateFormatterTests
     }
 
     // =========================================================================
+    // FormatCfc
+    // =========================================================================
+
+    [Fact]
+    public void FormatCfc_StandardId_ReturnsCfcLine()
+    {
+        string result = PlayerStateFormatter.FormatCfc(830);
+        Assert.Equal("CFC: 830", result);
+    }
+
+    [Fact]
+    public void FormatCfc_ZeroId_ReturnsZeroNoSpecialCase()
+    {
+        string result = PlayerStateFormatter.FormatCfc(0);
+        Assert.Equal("CFC: 0", result);
+    }
+
+    // =========================================================================
     // FormatMount
     // =========================================================================
 

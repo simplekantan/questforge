@@ -255,7 +255,55 @@ public static class StepFactory
             "equip-best-gear" => new EquipBestGearStep { Id = stepId, Expect = expectValue },
             "open-coffers" => new OpenCoffersStep { Id = stepId, Expect = expectValue },
             "duty" => new DutyStep { Id = stepId, Expect = expectValue, Kind = "spd" },
+            "single-player-duty" => BuildSinglePlayerDutyStep(stepId, expectValue, before, after),
             _ => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, RequiredZone = zoneStr, Target = npcLoc, DialogueChoices = dialogueChoices }
+        };
+    }
+
+    private static SinglePlayerDutyStep BuildSinglePlayerDutyStep(
+        string stepId,
+        ExpectValue? expectValue,
+        GameStateSnapshot? before,
+        GameStateSnapshot? after)
+    {
+        var cfcId = (uint)(after?.SpdEntryDetected?.ContentFinderConditionId ?? 0);
+
+        SpdEntryKind entryKind;
+        uint? entryTargetId;
+        Position3 entryPosition;
+
+        if (after?.ObjectInteracted is { } objSig)
+        {
+            entryKind = SpdEntryKind.Interact;
+            entryTargetId = objSig.InteractableId;
+            entryPosition = new Position3(objSig.X, objSig.Y, objSig.Z);
+        }
+        else if ((after?.LastNpcInteracted ?? before?.LastNpcInteracted) is { } npcId
+            && ((after?.SelectYesnoConfirmed == true) || after?.DialogueOptionSelected.HasValue == true))
+        {
+            entryKind = SpdEntryKind.Talk;
+            entryTargetId = npcId.Value;
+            var npcPos = after?.LastNpcPosition ?? before?.LastNpcPosition;
+            entryPosition = npcPos is { } np
+                ? new Position3(np.X, np.Y, np.Z)
+                : new Position3(before?.Position.X ?? 0, before?.Position.Y ?? 0, before?.Position.Z ?? 0);
+        }
+        else
+        {
+            entryKind = SpdEntryKind.Proximity;
+            entryTargetId = null;
+            entryPosition = new Position3(
+                before?.Position.X ?? 0, before?.Position.Y ?? 0, before?.Position.Z ?? 0);
+        }
+
+        return new SinglePlayerDutyStep
+        {
+            Id = stepId,
+            Expect = expectValue,
+            ContentFinderConditionId = cfcId,
+            EntryKind = entryKind,
+            EntryTargetId = entryTargetId,
+            EntryPosition = entryPosition
         };
     }
 

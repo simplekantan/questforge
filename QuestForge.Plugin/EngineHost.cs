@@ -720,15 +720,33 @@ public sealed class EngineHost : IDisposable
                 break;
 
             case EngineAction.EnterSinglePlayerDuty espd:
+                var entryKind = GetEntryKind(espd);
                 DebounceLog(
                     $"enterspd:{espd.Origin?.Id}",
                     $"[EnterSinglePlayerDuty] stepId={espd.Origin?.Id ?? "(unknown)"}" +
                     $" cfcId={espd.ContentFinderConditionId}" +
-                    $" entryTarget={espd.EntryTargetId}");
+                    $" entryTarget={espd.EntryTargetId}" +
+                    $" entryKind={entryKind}");
                 if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
                     await _navigator.Stop(ct);
                 _activeSpdStepId = espd.Origin?.Id;
                 TryCutsceneSkipConfirm();
+
+                switch (entryKind)
+                {
+                    case SpdEntryKind.Talk:
+                        if (espd.EntryTargetId is { } talkNpcId)
+                            await _interactor.InteractWith(new NpcId(talkNpcId), ct);
+                        break;
+                    case SpdEntryKind.Interact:
+                        if (espd.EntryTargetId is { } objId)
+                            await _objectInteractor.InteractWithObject(
+                                new InteractableId(objId), ct);
+                        break;
+                    case SpdEntryKind.Proximity:
+                        break;
+                }
+
                 await _questBattleRunner.StartDuty(ct);
                 await _interactor.AdvanceDialogue(ct);
                 break;
@@ -956,6 +974,9 @@ public sealed class EngineHost : IDisposable
         // TraceSession file lifecycle for non-QuestRun modes is managed by Plugin.cs.
     }
 
+    private static SpdEntryKind GetEntryKind(EngineAction.EnterSinglePlayerDuty espd) =>
+        espd.Origin is SinglePlayerDutyStep spd ? spd.EntryKind : SpdEntryKind.Talk;
+
     private static Step? ExtractOriginStep(EngineAction action) => action switch
     {
         EngineAction.Interact a            => a.Origin,
@@ -1067,27 +1088,6 @@ public sealed class EngineHost : IDisposable
         }
     }
 
-    // When the DifficultySelectYesNo addon appears (SPD retry), select the configured
-    // difficulty radio button and click Proceed. The exact FireCallback signatures must be
-    // verified in-game via /qf debug addon DifficultySelectYesNo before this code goes live.
-    // NodeIDs: 5=Normal, 6=Easy, 7=VeryEasy; Proceed button NodeID=13 (provisional).
-    private unsafe void TryHandleDifficultySelect()
-    {
-        var addonPtr = _services.GameGui.GetAddonByName("DifficultySelectYesNo");
-        if (addonPtr.IsNull || !addonPtr.IsReady) return;
-
-        var addon = (AtkUnitBase*)addonPtr.Address;
-        if (addon == null || !addon->IsVisible) return;
-
-        int radioIndex = _config.PreferredSpdDifficulty switch
-        {
-            SpdDifficulty.Easy     => 1,
-            SpdDifficulty.VeryEasy => 2,
-            _                      => 0
-        };
-        addon->FireCallbackInt(radioIndex);
-        addon->FireCallbackInt(3); // Proceed
-    }
 
     private void EnableCutsceneSkip()
     {

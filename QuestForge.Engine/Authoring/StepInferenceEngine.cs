@@ -264,6 +264,47 @@ public sealed class StepInferenceEngine
             }
         }
 
+        // Rule 2.8: SPD entry detected (CurrentContentFinderConditionId transitioned 0 -> N)
+        // Fires when after.SpdEntryDetected is non-null AND before.SpdEntryDetected is null.
+        // PRIORITY: below Rules 1, 2, 2.1, 2.2, 2.2b, 2.3, 2.4, 2.5, 2.6.
+        // PRIORITY: above Rule 3.5s (SayChatMessageSent) and all lower rules.
+        // PRIORITY: above Rule 3 (QuestSequence advanced) — SPD entry ALWAYS advances sequence.
+        // CONFIDENCE: High (CFC ID transition is unambiguous).
+        // EXPECT: null — author MUST write the postcondition.
+        if (after.SpdEntryDetected is { } spdSignal
+            && before.SpdEntryDetected is null)
+        {
+            QuestForge.Schema.SpdEntryKind entryKind;
+            uint? entryTargetId;
+
+            if (after.ObjectInteracted is { } objSig)
+            {
+                entryKind = QuestForge.Schema.SpdEntryKind.Interact;
+                entryTargetId = objSig.InteractableId;
+            }
+            else if ((after.LastNpcInteracted ?? before.LastNpcInteracted) is { } npcId
+                && (after.SelectYesnoConfirmed || after.DialogueOptionSelected.HasValue))
+            {
+                entryKind = QuestForge.Schema.SpdEntryKind.Talk;
+                entryTargetId = npcId.Value;
+            }
+            else
+            {
+                entryKind = QuestForge.Schema.SpdEntryKind.Proximity;
+                entryTargetId = null;
+            }
+
+            return new InferenceResult(
+                StepType: "single-player-duty",
+                SuggestedStepId: $"spd-{spdSignal.ContentFinderConditionId}",
+                SuggestedExpect: null,
+                Confidence: Confidence.High,
+                InferredFrom: InferredFrom.SpdEntryDetected,
+                Notes: $"Author MUST write the Expect predicate. " +
+                       $"CfcId={spdSignal.ContentFinderConditionId}, " +
+                       $"EntryKind={entryKind}, EntryTargetId={entryTargetId}");
+        }
+
         // Rule 3.5s — SayChatMessageSent
         // Fires when UIObserver.PollPlayerChatMessage detected that the player typed /say <message>
         // during this recording window (RaptureLogModule observed a new log entry matching

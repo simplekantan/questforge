@@ -780,6 +780,20 @@ public sealed class QuestEngine
                 return (dutyAction, step.Id, playerPos);
             }
 
+            // 6b0a. DungeonTrialStep async arm
+            if (step is DungeonTrialStep dungeonTrialStep)
+            {
+                var action = await ResolveDungeonTrial(dungeonTrialStep, ct);
+                return (action, step.Id, playerPos);
+            }
+
+            // 6b0b. SinglePlayerDutyStep async arm
+            if (step is SinglePlayerDutyStep spdStep)
+            {
+                var action = await ResolveSinglePlayerDuty(spdStep, playerPos, ct);
+                return (action, step.Id, playerPos);
+            }
+
             // 6b. TeleportStep async arm — step-gated so IsPlayerInCombat is only read when the
             //     cursor is on a TeleportStep. Pre-flight guards (unknown aetheryte, in combat)
             //     run inside ResolveTeleportAction.
@@ -1411,6 +1425,82 @@ public sealed class QuestEngine
             return new EngineAction.AwaitUser(
                 "BossMod required for Single Player Duties. Complete manually or install BossMod.");
 
+        return new EngineAction.EnterSinglePlayerDuty(
+            ContentFinderConditionId: step.ContentFinderConditionId,
+            EntryTargetId: step.EntryTargetId,
+            EntryPosition: step.EntryPosition,
+            Origin: step);
+    }
+
+    private async Task<EngineAction> ResolveDungeonTrial(DungeonTrialStep step, CancellationToken ct)
+    {
+        if (_dutyRunner is null)
+            return new EngineAction.AwaitUser(
+                "DungeonTrialStep dispatched but no IDutyRunner configured -- " +
+                "install AutoDuty or complete this duty manually");
+
+        if (_cfcResolver is null)
+            return new EngineAction.AwaitUser(
+                "DungeonTrialStep dispatched but no ICfcResolver configured -- " +
+                "host must supply one");
+
+        if (step.ContentFinderConditionId == 0)
+            return new EngineAction.AwaitUser(
+                $"DungeonTrialStep '{step.Id}' has ContentFinderConditionId == 0 -- " +
+                "quest file must specify a valid CFC ID");
+
+        var availResult = await _dutyRunner.IsAvailable(ct);
+        if (availResult is Result<bool>.Success { Value: false })
+            return new EngineAction.AwaitUser(
+                "AutoDuty required for dungeon/trial automation. " +
+                "Install AutoDuty or complete this duty manually.");
+
+        var territoryType = _cfcResolver.GetTerritoryType(step.ContentFinderConditionId);
+        if (territoryType is null)
+            return new EngineAction.AwaitUser(
+                $"ContentFinderConditionId {step.ContentFinderConditionId} could not be " +
+                "resolved to a territory type -- unknown duty");
+
+        var pathResult = await _dutyRunner.ContentHasPath(territoryType.Value, ct);
+        if (pathResult is Result<bool>.Success { Value: false })
+            return new EngineAction.AwaitUser(
+                $"AutoDuty does not have a path for territory {territoryType.Value} " +
+                $"(CFC {step.ContentFinderConditionId}). Complete this duty manually " +
+                "or wait for AutoDuty path support.");
+
+        return new EngineAction.EnterDuty(step.ContentFinderConditionId, Origin: step);
+    }
+
+    private async Task<EngineAction> ResolveSinglePlayerDuty(
+        SinglePlayerDutyStep step, WorldPosition? playerPos, CancellationToken ct)
+    {
+        if (_questBattleRunner is null)
+            return new EngineAction.AwaitUser(
+                "SinglePlayerDutyStep dispatched but no IQuestBattleRunner configured -- " +
+                "install BossMod or complete this duty manually");
+
+        var availResult = await _questBattleRunner.IsBossModAvailable(ct);
+        if (availResult is Result<bool>.Success { Value: false })
+            return new EngineAction.AwaitUser(
+                "BossMod required for Single Player Duties. " +
+                "Complete manually or install BossMod.");
+
+        var entryWorldPos = new WorldPosition(
+            step.EntryPosition.X, step.EntryPosition.Y, step.EntryPosition.Z);
+        var stopDist = step.StopDistance ?? DefaultStopDistance;
+        if (playerPos is not null && playerPos.Value.DistanceTo(entryWorldPos) > stopDist)
+            return new EngineAction.Navigate(entryWorldPos,
+                new NavigationOptions(StoppingDistance: stopDist));
+
+        var stateResult = await _gameState.GetPlayerState(ct);
+        if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
+            return new EngineAction.Wait("player casting; deferring single-player-duty entry",
+                Origin: step);
+
+        var cooldown = CheckActionCooldown(step);
+        if (cooldown is not null) return cooldown;
+
+        RecordActionFired(step);
         return new EngineAction.EnterSinglePlayerDuty(
             ContentFinderConditionId: step.ContentFinderConditionId,
             EntryTargetId: step.EntryTargetId,

@@ -350,6 +350,67 @@ public sealed class DraftValidator
             }
         }
 
+        // E29: DungeonTrialStep with ContentFinderConditionId == 0
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is DungeonTrialStep dt29 && dt29.ContentFinderConditionId == 0)
+            {
+                errors.Add(new DraftValidationError("E29",
+                    $"Step '{steps[i].StepId}' is a DungeonTrialStep with ContentFinderConditionId == 0.",
+                    [i]));
+            }
+        }
+
+        // E30: SinglePlayerDutyStep with ContentFinderConditionId == 0
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is SinglePlayerDutyStep spd30 && spd30.ContentFinderConditionId == 0)
+            {
+                errors.Add(new DraftValidationError("E30",
+                    $"Step '{steps[i].StepId}' is a SinglePlayerDutyStep with ContentFinderConditionId == 0.",
+                    [i]));
+            }
+        }
+
+        // E31: SinglePlayerDutyStep with EntryKind Talk or Interact and EntryTargetId is null
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is SinglePlayerDutyStep spd31
+                && spd31.EntryKind is SpdEntryKind.Talk or SpdEntryKind.Interact
+                && spd31.EntryTargetId is null)
+            {
+                errors.Add(new DraftValidationError("E31",
+                    $"Step '{steps[i].StepId}' has EntryKind '{spd31.EntryKind.ToString().ToLowerInvariant()}' but EntryTargetId is null. Talk and Interact entry kinds require an EntryTargetId.",
+                    [i]));
+            }
+        }
+
+        // E32: SinglePlayerDutyStep with EntryKind Talk or Interact and EntryTargetId == 0
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is SinglePlayerDutyStep spd32
+                && spd32.EntryKind is SpdEntryKind.Talk or SpdEntryKind.Interact
+                && spd32.EntryTargetId == 0)
+            {
+                errors.Add(new DraftValidationError("E32",
+                    $"Step '{steps[i].StepId}' has EntryKind '{spd32.EntryKind.ToString().ToLowerInvariant()}' but EntryTargetId == 0. Provide a valid NPC/EventObj DataId.",
+                    [i]));
+            }
+        }
+
+        // E33: SinglePlayerDutyStep with EntryKind Proximity and EntryTargetId is not null
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (steps[i].Raw is SinglePlayerDutyStep spd33
+                && spd33.EntryKind is SpdEntryKind.Proximity
+                && spd33.EntryTargetId is not null)
+            {
+                errors.Add(new DraftValidationError("E33",
+                    $"Step '{steps[i].StepId}' has EntryKind 'proximity' but EntryTargetId is set. Proximity entries use area triggers, not interactable targets.",
+                    [i]));
+            }
+        }
+
         // W1: Step has no Expect
         for (var i = 0; i < steps.Count; i++)
         {
@@ -364,7 +425,9 @@ public sealed class DraftValidator
                 and not EquipGearForQuestStep
                 and not ChangeJobStep
                 and not AethernetStep
-                && step.Raw is not DutyStep { Kind: "duty" })
+                && step.Raw is not DutyStep { Kind: "duty" }
+                && step.Raw is not DungeonTrialStep
+                && step.Raw is not SinglePlayerDutyStep)
             {
                 warnings.Add(new DraftValidationWarning("W1",
                     $"Step '{step.StepId}' has no 'expect' predicate. Consider adding one for reliability.",
@@ -459,6 +522,30 @@ public sealed class DraftValidator
             }
         }
 
+        // W14: DungeonTrialStep with no Expect — engine spin-loops without one
+        for (var i = 0; i < steps.Count; i++)
+        {
+            var step = steps[i];
+            if (step.Raw is DungeonTrialStep dt && dt.Expect is null)
+            {
+                warnings.Add(new DraftValidationWarning("W14",
+                    $"Step '{step.StepId}' is a DungeonTrialStep with no 'expect' predicate -- without it the engine will spin-loop re-dispatching EnterDuty. Add an expect predicate.",
+                    [i]));
+            }
+        }
+
+        // W15: SinglePlayerDutyStep with no Expect — engine spin-loops without one
+        for (var i = 0; i < steps.Count; i++)
+        {
+            var step = steps[i];
+            if (step.Raw is SinglePlayerDutyStep spd && spd.Expect is null)
+            {
+                warnings.Add(new DraftValidationWarning("W15",
+                    $"Step '{step.StepId}' is a SinglePlayerDutyStep with no 'expect' predicate -- without it the engine will spin-loop re-entering the duty. Add an expect predicate.",
+                    [i]));
+            }
+        }
+
         // W2: Step has no notes and was not manually inferred
         for (var i = 0; i < steps.Count; i++)
         {
@@ -497,7 +584,7 @@ public sealed class DraftValidator
     }
 
     /// <summary>
-    /// Validate a fragment draft. Runs shared step-level rules (E1-E22, W1-W11)
+    /// Validate a fragment draft. Runs shared step-level rules (E1-E33, W1-W15)
     /// plus fragment-specific rules (EF1, EF2, WF1).
     /// Does NOT run quest-specific rules (E4, W6).
     /// </summary>

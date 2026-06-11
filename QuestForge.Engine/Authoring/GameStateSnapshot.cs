@@ -138,6 +138,19 @@ public sealed record GearsetRegisteredSignal(byte OldCount, byte NewCount);
 /// </summary>
 public sealed record ObjectInteractedSignal(uint InteractableId, float X, float Y, float Z);
 
+/// <summary>
+/// Records that the player entered Single Player Duty instanced content during this recording
+/// window. Set by SnapshotAggregator.OnSpdEntryDetected, which is driven by
+/// UIObserver.PollContentFinderCondition detecting that GameMain.CurrentContentFinderConditionId
+/// transitioned from 0 to a non-zero value. Cleared by OnSpdEntryConsumed (called from
+/// AuthoringHost.ConsumeAllSignals and UIObserver.ResetWindowState) so it does not bleed into
+/// the next recording window.
+///
+/// ContentFinderConditionId is the CFC row id of the SPD entered (matches
+/// SinglePlayerDutyStep.ContentFinderConditionId).
+/// </summary>
+public sealed record SpdEntryDetectedSignal(ushort ContentFinderConditionId);
+
 public sealed record GameStateSnapshot(
     DateTimeOffset CapturedAt,
     ZoneId Zone,
@@ -305,4 +318,12 @@ public sealed record GameStateSnapshot(
     // item on an interactable object that triggered an inventory event.
     // Cleared by ResetDeltas (per-window delta signal).
     public bool InventoryEventAddonSeen { get; init; }
+
+    // Non-positional. Set when UIObserver.PollContentFinderCondition detects that
+    // GameMain.CurrentContentFinderConditionId transitioned from 0 to a non-zero value during
+    // this recording window (the player entered an SPD instance). Does NOT clear in ResetDeltas —
+    // survives the per-window reset so PreviewInference can see it when the author opens the
+    // Record-Step modal. Cleared only by OnSpdEntryConsumed (called from
+    // AuthoringHost.ConsumeAllSignals and UIObserver.ResetWindowState).
+    public SpdEntryDetectedSignal? SpdEntryDetected { get; init; }
 }

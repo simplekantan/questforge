@@ -1,6 +1,7 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
+using FFXIVClientStructs.FFXIV.Client.Game;
 using Lumina.Excel.Sheets;
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Types;
@@ -73,7 +74,12 @@ public sealed class PlayerStatePanel : Window
         ImGui.TextUnformatted($"Mode: {_host.Mode}");
         ImGui.Separator();
 
+        ushort cfcId;
+        unsafe { cfcId = GameMain.Instance()->CurrentContentFinderConditionId; }
+
         ImGui.TextUnformatted(PlayerStateFormatter.FormatZone(zone.Value));
+        ImGui.SameLine();
+        ImGui.TextUnformatted(PlayerStateFormatter.FormatCfc(cfcId));
         ImGui.TextUnformatted(PlayerStateFormatter.FormatPosition(pos));
 
         ImGui.SameLine();

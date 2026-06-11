@@ -2136,4 +2136,174 @@ public class RoundTripTests
         Assert.Equal("not inventoryHasCoffers()", expect.Predicate);
     }
 
+    // =========================================================================
+    // RT_DT1 -- DungeonTrialStep round-trips with all fields
+    // Spec: docs/DUTY_STEP_SPLIT_PLAN.md scenario RT_DT1
+    // RED: DungeonTrialStep does not exist yet.
+    // =========================================================================
+
+    /// <summary>
+    /// RT_DT1: Given DungeonTrialStep with Id="enter-dungeon", CFC=2,
+    /// Expect="questSequence(90001) >= 3"; When serialize as Step then deserialize;
+    /// Then result is DungeonTrialStep, CFC is 2, JSON contains "type":"dungeon-trial".
+    /// </summary>
+    [Fact]
+    public void DungeonTrialStep_RoundTrips_RT_DT1()
+    {
+        var step = new DungeonTrialStep                                // RED: type does not exist
+        {
+            Id = "enter-dungeon",
+            ContentFinderConditionId = 2,
+            Expect = new PredicateExpect { Predicate = "questSequence(90001) >= 3" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        Assert.Equal("enter-dungeon", result.Id);
+        Assert.Equal(2u, result.ContentFinderConditionId);
+        Assert.IsType<PredicateExpect>(result.Expect);
+
+        // Verify discriminator
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"type\":\"dungeon-trial\"", compactJson, StringComparison.Ordinal);
+    }
+
+    // =========================================================================
+    // RT_SPD1 -- SinglePlayerDutyStep round-trips: talk entry kind
+    // Spec: docs/DUTY_STEP_SPLIT_PLAN.md scenario RT_SPD1
+    // RED: SinglePlayerDutyStep and SpdEntryKind do not exist yet.
+    // =========================================================================
+
+    /// <summary>
+    /// RT_SPD1: Given SinglePlayerDutyStep with EntryKind=Talk, CFC=830,
+    /// EntryTargetId=1045123, EntryPosition=(100,20,-50),
+    /// Expect="questSequence(91001) >= 3";
+    /// When serialize as Step then deserialize;
+    /// Then all fields preserved, JSON contains "type":"single-player-duty"
+    /// and "entryKind":"talk".
+    /// </summary>
+    [Fact]
+    public void SinglePlayerDutyStep_Talk_RoundTrips_RT_SPD1()
+    {
+        var step = new SinglePlayerDutyStep                            // RED: type does not exist
+        {
+            Id = "enter-spd-talk",
+            ContentFinderConditionId = 830,
+            EntryKind = SpdEntryKind.Talk,                             // RED: enum does not exist
+            EntryTargetId = 1045123u,
+            EntryPosition = new Position3(100f, 20f, -50f),
+            Expect = new PredicateExpect { Predicate = "questSequence(91001) >= 3" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        Assert.Equal("enter-spd-talk", result.Id);
+        Assert.Equal(830u, result.ContentFinderConditionId);
+        Assert.Equal(SpdEntryKind.Talk, result.EntryKind);             // RED: enum does not exist
+        Assert.Equal(1045123u, result.EntryTargetId);
+        Assert.NotNull(result.EntryPosition);
+        Assert.Equal(100f, result.EntryPosition.X, precision: 3);
+        Assert.Equal(20f, result.EntryPosition.Y, precision: 3);
+        Assert.Equal(-50f, result.EntryPosition.Z, precision: 3);
+        Assert.IsType<PredicateExpect>(result.Expect);
+
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"type\":\"single-player-duty\"", compactJson, StringComparison.Ordinal);
+        Assert.Contains("\"entryKind\":\"talk\"", compactJson, StringComparison.Ordinal);
+    }
+
+    // =========================================================================
+    // RT_SPD2 -- SinglePlayerDutyStep round-trips: interact entry kind
+    // Spec: docs/DUTY_STEP_SPLIT_PLAN.md scenario RT_SPD2
+    // RED: SinglePlayerDutyStep and SpdEntryKind do not exist yet.
+    // =========================================================================
+
+    /// <summary>
+    /// RT_SPD2: Given SinglePlayerDutyStep with EntryKind=Interact,
+    /// EntryTargetId=2001234; When round-trip; Then EntryKind is Interact,
+    /// JSON contains "entryKind":"interact".
+    /// </summary>
+    [Fact]
+    public void SinglePlayerDutyStep_Interact_RoundTrips_RT_SPD2()
+    {
+        var step = new SinglePlayerDutyStep                            // RED: type does not exist
+        {
+            Id = "enter-spd-interact",
+            ContentFinderConditionId = 831,
+            EntryKind = SpdEntryKind.Interact,                         // RED: enum does not exist
+            EntryTargetId = 2001234u,
+            EntryPosition = new Position3(50f, 10f, 25f),
+            Expect = new PredicateExpect { Predicate = "questSequence(91002) >= 3" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        Assert.Equal(SpdEntryKind.Interact, result.EntryKind);        // RED: enum does not exist
+        Assert.Equal(2001234u, result.EntryTargetId);
+
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.Contains("\"entryKind\":\"interact\"", compactJson, StringComparison.Ordinal);
+    }
+
+    // =========================================================================
+    // RT_SPD3 -- SinglePlayerDutyStep round-trips: proximity, null target
+    // Spec: docs/DUTY_STEP_SPLIT_PLAN.md scenario RT_SPD3
+    // RED: SinglePlayerDutyStep and SpdEntryKind do not exist yet.
+    // =========================================================================
+
+    /// <summary>
+    /// RT_SPD3: Given SinglePlayerDutyStep with EntryKind=Proximity,
+    /// EntryTargetId=null; When round-trip; Then EntryKind is Proximity,
+    /// EntryTargetId is null, JSON does NOT contain "entryTargetId"
+    /// (due to WhenWritingNull).
+    /// </summary>
+    [Fact]
+    public void SinglePlayerDutyStep_Proximity_NullTarget_RoundTrips_RT_SPD3()
+    {
+        var step = new SinglePlayerDutyStep                            // RED: type does not exist
+        {
+            Id = "enter-spd-proximity",
+            ContentFinderConditionId = 832,
+            EntryKind = SpdEntryKind.Proximity,                        // RED: enum does not exist
+            EntryTargetId = null,
+            EntryPosition = new Position3(75f, 5f, 40f),
+            Expect = new PredicateExpect { Predicate = "questSequence(91003) >= 3" }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize<Step>(step, QuestForgeJsonContext.QuestFileOptions);
+        var result = RoundTrip(step);
+
+        Assert.Equal(SpdEntryKind.Proximity, result.EntryKind);       // RED: enum does not exist
+        Assert.Null(result.EntryTargetId);
+
+        // entryTargetId must be absent from JSON when null (WhenWritingNull)
+        Assert.DoesNotContain("entryTargetId", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // =========================================================================
+    // RT_DT2 -- Old DutyStep discriminator "duty" fails deserialization
+    // Spec: docs/DUTY_STEP_SPLIT_PLAN.md scenario RT_DT2
+    // RED: depends on DutyStep removal and "duty" discriminator being unregistered.
+    // =========================================================================
+
+    /// <summary>
+    /// RT_DT2: Given JSON string with "type":"duty" (old discriminator);
+    /// When deserialize as Step; Then throws JsonException or returns null
+    /// (the "duty" discriminator is no longer registered).
+    /// </summary>
+    [Fact(Skip = "Requires DutyStep removal — will pass after migration completes")]
+    public void OldDutyStepDiscriminator_FailsDeserialization_RT_DT2()
+    {
+        const string json = """{"type":"duty","id":"old-step","kind":"spd"}""";
+
+        // After DutyStep removal, "duty" is no longer a registered discriminator.
+        // JsonSerializer should throw JsonException.
+        Assert.Throws<System.Text.Json.JsonException>(
+            () => System.Text.Json.JsonSerializer.Deserialize<Step>(
+                json, QuestForgeJsonContext.QuestFileOptions));
+    }
+
 }
