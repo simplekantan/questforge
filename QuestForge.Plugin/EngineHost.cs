@@ -720,15 +720,33 @@ public sealed class EngineHost : IDisposable
                 break;
 
             case EngineAction.EnterSinglePlayerDuty espd:
+                var entryKind = GetEntryKind(espd);
                 DebounceLog(
                     $"enterspd:{espd.Origin?.Id}",
                     $"[EnterSinglePlayerDuty] stepId={espd.Origin?.Id ?? "(unknown)"}" +
                     $" cfcId={espd.ContentFinderConditionId}" +
-                    $" entryTarget={espd.EntryTargetId}");
+                    $" entryTarget={espd.EntryTargetId}" +
+                    $" entryKind={entryKind}");
                 if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
                     await _navigator.Stop(ct);
                 _activeSpdStepId = espd.Origin?.Id;
                 TryCutsceneSkipConfirm();
+
+                switch (entryKind)
+                {
+                    case SpdEntryKind.Talk:
+                        if (espd.EntryTargetId is { } talkNpcId)
+                            await _interactor.InteractWith(new NpcId(talkNpcId), ct);
+                        break;
+                    case SpdEntryKind.Interact:
+                        if (espd.EntryTargetId is { } objId)
+                            await _objectInteractor.InteractWithObject(
+                                new InteractableId(objId), ct);
+                        break;
+                    case SpdEntryKind.Proximity:
+                        break;
+                }
+
                 await _questBattleRunner.StartDuty(ct);
                 await _interactor.AdvanceDialogue(ct);
                 break;
@@ -955,6 +973,9 @@ public sealed class EngineHost : IDisposable
         RestoreCutsceneSkip();
         // TraceSession file lifecycle for non-QuestRun modes is managed by Plugin.cs.
     }
+
+    private static SpdEntryKind GetEntryKind(EngineAction.EnterSinglePlayerDuty espd) =>
+        espd.Origin is SinglePlayerDutyStep spd ? spd.EntryKind : SpdEntryKind.Talk;
 
     private static Step? ExtractOriginStep(EngineAction action) => action switch
     {
