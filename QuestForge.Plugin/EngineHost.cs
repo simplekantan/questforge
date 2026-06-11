@@ -1088,27 +1088,6 @@ public sealed class EngineHost : IDisposable
         }
     }
 
-    // When the DifficultySelectYesNo addon appears (SPD retry), select the configured
-    // difficulty radio button and click Proceed. The exact FireCallback signatures must be
-    // verified in-game via /qf debug addon DifficultySelectYesNo before this code goes live.
-    // NodeIDs: 5=Normal, 6=Easy, 7=VeryEasy; Proceed button NodeID=13 (provisional).
-    private unsafe void TryHandleDifficultySelect()
-    {
-        var addonPtr = _services.GameGui.GetAddonByName("DifficultySelectYesNo");
-        if (addonPtr.IsNull || !addonPtr.IsReady) return;
-
-        var addon = (AtkUnitBase*)addonPtr.Address;
-        if (addon == null || !addon->IsVisible) return;
-
-        int radioIndex = _config.PreferredSpdDifficulty switch
-        {
-            SpdDifficulty.Easy     => 1,
-            SpdDifficulty.VeryEasy => 2,
-            _                      => 0
-        };
-        addon->FireCallbackInt(radioIndex);
-        addon->FireCallbackInt(3); // Proceed
-    }
 
     private void EnableCutsceneSkip()
     {
