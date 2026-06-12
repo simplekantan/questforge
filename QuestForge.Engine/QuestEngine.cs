@@ -468,9 +468,19 @@ public sealed class QuestEngine
             ? ngpVal
             : new NewGamePlusState(false, null, false);
 
-        bool replayActive = ngp.IsActive && !ngp.IsSuspended;
-
+        // Inside instanced content the game marks the NG+ HUD as "suspended" even though
+        // the replay is still running. Don't block the engine in that case.
+        // Only check instance kind when NG+ is active+suspended to avoid starving replay fixtures.
+        var inInstance = false;
         if (ngp.IsActive && ngp.IsSuspended)
+        {
+            var instanceKindResult = await _gameState.GetCurrentInstanceKind(ct);
+            inInstance = instanceKindResult is Result<InstanceKind>.Success { Value: not InstanceKind.None };
+        }
+
+        bool replayActive = ngp.IsActive && (!ngp.IsSuspended || inInstance);
+
+        if (ngp.IsActive && ngp.IsSuspended && !inInstance)
             return (new EngineAction.Wait("ng+ replay suspended"), null, null);
 
         if (!replayActive)
