@@ -185,6 +185,10 @@ internal sealed class QfCommand : IDisposable
             case "debug" when parts.Length >= 2 && parts[1] == "ngplus":
                 HandleDebugNgPlus();
                 break;
+            case "debug" when parts.Length >= 2 && parts[1] == "engine":
+                _log.Info($"[debug engine] run={_host.IsRunActive} step={_host.CurrentStepId} type={_host.CurrentStepType} action={_host.LastActionName}");
+                _log.Info($"[debug engine] {_host.GetGameStateSummary()}");
+                break;
             case "debug" when parts.Length >= 2 && parts[1] == "yesno":
                 // Diagnostic: fire our exact SelectYesno callback on demand (mirrors
                 // DalamudInteractor.ConfirmYesNoPrompt). Lets us test whether FireCallback
