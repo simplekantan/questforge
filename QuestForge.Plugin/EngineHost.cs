@@ -375,7 +375,8 @@ public sealed class EngineHost : IDisposable
             CurrentStepType = originStep.GetType().Name;
         }
 
-        await _leaseLatch.OnAction(action, _recordingCombat ?? _combat, ct);
+        if (_activeDutyStepId is null)
+            await _leaseLatch.OnAction(action, _recordingCombat ?? _combat, ct);
 
         // Lazy shop close: if the previous dispatch was a Purchase and the engine has now
         // moved past it (postcondition met → emitted a non-Purchase action), dismiss any
