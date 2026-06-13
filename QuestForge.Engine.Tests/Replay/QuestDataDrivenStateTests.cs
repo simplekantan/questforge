@@ -39,7 +39,7 @@ public sealed class QuestDataDrivenStateTests
         var dataRoot = FixtureLocator.TryGetQuestForgeDataRoot();
         if (dataRoot is null) Assert.Skip("questforge-data not present.");
 
-        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "66130-coming-to-uldah.json");
+        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "uldah", "66130-coming-to-uldah.json");
         var quest = LoadQuest(questPath);
 
         var state = QuestDataDrivenState.Create(quest, fragments: null, initialState: "fresh");
@@ -70,7 +70,7 @@ public sealed class QuestDataDrivenStateTests
         var dataRoot = FixtureLocator.TryGetQuestForgeDataRoot();
         if (dataRoot is null) Assert.Skip("questforge-data not present.");
 
-        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "65644-close-to-home.json");
+        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "limsa", "65644-close-to-home-marauder.json");
         var quest = LoadQuest(questPath);
         var fragments = LoadFragments(dataRoot);
 
@@ -115,7 +115,7 @@ public sealed class QuestDataDrivenStateTests
         var dataRoot = FixtureLocator.TryGetQuestForgeDataRoot();
         if (dataRoot is null) Assert.Skip("questforge-data not present.");
 
-        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "65644-close-to-home.json");
+        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "limsa", "65644-close-to-home-marauder.json");
         var quest = LoadQuest(questPath);
         var fragments = LoadFragments(dataRoot);
 
@@ -146,7 +146,7 @@ public sealed class QuestDataDrivenStateTests
         var dataRoot = FixtureLocator.TryGetQuestForgeDataRoot();
         if (dataRoot is null) Assert.Skip("questforge-data not present.");
 
-        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "66130-coming-to-uldah.json");
+        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "uldah", "66130-coming-to-uldah.json");
         var quest = LoadQuest(questPath);
 
         var state = QuestDataDrivenState.Create(quest, fragments: null, initialState: "fresh");
@@ -184,7 +184,7 @@ public sealed class QuestDataDrivenStateTests
         var dataRoot = FixtureLocator.TryGetQuestForgeDataRoot();
         if (dataRoot is null) Assert.Skip("questforge-data not present.");
 
-        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "66130-coming-to-uldah.json");
+        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "uldah", "66130-coming-to-uldah.json");
         var quest = LoadQuest(questPath);
 
         var state = QuestDataDrivenState.Create(quest, fragments: null, initialState: "fresh");
@@ -211,7 +211,7 @@ public sealed class QuestDataDrivenStateTests
         var dataRoot = FixtureLocator.TryGetQuestForgeDataRoot();
         if (dataRoot is null) Assert.Skip("questforge-data not present.");
 
-        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "65644-close-to-home.json");
+        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "limsa", "65644-close-to-home-marauder.json");
         var quest = LoadQuest(questPath);
         var fragments = LoadFragments(dataRoot);
 
@@ -303,7 +303,7 @@ public sealed class QuestDataDrivenStateTests
         var dataRoot = FixtureLocator.TryGetQuestForgeDataRoot();
         if (dataRoot is null) Assert.Skip("questforge-data not present.");
 
-        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "66130-coming-to-uldah.json");
+        var questPath = Path.Combine(dataRoot, "quests", "arr", "msq", "part1", "uldah", "66130-coming-to-uldah.json");
         var quest = LoadQuest(questPath);
 
         var state = QuestDataDrivenState.Create(quest, fragments: null, initialState: "fresh");

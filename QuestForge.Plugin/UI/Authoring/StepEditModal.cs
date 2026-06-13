@@ -25,6 +25,9 @@ public sealed class StepEditModal : Window
     private string? _editingField;
     private string _editValue = "";
 
+    // Callback for when the user wants to pick a fragment (e.g. for resumePointFragmentId)
+    public Action? OnRequestFragmentPicker { get; set; }
+
     public StepEditModal(AuthoringHost host)
         : base("QuestForge — Edit Step", ImGuiWindowFlags.None)
     {
@@ -79,6 +82,7 @@ public sealed class StepEditModal : Window
             "Expected zone after this step completes. Used for step grouping.");
         DrawEditableString("requiredZone", "Required Zone", ReadRawString("requiredZone"), isEditable,
             "Zone the player must be in before this step can start.\nUsed for cold-resume: if the player logs in at a different zone,\nthe engine navigates here first.");
+        DrawResumePointFragmentField(isEditable);
 
         // ---- Per-type fields ----
         var raw = _editingStep.Raw;
@@ -252,6 +256,37 @@ public sealed class StepEditModal : Window
             if (tooltip is not null && ImGui.IsItemHovered())
                 ImGui.SetTooltip(tooltip);
         }
+    }
+
+    private void DrawResumePointFragmentField(bool editable)
+    {
+        var current = ReadRawString("resumePointFragmentId");
+        ImGui.TextUnformatted("Resume Fragment:");
+        ImGui.SameLine();
+        ImGui.TextUnformatted(current ?? "(none)");
+        if (editable)
+        {
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Edit##resumeFragment"))
+                OnRequestFragmentPicker?.Invoke();
+            if (current is not null)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton("Clear##resumeFragment"))
+                    ApplyResumePointFragment(null);
+            }
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Fragment to run when cold-resuming at this step.\nPick from available fragments on disk.");
+    }
+
+    public void ApplyResumePointFragment(string? fragmentId)
+    {
+        if (_editingStep is null) return;
+        ApplyFieldChange("resumePointFragmentId", fragmentId);
+        _saveStatus = fragmentId is not null
+            ? $"Resume fragment set to {fragmentId}."
+            : "Resume fragment cleared.";
     }
 
     private void DrawEditableString(string jsonKey, string label, string? currentValue, bool editable, string? tooltip)
