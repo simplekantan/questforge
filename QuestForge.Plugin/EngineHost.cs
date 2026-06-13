@@ -779,17 +779,9 @@ public sealed class EngineHost : IDisposable
                 break;
 
             case EngineAction.Wait:
-                // AutoDuty restart: if we're inside a dungeon and AutoDuty has stopped,
-                // restart it so the run doesn't stall.
-                if (_activeDutyStepId is not null && _activeDutyTerritoryType is { } restartTt)
-                {
-                    var runningResult = await _dutyRunner.IsRunning(ct);
-                    if (runningResult is Result<bool>.Success { Value: false })
-                    {
-                        _services.Log.Debug("[QuestForge] AutoDuty stopped mid-dungeon — restarting");
-                        await _dutyRunner.StartDuty(restartTt, ct);
-                    }
-                }
+                // AutoDuty bootstrap/restart: ensure AutoDuty is running when we're
+                // inside a dungeon/trial instance.
+                await TryEnsureAutoDutyRunning(ct);
                 // Engine is satisfied with step state but waiting for the game to advance
                 // sequence (e.g. Talk addon still open after interact). Keep clicking through.
                 TryCutsceneSkipConfirm();
@@ -1035,6 +1027,41 @@ public sealed class EngineHost : IDisposable
         if (addonPtr.IsNull || !addonPtr.IsReady) return;
 
         ((AtkUnitBase*)addonPtr.Address)->FireCallbackInt(0);
+    }
+
+    private async Task TryEnsureAutoDutyRunning(CancellationToken ct)
+    {
+        var ikResult = _gameStateInner.GetCurrentInstanceKind(ct).GetAwaiter().GetResult();
+        if (ikResult is not Result<InstanceKind>.Success { Value: InstanceKind.Dungeon or InstanceKind.Trial
+            or InstanceKind.Raid or InstanceKind.AllianceRaid })
+            return;
+
+        // Already running — nothing to do.
+        var runningResult = await _dutyRunner.IsRunning(ct);
+        if (runningResult is Result<bool>.Success { Value: true })
+            return;
+
+        // Resolve territory type: use cached value if available, otherwise find the
+        // DungeonTrialStep in the loaded quest and resolve from its CFC ID.
+        var tt = _activeDutyTerritoryType;
+        if (tt is null && _currentQuestDef is not null)
+        {
+            var dtStep = _currentQuestDef.Sequences
+                .SelectMany(s => s.Steps)
+                .OfType<DungeonTrialStep>()
+                .FirstOrDefault(s => s.ContentFinderConditionId > 0);
+            if (dtStep is not null)
+            {
+                tt = _cfcResolver.GetTerritoryType(dtStep.ContentFinderConditionId);
+                _activeDutyStepId = dtStep.Id;
+                _activeDutyTerritoryType = tt;
+            }
+        }
+
+        if (tt is null) return;
+
+        _services.Log.Debug($"[QuestForge] AutoDuty not running inside dungeon — starting (tt={tt.Value})");
+        await _dutyRunner.StartDuty(tt.Value, ct);
     }
 
     // When an NPC offers multiple quests via SelectIconString, find the entry matching
