@@ -38,7 +38,7 @@ public sealed class DalamudDutyRunner : IDutyRunner
         try
         {
             SetConfig.InvokeAction("dutyModeEnum", "Support");
-            Run.InvokeAction(territoryType, 1, false);
+            Run.InvokeAction(territoryType, 1, true);
             return Task.FromResult<Result<bool>>(new Result<bool>.Success(true));
         }
         catch (Exception ex)
