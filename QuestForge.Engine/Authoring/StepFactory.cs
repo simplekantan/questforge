@@ -255,6 +255,8 @@ public static class StepFactory
             "equip-best-gear" => new EquipBestGearStep { Id = stepId, Expect = expectValue },
             "open-coffers" => new OpenCoffersStep { Id = stepId, Expect = expectValue },
             "duty" => new DutyStep { Id = stepId, Expect = expectValue, Kind = "spd" },
+            "dungeon-trial" => new DungeonTrialStep { Id = stepId, Expect = expectValue },
+            "minigame" => new MinigameStep { Id = stepId, Expect = expectValue, Kind = "other" },
             "single-player-duty" => BuildSinglePlayerDutyStep(stepId, expectValue, before, after),
             _ => new TalkStep { Id = stepId, Expect = expectValue, Zone = zoneStr, RequiredZone = zoneStr, Target = npcLoc, DialogueChoices = dialogueChoices }
         };
