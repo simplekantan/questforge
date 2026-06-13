@@ -752,6 +752,7 @@ public sealed class EngineHost : IDisposable
 
                 await _questBattleRunner.StartDuty(ct);
                 await _interactor.AdvanceDialogue(ct);
+                await _interactor.TryFillRequestAddon(ct);
                 break;
 
             case EngineAction.EnterDuty ed:
