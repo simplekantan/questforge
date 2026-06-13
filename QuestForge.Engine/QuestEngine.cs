@@ -455,6 +455,14 @@ public sealed class QuestEngine
 
     private async Task<(EngineAction action, string? stepId, WorldPosition? playerPos)> ResolveAction(CancellationToken ct)
     {
+        // Instance yield: when the player is inside any instanced content, yield entirely.
+        // Delegated plugins (AutoDuty for dungeons/trials, BossMod for SPDs) own all
+        // navigation, combat, and pathing. The engine resumes when the player exits.
+        // Fail-open: read failure assumes open world so the engine continues normally.
+        var instanceCheck = await _gameState.GetCurrentInstanceKind(ct);
+        if (instanceCheck is Result<InstanceKind>.Success { Value: not InstanceKind.None })
+            return (new EngineAction.Wait("inside instanced content — delegated plugin active"), null, null);
+
         var questId = new QuestId(_quest!.Id);
 
         var seqResult = await _questState.GetQuestSequence(questId, ct);
@@ -576,20 +584,6 @@ public sealed class QuestEngine
             await _combatController.ResetAsync(ct);
         }
         _lastKnownSequence = currentSeq;
-
-        // AutoDuty yield: when the last dispatched step was a DungeonTrialStep AND the
-        // player is inside instanced content, yield entirely. AutoDuty owns navigation,
-        // combat, and pathing inside dungeons/trials — the engine must not interfere.
-        // Only read InstanceKind when we know a dungeon step was dispatched to avoid
-        // starving replay fixtures that lack this observation.
-        if (_lastResolvedStep is DungeonTrialStep)
-        {
-            var ikResult = await _gameState.GetCurrentInstanceKind(ct);
-            if (ikResult is Result<InstanceKind>.Success { Value: InstanceKind.Dungeon or InstanceKind.Trial
-                or InstanceKind.Raid or InstanceKind.AllianceRaid })
-                return (new EngineAction.Wait("inside dungeon/trial — AutoDuty active"),
-                    _lastResolvedStep.Id, playerPos);
-        }
 
         // Global defense rule: fires on every tick, before the cursor walk.
         // If the player is in combat and an attacker is in scan range, engage them
