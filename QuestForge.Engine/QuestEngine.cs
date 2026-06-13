@@ -577,6 +577,20 @@ public sealed class QuestEngine
         }
         _lastKnownSequence = currentSeq;
 
+        // AutoDuty yield: when the last dispatched step was a DungeonTrialStep AND the
+        // player is inside instanced content, yield entirely. AutoDuty owns navigation,
+        // combat, and pathing inside dungeons/trials — the engine must not interfere.
+        // Only read InstanceKind when we know a dungeon step was dispatched to avoid
+        // starving replay fixtures that lack this observation.
+        if (_lastResolvedStep is DungeonTrialStep)
+        {
+            var ikResult = await _gameState.GetCurrentInstanceKind(ct);
+            if (ikResult is Result<InstanceKind>.Success { Value: InstanceKind.Dungeon or InstanceKind.Trial
+                or InstanceKind.Raid or InstanceKind.AllianceRaid })
+                return (new EngineAction.Wait("inside dungeon/trial — AutoDuty active"),
+                    _lastResolvedStep.Id, playerPos);
+        }
+
         // Global defense rule: fires on every tick, before the cursor walk.
         // If the player is in combat and an attacker is in scan range, engage them
         // immediately — regardless of which step type the cursor is on.
@@ -1530,6 +1544,7 @@ public sealed class QuestEngine
     private async Task<(EngineAction action, string? stepId)?> ResolveDefenseOrNull(
         CancellationToken ct)
     {
+
         var inCombatResult = await _gameState.IsPlayerInCombat(ct);
         // Fail-open: read failure → no defense action this tick. Cursor walk runs normally.
         if (inCombatResult is not Result<bool>.Success { Value: true })
