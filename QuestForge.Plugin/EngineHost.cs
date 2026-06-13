@@ -340,6 +340,29 @@ public sealed class EngineHost : IDisposable
             return;
         _lastEngineTickAt = DateTimeOffset.UtcNow;
 
+        // Instance yield: when we've dispatched a duty (dungeon or SPD) and the player
+        // is inside, skip the engine tick entirely. AutoDuty/BossMod own everything inside.
+        // SPD pre-entry runs normally because _activeSpdStepId is null until the first
+        // EnterSinglePlayerDuty dispatch sets it.
+        if (_activeDutyStepId is not null || _activeSpdStepId is not null)
+        {
+            var ikResult = _gameStateInner.GetCurrentInstanceKind(ct).GetAwaiter().GetResult();
+            if (ikResult is Result<InstanceKind>.Success { Value: var ik } && ik != InstanceKind.None)
+            {
+                TryCutsceneSkipConfirm();
+                await _interactor.AdvanceDialogue(ct);
+                await TryEnsureDelegatedPluginRunning(ct);
+                if (_activeSpdStepId is not null && !_leaseLatch.InLease)
+                {
+                    var uiCheck = await _gameStateInner.GetUiState(ct);
+                    if (uiCheck is Result<UiState>.Success { Value: var spdUi }
+                        && !spdUi.CutscenePlaying && !spdUi.LoadingZone)
+                        await _leaseLatch.OnAction(new EngineAction.Engage(Step: null, Target: null), _recordingCombat ?? _combat, ct);
+                }
+                return;
+            }
+        }
+
         EngineAction action;
         try { action = await _engine.Tick(ct); }
         catch (OperationCanceledException) { return; }
@@ -392,12 +415,17 @@ public sealed class EngineHost : IDisposable
 
         // SPD cleanup (SPD7): when the engine advances past an SPD step (emits anything other
         // than EnterSinglePlayerDuty or Wait), disable BossMod AI and clear the tracking flag.
+        // Don't clean up while BoundByDuty — the SPD isn't done until the player exits.
         if (_activeSpdStepId is not null
             && action is not EngineAction.EnterSinglePlayerDuty
             && action is not EngineAction.Wait)
         {
-            await _questBattleRunner.StopDuty(ct);
-            _activeSpdStepId = null;
+            var spdIk = _gameStateInner.GetCurrentInstanceKind(ct).GetAwaiter().GetResult();
+            if (spdIk is not Result<InstanceKind>.Success { Value: not InstanceKind.None })
+            {
+                await _questBattleRunner.StopDuty(ct);
+                _activeSpdStepId = null;
+            }
         }
 
         // Duty cleanup (AD9): when the engine advances past a dungeon/trial step (emits anything
@@ -730,6 +758,8 @@ public sealed class EngineHost : IDisposable
                     $" cfcId={espd.ContentFinderConditionId}" +
                     $" entryTarget={espd.EntryTargetId}" +
                     $" entryKind={entryKind}");
+                if (_activeSpdStepId == espd.Origin?.Id)
+                    break;
                 if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
                     await _navigator.Stop(ct);
                 _activeSpdStepId = espd.Origin?.Id;
@@ -752,6 +782,7 @@ public sealed class EngineHost : IDisposable
 
                 await _questBattleRunner.StartDuty(ct);
                 await _interactor.AdvanceDialogue(ct);
+                await _interactor.TryFillRequestAddon(ct);
                 break;
 
             case EngineAction.EnterDuty ed:
@@ -779,13 +810,11 @@ public sealed class EngineHost : IDisposable
                 break;
 
             case EngineAction.Wait:
-                // AutoDuty bootstrap/restart: ensure AutoDuty is running when we're
-                // inside a dungeon/trial instance.
-                await TryEnsureAutoDutyRunning(ct);
                 // Engine is satisfied with step state but waiting for the game to advance
                 // sequence (e.g. Talk addon still open after interact). Keep clicking through.
                 TryCutsceneSkipConfirm();
                 await _interactor.AdvanceDialogue(ct);
+                await _interactor.TryFillRequestAddon(ct);
                 await _interactor.AcceptQuest(_currentQuestId, ct);
                 await TrySelectQuestReward(ct);
                 await _interactor.CompleteQuest(_currentQuestId, ct);
@@ -1029,38 +1058,34 @@ public sealed class EngineHost : IDisposable
         ((AtkUnitBase*)addonPtr.Address)->FireCallbackInt(0);
     }
 
-    private async Task TryEnsureAutoDutyRunning(CancellationToken ct)
+    private async Task TryEnsureDelegatedPluginRunning(CancellationToken ct)
     {
-        var ikResult = _gameStateInner.GetCurrentInstanceKind(ct).GetAwaiter().GetResult();
-        if (ikResult is not Result<InstanceKind>.Success { Value: not InstanceKind.None })
+        var adRunning = await _dutyRunner.IsRunning(ct);
+        if (adRunning is Result<bool>.Success { Value: true })
             return;
 
-        // Already running — nothing to do.
-        var runningResult = await _dutyRunner.IsRunning(ct);
-        if (runningResult is Result<bool>.Success { Value: true })
-            return;
-
-        // Resolve territory type: use cached value if available, otherwise find the
-        // DungeonTrialStep in the loaded quest and resolve from its CFC ID.
         var tt = _activeDutyTerritoryType;
         if (tt is null && _currentQuestDef is not null)
         {
-            var dtStep = _currentQuestDef.Sequences
+            var dutyStep = _currentQuestDef.Sequences
                 .SelectMany(s => s.Steps)
                 .OfType<DungeonTrialStep>()
                 .FirstOrDefault(s => s.ContentFinderConditionId > 0);
-            if (dtStep is not null)
+            if (dutyStep is not null)
             {
-                tt = _cfcResolver.GetTerritoryType(dtStep.ContentFinderConditionId);
-                _activeDutyStepId = dtStep.Id;
+                tt = _cfcResolver.GetTerritoryType(dutyStep.ContentFinderConditionId);
+                _activeDutyStepId = dutyStep.Id;
                 _activeDutyTerritoryType = tt;
             }
         }
 
-        if (tt is null) return;
+        if (tt is not null)
+        {
+            _services.Log.Debug($"[QuestForge] AutoDuty not running inside dungeon — restarting (tt={tt.Value})");
+            await _dutyRunner.StartDuty(tt.Value, ct);
+            return;
+        }
 
-        _services.Log.Debug($"[QuestForge] AutoDuty not running inside dungeon — starting (tt={tt.Value})");
-        await _dutyRunner.StartDuty(tt.Value, ct);
     }
 
     // When an NPC offers multiple quests via SelectIconString, find the entry matching
