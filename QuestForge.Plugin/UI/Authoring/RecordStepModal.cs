@@ -36,10 +36,10 @@ public sealed class RecordStepModal : Window
     [
         "<Detect>", "travel", "talk", "accept", "turn-in", "attune",
         "hand-over-item", "pickup-item", "interact-object", "cutscene",
-        "use-item", "use-emote", "use-action", "say-chat-message",
+        "use-item", "use-item-on-object", "use-emote", "use-action", "say-chat-message",
         "equip-gear-for-quest", "equip-best-gear", "change-job",
         "register-gearset", "open-coffers", "teleport", "aethernet", "purchase-item",
-        "wait", "duty", "combat", "await-user"
+        "wait", "duty", "dungeon-trial", "single-player-duty", "combat", "minigame", "await-user"
     ];
 
     // Combat step: comma-separated DataIds entered by the author (manual override)
@@ -235,8 +235,12 @@ public sealed class RecordStepModal : Window
         "teleport"            => "teleport-step",
         "aethernet"           => "aethernet-step",
         "purchase-item"       => "purchase-item",
+        "use-item-on-object"  => "use-item-on-object",
         "wait"                => "wait-step",
         "duty"                => "duty-step",
+        "dungeon-trial"       => "dungeon-trial",
+        "single-player-duty"  => "single-player-duty",
+        "minigame"            => "minigame-step",
         "await-user"          => "await-user",
         _                     => "step"
     };

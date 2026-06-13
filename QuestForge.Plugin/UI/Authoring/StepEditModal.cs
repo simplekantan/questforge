@@ -202,6 +202,19 @@ public sealed class StepEditModal : Window
             case TravelStep:
                 DrawEditableBool("useMount", "Use Mount", editable, "Null/true = engine decides. False = no mount.");
                 break;
+            case UseItemOnObjectStep:
+                DrawEditableUint("interactableId", "Interactable ID", editable);
+                DrawEditableEnum<ItemKind>("kind", "Item Kind", editable);
+                DrawEditableUint("itemId", "Item ID", editable);
+                break;
+            case DungeonTrialStep:
+                DrawEditableUint("contentFinderConditionId", "CFC ID", editable);
+                break;
+            case SinglePlayerDutyStep:
+                DrawEditableUint("contentFinderConditionId", "CFC ID", editable);
+                DrawEditableEnum<SpdEntryKind>("entryKind", "Entry Kind", editable);
+                DrawEditableNullableUint("entryTargetId", "Entry Target ID", editable);
+                break;
             // TalkStep, AcceptStep, TurnInStep, HandOverItemStep, EquipGearForQuestStep,
             // FragmentStep, BranchStep, EquipBestGearStep, RegisterGearsetStep, OpenCoffersStep
             // have complex or no per-type fields — handled by Re-record or future Phase 3
