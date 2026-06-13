@@ -62,4 +62,11 @@ public sealed class FakeDutyRunner : IDutyRunner
         return Task.FromResult<Result<bool>>(
             new Result<bool>.Success(_pathAvailable.Contains(territoryType)));
     }
+
+    public bool Running { get; set; }
+
+    public Task<Result<bool>> IsRunning(CancellationToken ct)
+    {
+        return Task.FromResult<Result<bool>>(new Result<bool>.Success(Running));
+    }
 }

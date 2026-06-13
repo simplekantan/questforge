@@ -27,4 +27,10 @@ public interface IDutyRunner
     /// Check whether AutoDuty has a navigation path for the given territory.
     /// </summary>
     Task<Result<bool>> ContentHasPath(uint territoryType, CancellationToken ct);
+
+    /// <summary>
+    /// Check whether AutoDuty is currently running (looping/navigating).
+    /// Returns false when stopped or on read failure.
+    /// </summary>
+    Task<Result<bool>> IsRunning(CancellationToken ct);
 }

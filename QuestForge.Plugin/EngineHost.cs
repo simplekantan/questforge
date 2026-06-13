@@ -116,6 +116,7 @@ public sealed class EngineHost : IDisposable
     private string? _activeSpdStepId;
     // Tracks the active dungeon/trial step ID for StopDuty cleanup when the step advances (AD9).
     private string? _activeDutyStepId;
+    private uint? _activeDutyTerritoryType;
 
     // Tracks whether the previous dispatched action was a Navigate so the lazy-dismount
     // hook fires on the next non-Navigate action (mirrors the close-shop pattern).
@@ -407,6 +408,7 @@ public sealed class EngineHost : IDisposable
         {
             await _dutyRunner.StopDuty(ct);
             _activeDutyStepId = null;
+            _activeDutyTerritoryType = null;
         }
 
         // Lazy dismount: if the previous dispatch was a Navigate and the engine has now
@@ -762,6 +764,7 @@ public sealed class EngineHost : IDisposable
                     await _navigator.Stop(ct);
                 _activeDutyStepId = ed.Origin?.Id;
                 var tt = _cfcResolver.GetTerritoryType(ed.ContentFinderConditionId);
+                _activeDutyTerritoryType = tt;
                 if (tt is not null)
                     await _dutyRunner.StartDuty(tt.Value, ct);
                 break;
@@ -776,6 +779,17 @@ public sealed class EngineHost : IDisposable
                 break;
 
             case EngineAction.Wait:
+                // AutoDuty restart: if we're inside a dungeon and AutoDuty has stopped,
+                // restart it so the run doesn't stall.
+                if (_activeDutyStepId is not null && _activeDutyTerritoryType is { } restartTt)
+                {
+                    var runningResult = await _dutyRunner.IsRunning(ct);
+                    if (runningResult is Result<bool>.Success { Value: false })
+                    {
+                        _services.Log.Debug("[QuestForge] AutoDuty stopped mid-dungeon — restarting");
+                        await _dutyRunner.StartDuty(restartTt, ct);
+                    }
+                }
                 // Engine is satisfied with step state but waiting for the game to advance
                 // sequence (e.g. Talk addon still open after interact). Keep clicking through.
                 TryCutsceneSkipConfirm();

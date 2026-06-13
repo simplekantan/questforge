@@ -27,6 +27,9 @@ public sealed class DalamudDutyRunner : IDutyRunner
     private ICallGateSubscriber<uint, bool> ContentHasPathGate
         => _svc.PluginInterface.GetIpcSubscriber<uint, bool>("AutoDuty.ContentHasPath");
 
+    private ICallGateSubscriber<bool> IsLoopingGate
+        => _svc.PluginInterface.GetIpcSubscriber<bool>("AutoDuty.IsLooping");
+
     public DalamudDutyRunner(PluginServices svc)
     {
         _svc = svc;
@@ -88,6 +91,20 @@ public sealed class DalamudDutyRunner : IDutyRunner
         {
             return Task.FromResult<Result<bool>>(
                 new Result<bool>.Failure("content-has-path-failed", ex.Message));
+        }
+    }
+
+    public Task<Result<bool>> IsRunning(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        try
+        {
+            return Task.FromResult<Result<bool>>(
+                new Result<bool>.Success(IsLoopingGate.InvokeFunc()));
+        }
+        catch
+        {
+            return Task.FromResult<Result<bool>>(new Result<bool>.Success(false));
         }
     }
 }
