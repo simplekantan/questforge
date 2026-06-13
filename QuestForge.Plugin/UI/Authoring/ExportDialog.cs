@@ -341,6 +341,10 @@ public sealed class ExportDialog : Window
         QuestForge.Schema.BranchStep             => "branch",
         QuestForge.Schema.FragmentStep           => "fragment",
         QuestForge.Schema.AwaitUserStep          => "await-user",
+        QuestForge.Schema.AethernetStep          => "aethernet",
+        QuestForge.Schema.UseItemOnObjectStep    => "use-item-on-object",
+        QuestForge.Schema.DungeonTrialStep       => "dungeon-trial",
+        QuestForge.Schema.SinglePlayerDutyStep   => "single-player-duty",
         null                                     => "",
         _                                        => ""
     };
