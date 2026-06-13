@@ -41,15 +41,9 @@ public sealed class DalamudQuestBattleRunner : IQuestBattleRunner
 
         try
         {
-            // Enable quest battles in BossMod zone module configuration.
             ECChat.SendMessage("/vbm cfg ZoneModuleConfig EnableQuestBattles true");
             ECChat.SendMessage("/vbm cfg Autorotation ClearPresetOnCombatEnd false");
-
-            // Create the QuestForge preset if it doesn't already exist, then activate it.
-            if (GetPreset.InvokeFunc("QuestForge") is null)
-                CreatePreset.InvokeFunc(QuestBattlePresetJson, true);
-
-            SetPresetActive.InvokeFunc("QuestForge");
+            ECChat.SendMessage("/vbm ai on");
             _started = true;
             return Task.FromResult<Result<bool>>(new Result<bool>.Success(true));
         }
@@ -69,9 +63,8 @@ public sealed class DalamudQuestBattleRunner : IQuestBattleRunner
 
         try
         {
-            ECChat.SendMessage("/vbmai off");
+            ECChat.SendMessage("/vbm ai off");
             ECChat.SendMessage("/vbm cfg ZoneModuleConfig EnableQuestBattles false");
-            ClearPresetActive.InvokeFunc();
             _started = false;
             return Task.FromResult<Result<bool>>(new Result<bool>.Success(true));
         }
