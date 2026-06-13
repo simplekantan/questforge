@@ -755,6 +755,8 @@ public sealed class EngineHost : IDisposable
                 DebounceLog(
                     $"enterduty:{ed.Origin?.Id}",
                     $"[EnterDuty] stepId={ed.Origin?.Id ?? "(unknown)"} cfcId={ed.ContentFinderConditionId}");
+                if (_activeDutyStepId == ed.Origin?.Id)
+                    break;
                 if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
                     await _navigator.Stop(ct);
                 _activeDutyStepId = ed.Origin?.Id;

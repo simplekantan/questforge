@@ -1478,6 +1478,10 @@ public sealed class QuestEngine
                 $"(CFC {step.ContentFinderConditionId}). Complete this duty manually " +
                 "or wait for AutoDuty path support.");
 
+        var cooldown = CheckActionCooldown(step);
+        if (cooldown is not null) return cooldown;
+
+        RecordActionFired(step);
         return new EngineAction.EnterDuty(step.ContentFinderConditionId, Origin: step);
     }
 
