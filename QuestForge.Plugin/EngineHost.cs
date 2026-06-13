@@ -1032,8 +1032,7 @@ public sealed class EngineHost : IDisposable
     private async Task TryEnsureAutoDutyRunning(CancellationToken ct)
     {
         var ikResult = _gameStateInner.GetCurrentInstanceKind(ct).GetAwaiter().GetResult();
-        if (ikResult is not Result<InstanceKind>.Success { Value: InstanceKind.Dungeon or InstanceKind.Trial
-            or InstanceKind.Raid or InstanceKind.AllianceRaid })
+        if (ikResult is not Result<InstanceKind>.Success { Value: not InstanceKind.None })
             return;
 
         // Already running — nothing to do.
