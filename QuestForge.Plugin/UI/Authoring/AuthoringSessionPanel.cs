@@ -33,6 +33,7 @@ public sealed partial class AuthoringSessionPanel : Window
     private List<string>? _availableFragmentIds;
     private string? _selectedFragmentId;
     private string _fragmentFilterText = "";
+    private bool _fragmentPickerForResumePoint;
 
     public AuthoringSessionPanel(AuthoringHost host,
         RecordStepModal recordModal, StepEditModal editModal, ExportDialog exportDialog,
@@ -44,6 +45,14 @@ public sealed partial class AuthoringSessionPanel : Window
         _editModal = editModal;
         _exportDialog = exportDialog;
         _pi = pi;
+        _editModal.OnRequestFragmentPicker = () =>
+        {
+            _insertFragmentModalOpen = true;
+            _fragmentPickerForResumePoint = true;
+            _selectedFragmentId = null;
+            _fragmentFilterText = "";
+            _availableFragmentIds = ScanAvailableFragments();
+        };
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new System.Numerics.Vector2(420, 300),
@@ -193,6 +202,7 @@ public sealed partial class AuthoringSessionPanel : Window
         if (ImGui.Button("+ Insert Fragment"))
         {
             _insertFragmentModalOpen = true;
+            _fragmentPickerForResumePoint = false;
             _selectedFragmentId = null;
             _fragmentFilterText = "";
             _availableFragmentIds = ScanAvailableFragments();
@@ -221,7 +231,7 @@ public sealed partial class AuthoringSessionPanel : Window
         }
 
         // Modal must be drawn before any early returns
-        if (draft is not null)
+        if (draft is not null || _fragmentPickerForResumePoint)
             DrawInsertFragmentModal(draft, target.Value);
 
         ImGui.Separator();
@@ -382,16 +392,17 @@ public sealed partial class AuthoringSessionPanel : Window
         return ids;
     }
 
-    private void DrawInsertFragmentModal(QuestDraft draft, Adapters.Types.QuestId questId)
+    private void DrawInsertFragmentModal(QuestDraft? draft, Adapters.Types.QuestId questId)
     {
         if (!_insertFragmentModalOpen) return;
 
-        ImGui.OpenPopup("Insert Fragment");
+        var popupTitle = _fragmentPickerForResumePoint ? "Pick Resume Fragment" : "Insert Fragment";
+        ImGui.OpenPopup(popupTitle);
         var center = ImGui.GetMainViewport().GetCenter();
         ImGui.SetNextWindowPos(center, ImGuiCond.Appearing, new System.Numerics.Vector2(0.5f, 0.5f));
 
         ImGui.SetNextWindowSize(new System.Numerics.Vector2(400, 350), ImGuiCond.Appearing);
-        if (ImGui.BeginPopupModal("Insert Fragment", ref _insertFragmentModalOpen, ImGuiWindowFlags.None))
+        if (ImGui.BeginPopupModal(popupTitle, ref _insertFragmentModalOpen, ImGuiWindowFlags.None))
         {
             if (_availableFragmentIds is null || _availableFragmentIds.Count == 0)
             {
@@ -439,40 +450,49 @@ public sealed partial class AuthoringSessionPanel : Window
             }
 
             ImGui.Spacing();
+            var confirmLabel = _fragmentPickerForResumePoint ? "Select" : "Insert";
             ImGui.BeginDisabled(_selectedFragmentId is null);
-            if (ImGui.Button("Insert", new System.Numerics.Vector2(120, 0)))
+            if (ImGui.Button(confirmLabel, new System.Numerics.Vector2(120, 0)))
             {
                 var fragmentId = _selectedFragmentId!;
-                var stepId = $"fragment-{fragmentId.Replace('/', '-')}";
-                var lastStep = draft.Steps.Count > 0 ? draft.Steps[^1] : null;
-                var seqNum = lastStep?.SequenceNumber ?? 0;
 
-                var fragmentStep = new FragmentStep
+                if (_fragmentPickerForResumePoint)
                 {
-                    Id = stepId,
-                    Ref = fragmentId,
-                };
-                var emptySnapshot = new GameStateSnapshot(
-                    DateTimeOffset.UtcNow,
-                    default, default, null, 0, 0, false, false, null, null, null, null, 0, null);
-                var draftStep = new DraftStep(
-                    StepId: stepId,
-                    StepType: "fragment",
-                    SequenceNumber: seqNum,
-                    InferredFrom: InferredFrom.Manual,
-                    ObservedBefore: emptySnapshot,
-                    ObservedAfter: emptySnapshot,
-                    SuggestedExpect: null,
-                    Notes: null,
-                    Raw: fragmentStep);
+                    _editModal.ApplyResumePointFragment(fragmentId);
+                }
+                else if (draft is not null)
+                {
+                    var stepId = $"fragment-{fragmentId.Replace('/', '-')}";
+                    var lastStep = draft.Steps.Count > 0 ? draft.Steps[^1] : null;
+                    var seqNum = lastStep?.SequenceNumber ?? 0;
 
-                if (lastStep is not null)
-                    draft.InsertStepAfter(lastStep.StepId, draftStep, DateTimeOffset.UtcNow);
-                else
-                    draft.AddStep(draftStep, DateTimeOffset.UtcNow);
+                    var fragmentStep = new FragmentStep
+                    {
+                        Id = stepId,
+                        Ref = fragmentId,
+                    };
+                    var emptySnapshot = new GameStateSnapshot(
+                        DateTimeOffset.UtcNow,
+                        default, default, null, 0, 0, false, false, null, null, null, null, 0, null);
+                    var draftStep = new DraftStep(
+                        StepId: stepId,
+                        StepType: "fragment",
+                        SequenceNumber: seqNum,
+                        InferredFrom: InferredFrom.Manual,
+                        ObservedBefore: emptySnapshot,
+                        ObservedAfter: emptySnapshot,
+                        SuggestedExpect: null,
+                        Notes: null,
+                        Raw: fragmentStep);
 
-                _host.DraftManager.MarkDirty(questId);
-                _ = _host.DraftManager.SaveNow(questId, CancellationToken.None);
+                    if (lastStep is not null)
+                        draft.InsertStepAfter(lastStep.StepId, draftStep, DateTimeOffset.UtcNow);
+                    else
+                        draft.AddStep(draftStep, DateTimeOffset.UtcNow);
+
+                    _host.DraftManager.MarkDirty(questId);
+                    _ = _host.DraftManager.SaveNow(questId, CancellationToken.None);
+                }
 
                 _insertFragmentModalOpen = false;
                 ImGui.CloseCurrentPopup();
@@ -523,6 +543,9 @@ public sealed partial class AuthoringSessionPanel : Window
             _host.ExitAuthoring();
             return;
         }
+
+        if (_fragmentPickerForResumePoint)
+            DrawInsertFragmentModal(null, default);
 
         ImGui.Separator();
 
