@@ -1325,7 +1325,7 @@ public sealed class TraceReplayFixtureStateTests
                 "schemaVersion": "1.1.0",
                 "description": "Test fixture",
                 "initialState": "fresh",
-                "questFile": "quests/arr/msq/66130-coming-to-uldah.json",
+                "questFile": "quests/arr/msq/part1/uldah/66130-coming-to-uldah.json",
                 "expectedTransitions": [],
                 "terminalOutcome": "done"{{sourceTraceField}}
             }
