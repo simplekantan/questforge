@@ -455,6 +455,14 @@ public sealed class QuestEngine
 
     private async Task<(EngineAction action, string? stepId, WorldPosition? playerPos)> ResolveAction(CancellationToken ct)
     {
+        // Instance yield: when the player is inside any instanced content, yield entirely.
+        // Delegated plugins (AutoDuty for dungeons/trials, BossMod for SPDs) own all
+        // navigation, combat, and pathing. The engine resumes when the player exits.
+        // Fail-open: read failure assumes open world so the engine continues normally.
+        var instanceCheck = await _gameState.GetCurrentInstanceKind(ct);
+        if (instanceCheck is Result<InstanceKind>.Success { Value: not InstanceKind.None })
+            return (new EngineAction.Wait("inside instanced content — delegated plugin active"), null, null);
+
         var questId = new QuestId(_quest!.Id);
 
         var seqResult = await _questState.GetQuestSequence(questId, ct);
@@ -1530,6 +1538,7 @@ public sealed class QuestEngine
     private async Task<(EngineAction action, string? stepId)?> ResolveDefenseOrNull(
         CancellationToken ct)
     {
+
         var inCombatResult = await _gameState.IsPlayerInCombat(ct);
         // Fail-open: read failure → no defense action this tick. Cursor walk runs normally.
         if (inCombatResult is not Result<bool>.Success { Value: true })

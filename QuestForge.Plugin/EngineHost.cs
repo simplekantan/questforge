@@ -116,6 +116,7 @@ public sealed class EngineHost : IDisposable
     private string? _activeSpdStepId;
     // Tracks the active dungeon/trial step ID for StopDuty cleanup when the step advances (AD9).
     private string? _activeDutyStepId;
+    private uint? _activeDutyTerritoryType;
 
     // Tracks whether the previous dispatched action was a Navigate so the lazy-dismount
     // hook fires on the next non-Navigate action (mirrors the close-shop pattern).
@@ -375,7 +376,8 @@ public sealed class EngineHost : IDisposable
             CurrentStepType = originStep.GetType().Name;
         }
 
-        await _leaseLatch.OnAction(action, _recordingCombat ?? _combat, ct);
+        if (_activeDutyStepId is null)
+            await _leaseLatch.OnAction(action, _recordingCombat ?? _combat, ct);
 
         // Lazy shop close: if the previous dispatch was a Purchase and the engine has now
         // moved past it (postcondition met → emitted a non-Purchase action), dismiss any
@@ -406,6 +408,7 @@ public sealed class EngineHost : IDisposable
         {
             await _dutyRunner.StopDuty(ct);
             _activeDutyStepId = null;
+            _activeDutyTerritoryType = null;
         }
 
         // Lazy dismount: if the previous dispatch was a Navigate and the engine has now
@@ -761,6 +764,7 @@ public sealed class EngineHost : IDisposable
                     await _navigator.Stop(ct);
                 _activeDutyStepId = ed.Origin?.Id;
                 var tt = _cfcResolver.GetTerritoryType(ed.ContentFinderConditionId);
+                _activeDutyTerritoryType = tt;
                 if (tt is not null)
                     await _dutyRunner.StartDuty(tt.Value, ct);
                 break;
@@ -775,6 +779,9 @@ public sealed class EngineHost : IDisposable
                 break;
 
             case EngineAction.Wait:
+                // AutoDuty bootstrap/restart: ensure AutoDuty is running when we're
+                // inside a dungeon/trial instance.
+                await TryEnsureAutoDutyRunning(ct);
                 // Engine is satisfied with step state but waiting for the game to advance
                 // sequence (e.g. Talk addon still open after interact). Keep clicking through.
                 TryCutsceneSkipConfirm();
@@ -1020,6 +1027,40 @@ public sealed class EngineHost : IDisposable
         if (addonPtr.IsNull || !addonPtr.IsReady) return;
 
         ((AtkUnitBase*)addonPtr.Address)->FireCallbackInt(0);
+    }
+
+    private async Task TryEnsureAutoDutyRunning(CancellationToken ct)
+    {
+        var ikResult = _gameStateInner.GetCurrentInstanceKind(ct).GetAwaiter().GetResult();
+        if (ikResult is not Result<InstanceKind>.Success { Value: not InstanceKind.None })
+            return;
+
+        // Already running — nothing to do.
+        var runningResult = await _dutyRunner.IsRunning(ct);
+        if (runningResult is Result<bool>.Success { Value: true })
+            return;
+
+        // Resolve territory type: use cached value if available, otherwise find the
+        // DungeonTrialStep in the loaded quest and resolve from its CFC ID.
+        var tt = _activeDutyTerritoryType;
+        if (tt is null && _currentQuestDef is not null)
+        {
+            var dtStep = _currentQuestDef.Sequences
+                .SelectMany(s => s.Steps)
+                .OfType<DungeonTrialStep>()
+                .FirstOrDefault(s => s.ContentFinderConditionId > 0);
+            if (dtStep is not null)
+            {
+                tt = _cfcResolver.GetTerritoryType(dtStep.ContentFinderConditionId);
+                _activeDutyStepId = dtStep.Id;
+                _activeDutyTerritoryType = tt;
+            }
+        }
+
+        if (tt is null) return;
+
+        _services.Log.Debug($"[QuestForge] AutoDuty not running inside dungeon — starting (tt={tt.Value})");
+        await _dutyRunner.StartDuty(tt.Value, ct);
     }
 
     // When an NPC offers multiple quests via SelectIconString, find the entry matching

@@ -99,8 +99,15 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
 
     public Task<Result<InstanceKind>> GetCurrentInstanceKind(CancellationToken ct)
     {
-        var obs = ScanNext(nameof(GetCurrentInstanceKind), null);
-        return Task.FromResult(Materialize<InstanceKind>(obs.Data.Value));
+        try
+        {
+            var obs = ScanNext(nameof(GetCurrentInstanceKind), null);
+            return Task.FromResult(Materialize<InstanceKind>(obs.Data.Value));
+        }
+        catch (ReplayObservationStarvationException)
+        {
+            return Task.FromResult<Result<InstanceKind>>(Result.Ok(InstanceKind.None));
+        }
     }
 
     public Task<Result<DutyAvailability>> GetDutyAvailability(DutyId duty, CancellationToken ct)
