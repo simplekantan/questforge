@@ -17,6 +17,7 @@ public static class DialogueChoiceDispatcher
         DialogueChoice[] choices = currentStep switch
         {
             TalkStep talk => talk.DialogueChoices,
+            AcceptStep accept => accept.DialogueChoices,
             TravelStep travel => travel.RouteHint?.NpcDialogue?.DialogueChoices ?? Array.Empty<DialogueChoice>(),
             _ => Array.Empty<DialogueChoice>()
         };

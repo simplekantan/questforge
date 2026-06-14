@@ -97,6 +97,7 @@ public sealed class PickupItemStep : Step
 public class AcceptStep : Step
 {
     public NpcLocation Target { get; init; } = default!;
+    public DialogueChoice[] DialogueChoices { get; init; } = [];
 }
 
 public class TurnInStep : Step
