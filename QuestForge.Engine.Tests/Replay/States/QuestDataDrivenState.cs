@@ -195,6 +195,10 @@ internal sealed class QuestDataDrivenState : IFixtureState
 
         if (overrides.Job is { } job)
             gameState.SetJob(new JobId((uint)job), 1);
+
+        if (overrides.Attuned is { } attuned)
+            foreach (var id in attuned)
+                gameState.SetAetheryteAttuned(new Adapters.Types.AetheryteId((uint)id), true);
     }
 
     // -------------------------------------------------------------------------

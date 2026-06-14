@@ -45,7 +45,8 @@ public sealed class EngineFixtureTests
         [property: JsonPropertyName("questSequence")]  int? QuestSequence = null,
         [property: JsonPropertyName("slotsEquipped")]  int[]? SlotsEquipped = null,
         [property: JsonPropertyName("items")]          Dictionary<string, int>? Items = null,
-        [property: JsonPropertyName("job")]            int? Job = null);
+        [property: JsonPropertyName("job")]            int? Job = null,
+        [property: JsonPropertyName("attuned")]        int[]? Attuned = null);
 
     // ---- State machine dispatch ----
     // Maps fixture filename (without extension) to its scripted state builder.
@@ -132,6 +133,9 @@ public sealed class EngineFixtureTests
         {
             state = QuestDataDrivenState.Create(quest, fragments, fixture.InitialState, fixture.InitialOverrides);  // (2) data-driven default
         }
+
+        // ---- Populate AetheryteZoneMap with teleport targets from the quest ----
+        PopulateAetheryteMap(quest, fragments);
 
         // ---- Wire engine from IFixtureState ----
         var capturingTrace = new CapturingTraceWriter();
@@ -323,6 +327,22 @@ public sealed class EngineFixtureTests
         EngineAction.Engage    _ => "engage",
         _                        => action.GetType().Name.ToLowerInvariant()
     };
+
+    private static void PopulateAetheryteMap(
+        QuestDefinition quest,
+        IReadOnlyDictionary<string, FragmentDefinition> fragments)
+    {
+        var map = new Dictionary<uint, uint>(QuestForge.Engine.Travel.AetheryteZoneMap.All);
+        var allSteps = quest.Sequences.SelectMany(s => s.Steps)
+            .Concat(fragments.Values.SelectMany(f => f.Steps));
+        foreach (var step in allSteps.OfType<TeleportStep>())
+        {
+            var zoneStr = step.Zone ?? step.RequiredZone;
+            if (zoneStr is not null && uint.TryParse(zoneStr, out var zone))
+                map.TryAdd(step.AetheryteId.Value, zone);
+        }
+        QuestForge.Engine.Travel.AetheryteZoneMap.Populate(map);
+    }
 
     private static (QuestForge.Adapters.Fakes.Duty.FakeDutyRunner, QuestForge.Adapters.Fakes.Duty.FakeCfcResolver) CreateDutyFakes(QuestDefinition quest)
     {
