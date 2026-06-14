@@ -18,10 +18,11 @@ public sealed class ContentsTutorialResponder : IDisposable
         _addonLifecycle = addonLifecycle;
         _log = log;
 
-        _addonLifecycle.RegisterListener(AddonEvent.PostSetup, "ContentsTutorial", OnSetup);
+        _addonLifecycle.RegisterListener(AddonEvent.PostSetup, "ContentsTutorial", OnEvent);
+        _addonLifecycle.RegisterListener(AddonEvent.PostRefresh, "ContentsTutorial", OnEvent);
     }
 
-    private void OnSetup(AddonEvent type, AddonArgs args) => Dismiss(args.Addon);
+    private void OnEvent(AddonEvent type, AddonArgs args) => Dismiss(args.Addon);
 
     private unsafe void Dismiss(nint addonAddr)
     {
@@ -36,6 +37,7 @@ public sealed class ContentsTutorialResponder : IDisposable
 
     public void Dispose()
     {
-        _addonLifecycle.UnregisterListener(AddonEvent.PostSetup, "ContentsTutorial", OnSetup);
+        _addonLifecycle.UnregisterListener(AddonEvent.PostSetup, "ContentsTutorial", OnEvent);
+        _addonLifecycle.UnregisterListener(AddonEvent.PostRefresh, "ContentsTutorial", OnEvent);
     }
 }

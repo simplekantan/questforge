@@ -23,6 +23,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly SelectYesnoResponder _responder;
     private readonly DifficultySelectResponder _difficultyResponder;
     private readonly ContentsTutorialResponder _tutorialResponder;
+    private readonly CutSceneSelectStringResponder _cutsceneSelectResponder;
     private readonly AuthoringHost _authoringHost;
     private readonly QfCommand _command;
     private readonly IFramework _framework;
@@ -82,6 +83,7 @@ public sealed class Plugin : IDalamudPlugin
         _responder = new SelectYesnoResponder(_host, addonLifecycle, gameGui, log);
         _difficultyResponder = new DifficultySelectResponder(_host, config, addonLifecycle, gameGui, log);
         _tutorialResponder = new ContentsTutorialResponder(_host, addonLifecycle, log);
+        _cutsceneSelectResponder = new CutSceneSelectStringResponder(_host, addonLifecycle, log);
         _host.SetRunStartCallback(_responder.TryAnswerOpenPopup);
 
         var questsDir = Path.Combine(pi.GetPluginConfigDirectory(), "quests");
@@ -205,6 +207,7 @@ public sealed class Plugin : IDalamudPlugin
         _responder.Dispose();
         _difficultyResponder.Dispose();
         _tutorialResponder.Dispose();
+        _cutsceneSelectResponder.Dispose();
         _host.Dispose();
         _authoringHost.Dispose();
         _traceSession.OnPluginStop();

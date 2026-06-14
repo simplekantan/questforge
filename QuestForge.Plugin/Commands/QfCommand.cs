@@ -161,6 +161,9 @@ internal sealed class QfCommand : IDisposable
                 HandleDebugAddon(parts[2], maxCount);
                 break;
             }
+            case "debug" when parts.Length >= 4 && parts[1] == "callback":
+                HandleDebugCallback(parts[2], parts[3]);
+                break;
             case "debug" when parts.Length >= 2 && parts[1] == "offered-quest":
                 HandleDebugOfferedQuest();
                 break;
@@ -333,6 +336,24 @@ internal sealed class QfCommand : IDisposable
         };
         addon->FireCallback(1, values);
         _chat.Print($"[QF] fired SelectYesno {(no ? "No(1)" : "Yes(0)")} (IsReady={ready}) — did it close?");
+    }
+
+    private unsafe void HandleDebugCallback(string addonName, string callbackStr)
+    {
+        if (!int.TryParse(callbackStr, out var callbackInt))
+        {
+            _chat.Print($"[QF] Invalid callback int: {callbackStr}");
+            return;
+        }
+        var addonPtr = _gameGui.GetAddonByName(addonName);
+        if (addonPtr.IsNull || !addonPtr.IsReady)
+        {
+            _chat.Print($"[QF] Addon '{addonName}' not found or not ready");
+            return;
+        }
+        var addon = (FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase*)addonPtr.Address;
+        _chat.Print($"[QF] Firing FireCallbackInt({callbackInt}) on {addonName}");
+        addon->FireCallbackInt(callbackInt);
     }
 
     private unsafe void HandleDebugAddon(string addonName, int maxCount = 30)
