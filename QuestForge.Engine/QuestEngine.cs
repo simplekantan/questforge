@@ -948,6 +948,12 @@ public sealed class QuestEngine
 
         TeleportStep tp => new EngineAction.Teleport(new Adapters.Types.AetheryteId(tp.AetheryteId.Value), Origin: step),
 
+        UseItemStep useItem => new EngineAction.UseItem(
+            useItem.Kind, useItem.ItemId,
+            useItem.TargetNpcId is { } npcId ? new NpcId(npcId) : null,
+            useItem.TargetPosition,
+            Origin: step),
+
         _ => throw new NotSupportedException($"Phase 4 does not support step type {step.GetType().Name}")
     };
 

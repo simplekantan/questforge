@@ -90,6 +90,35 @@ public sealed class ConfigWindow : Window
 
         ImGui.Spacing();
 
+        ImGui.SetNextItemWidth(130f);
+        var gcNames = new[] { "User Decides", "Serpents", "Flames", "Maelstrom", "Random" };
+        var gcIdx = (int)_config.ChosenGrandCompany;
+        if (ImGui.Combo("Grand Company", ref gcIdx, gcNames, gcNames.Length))
+        {
+            _config.ChosenGrandCompany = (GrandCompanyChoice)gcIdx;
+            Save();
+            _host.UpdateSchedulerOptions(BuildOptions());
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Which Grand Company to join at the MSQ branch.\nUser Decides halts automation so you can pick manually.");
+
+        ImGui.Spacing();
+
+        ImGui.SetNextItemWidth(160f);
+        var chocoboName = _config.ChocoboName;
+        if (ImGui.InputText("Chocobo name", ref chocoboName, 21))
+        {
+            if (PluginConfig.IsValidChocoboName(chocoboName))
+            {
+                _config.ChocoboName = chocoboName;
+                Save();
+            }
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Name auto-filled when the game asks you to name your chocobo.\n2-20 alphabetic characters. Leave blank to name it yourself.");
+
+        ImGui.Spacing();
+
         ImGui.SetNextItemWidth(100f);
         var difficultyNames = new[] { "Normal", "Easy", "Very Easy" };
         var diffIdx = (int)_config.PreferredSpdDifficulty;
@@ -241,5 +270,16 @@ public sealed class ConfigWindow : Window
         ManualChain: _config.QuestPlaylist.Select(id => new QuestForge.Adapters.Types.QuestId(id)).ToList(),
         EnableCraftGatherQuests: _config.EnableCraftGatherQuests,
         EnableSideQuests: _config.EnableSideQuests,
-        EnableBlueQuests: _config.EnableBlueQuests);
+        EnableBlueQuests: _config.EnableBlueQuests,
+        GrandCompanyChoice: MapGrandCompanyChoice(_config.ChosenGrandCompany));
+
+    internal static GrandCompanyPreference MapGrandCompanyChoice(GrandCompanyChoice choice) => choice switch
+    {
+        GrandCompanyChoice.UserDecides => GrandCompanyPreference.UserDecides,
+        GrandCompanyChoice.Serpents    => GrandCompanyPreference.TwinAdder,
+        GrandCompanyChoice.Flames      => GrandCompanyPreference.ImmortalFlames,
+        GrandCompanyChoice.Maelstrom   => GrandCompanyPreference.Maelstrom,
+        GrandCompanyChoice.Random      => GrandCompanyPreference.Random,
+        _ => GrandCompanyPreference.UserDecides,
+    };
 }

@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using Microsoft.Extensions.Logging;
 using QuestForge.Adapters.State;
 using QuestForge.Adapters.Types;
@@ -20,6 +21,20 @@ public sealed class QuestScheduler : IQuestScheduler
     private Dictionary<QuestId, string> _lastLoggedReasons = new();
     private Dictionary<QuestId, string> _currentPollReasons = new();
 
+    // Stable random GC pick within a single NextQuestToRun evaluation.
+    private QuestId? _randomGcPick;
+
+    // MSQ Grand Company branch: quest ID → the GrandCompanyPreference that selects it.
+    internal static readonly FrozenDictionary<QuestId, GrandCompanyPreference> GrandCompanyQuests =
+        new Dictionary<QuestId, GrandCompanyPreference>
+        {
+            [new QuestId(66216)] = GrandCompanyPreference.TwinAdder,
+            [new QuestId(66217)] = GrandCompanyPreference.Maelstrom,
+            [new QuestId(66218)] = GrandCompanyPreference.ImmortalFlames,
+        }.ToFrozenDictionary();
+
+    private static readonly QuestId[] _gcQuestIds = [new(66216), new(66217), new(66218)];
+
     // Returned when WhyUnavailable unexpectedly returns null for a manual-chain quest.
     private static readonly QuestUnlockReason _whyNullSyntheticReason = new(
         LevelTooLow: false, RequiredLevel: 0,
@@ -28,6 +43,14 @@ public sealed class QuestScheduler : IQuestScheduler
         AlreadyCompleted: false,
         OtherReason: true,
         Detail: "WhyUnavailable returned null but quest is not available");
+
+    private static readonly QuestUnlockReason _gcUserDecidesReason = new(
+        LevelTooLow: false, RequiredLevel: 0,
+        PrerequisiteIncomplete: false, MissingPrereqs: [],
+        WrongJob: false, RequiredJob: null,
+        AlreadyCompleted: false,
+        OtherReason: true,
+        Detail: "Grand Company choice is set to User Decides — accept a Company quest in-game to continue");
 
     public QuestScheduler(
         IQuestState questState,
@@ -65,6 +88,7 @@ public sealed class QuestScheduler : IQuestScheduler
         _currentStatus = new SchedulerStatus.SelectingNext();
         var visited = new HashSet<QuestId>();
         _currentPollReasons = new Dictionary<QuestId, string>();
+        _randomGcPick = null;
         var knownQuests = _questData.EnumerateKnownQuests();
 
         // --- Rule 0: Tier 0 — Manual chain -------------------------------------------------------
@@ -202,6 +226,10 @@ public sealed class QuestScheduler : IQuestScheduler
     private async Task<Result<QuestId?>?> TrySelectCandidate(
         QuestId q, CancellationToken ct, HashSet<QuestId> visited, bool isTier1)
     {
+        var (gcHandled, gcResult) = ApplyGrandCompanyFilter(q);
+        if (gcHandled)
+            return gcResult;
+
         var skipIf = _questData.GetSkipIf(q);
         if (skipIf is not null && _evaluateSkipIf is not null)
         {
@@ -316,5 +344,33 @@ public sealed class QuestScheduler : IQuestScheduler
                 return sub;
         }
         return null;
+    }
+
+    private (bool Handled, Result<QuestId?>? Result) ApplyGrandCompanyFilter(QuestId q)
+    {
+        if (!GrandCompanyQuests.TryGetValue(q, out var questGc))
+            return (false, null);
+
+        var pref = _options.GrandCompanyChoice;
+
+        if (pref == GrandCompanyPreference.UserDecides)
+        {
+            _currentStatus = new SchedulerStatus.AwaitingUser(q, _gcUserDecidesReason);
+            return (true, Result.Ok<QuestId?>(null));
+        }
+
+        if (pref == GrandCompanyPreference.Random)
+        {
+            _randomGcPick ??= _gcQuestIds[Random.Shared.Next(_gcQuestIds.Length)];
+            if (q == _randomGcPick)
+                return (false, null);
+            return (true, null); // skip — different GC quest was chosen
+        }
+
+        if (questGc == pref)
+            return (false, null);
+
+        _logger.LogDebug("Quest {QuestId} skipped — Grand Company preference is {Pref}.", q, pref);
+        return (true, null); // skip — wrong GC
     }
 }

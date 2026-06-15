@@ -19,6 +19,16 @@ public enum SpdDifficulty
     VeryEasy = 2
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<GrandCompanyChoice>))]
+public enum GrandCompanyChoice
+{
+    UserDecides = 0,
+    Serpents    = 1,
+    Flames      = 2,
+    Maelstrom   = 3,
+    Random      = 4
+}
+
 public sealed class PluginConfig
 {
     private static readonly JsonSerializerOptions _jsonOpts = new() { WriteIndented = true };
@@ -92,6 +102,29 @@ public sealed class PluginConfig
     /// that produces a winner is used. Quest-level RewardOverride takes precedence over this list.
     /// </summary>
     public List<RewardPriority> RewardPriorityOrder { get; set; } = new(RewardPrioritizer.DefaultPriorityOrder);
+
+    /// <summary>
+    /// Which Grand Company to join when the MSQ presents the choice.
+    /// UserDecides (default) halts automation so the player can pick manually.
+    /// </summary>
+    public GrandCompanyChoice ChosenGrandCompany { get; set; } = GrandCompanyChoice.UserDecides;
+
+    /// <summary>
+    /// Name to auto-fill when the InputString addon appears (e.g. chocobo naming).
+    /// Empty string means the player types it manually.
+    /// Must be 2-20 ASCII alphabetic characters when non-empty.
+    /// </summary>
+    public string ChocoboName { get; set; } = string.Empty;
+
+    public static bool IsValidChocoboName(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return true;
+        if (name.Length < 2 || name.Length > 20) return false;
+        foreach (var c in name)
+            if (!char.IsAsciiLetter(c))
+                return false;
+        return true;
+    }
 
     public static PluginConfig Load(IDalamudPluginInterface pi)
     {
