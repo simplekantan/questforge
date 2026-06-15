@@ -1216,6 +1216,10 @@ public sealed class QuestEngine
         if (stateResult is Result<PlayerStateSnapshot>.Success { Value.Casting: true })
             return new EngineAction.Wait("player casting; deferring use-item", Origin: step);
 
+        var uiCheck = await _gameState.GetUiState(ct);
+        if (uiCheck is Result<UiState>.Success { Value.LoadingZone: true })
+            return new EngineAction.Wait("loading zone; deferring use-item", Origin: step);
+
         var cooldownUi = CheckActionCooldown(step);
         if (cooldownUi is not null) return cooldownUi;
 

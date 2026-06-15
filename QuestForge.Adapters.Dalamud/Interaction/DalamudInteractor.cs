@@ -48,7 +48,7 @@ public sealed class DalamudInteractor : IInteractor
         foreach (var entry in _svc.ObjectTable)
         {
             if (entry is null || entry.BaseId != obj.Value) continue;
-            if (entry.ObjectKind is not (ObjectKind.EventObj or ObjectKind.Treasure or ObjectKind.Aetheryte)) continue;
+            if (entry.ObjectKind is not (ObjectKind.EventObj or ObjectKind.EventNpc or ObjectKind.Treasure or ObjectKind.Aetheryte)) continue;
 
             _svc.TargetManager.Target = entry;
             unsafe
