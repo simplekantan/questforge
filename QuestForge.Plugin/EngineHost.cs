@@ -611,6 +611,7 @@ public sealed class EngineHost : IDisposable
                 TryCutsceneSkipConfirm();
                 await _objectInteractor.InteractWithObject(io.Target, ct);
                 await _interactor.AdvanceDialogue(ct);
+                await _interactor.TryFillRequestAddon(ct);
                 break;
 
             case EngineAction.HandOver h:
