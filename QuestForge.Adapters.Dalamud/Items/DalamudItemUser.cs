@@ -2,6 +2,7 @@ using System.Numerics;
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.Types;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using QuestForge.Adapters.Actions;
 using QuestForge.Adapters.Items;
 using QuestForge.Adapters.Types;
@@ -48,6 +49,13 @@ public sealed class DalamudItemUser : IItemUser
         {
             case ItemTargetMode.Direct:
             {
+                if (kind == ItemKind.InventoryItem)
+                {
+                    var result = AgentInventoryContext.Instance()->UseItem(itemId);
+                    return Task.FromResult<Result<Unit>>(result >= 0
+                        ? Result.Ok()
+                        : Result.Fail("UseItem returned false", $"kind={kind} id={itemId} mode={mode} result={result}"));
+                }
                 var ok = am->UseAction(nativeType, itemId);
                 return Task.FromResult<Result<Unit>>(ok
                     ? Result.Ok()
