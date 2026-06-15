@@ -713,11 +713,14 @@ public sealed class QuestEngine
                 return (sayChat, step.Id, playerPos);
             }
 
-            // 6a4. UseItemStep async arm — step-gated so GetPlayerState is only read when the
-            //      cursor is on a UseItemStep.
+            // 6a4. UseItemStep async arm — fire-once: after dispatching, wait for expect.
             if (step is UseItemStep useItemStep)
             {
+                if (_fireOnceDispatchedIds.Contains(step.Id))
+                    return (new EngineAction.Wait("use-item already dispatched; awaiting expect", Origin: step), step.Id, playerPos);
                 var useItem = await ResolveUseItem(useItemStep, ct);
+                if (useItem is not EngineAction.Wait)
+                    _fireOnceDispatchedIds.Add(step.Id);
                 return (useItem, step.Id, playerPos);
             }
 
