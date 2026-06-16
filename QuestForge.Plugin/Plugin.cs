@@ -83,7 +83,7 @@ public sealed class Plugin : IDalamudPlugin
         _host = new EngineHost(services, _traceSession, config);
         _responder = new SelectYesnoResponder(_host, addonLifecycle, gameGui, log);
         _difficultyResponder = new DifficultySelectResponder(_host, config, addonLifecycle, gameGui, log);
-        _tutorialResponder = new ContentsTutorialResponder(_host, addonLifecycle, log);
+        _tutorialResponder = new ContentsTutorialResponder(_host, addonLifecycle, gameGui, framework, log);
         _cutsceneSelectResponder = new CutSceneSelectStringResponder(_host, addonLifecycle, log);
         _inputStringResponder = new InputStringResponder(_host, config, addonLifecycle, gameGui, log);
         _host.SetRunStartCallback(_responder.TryAnswerOpenPopup);
