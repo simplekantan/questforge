@@ -24,6 +24,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly DifficultySelectResponder _difficultyResponder;
     private readonly ContentsTutorialResponder _tutorialResponder;
     private readonly CutSceneSelectStringResponder _cutsceneSelectResponder;
+    private readonly InputStringResponder _inputStringResponder;
     private readonly AuthoringHost _authoringHost;
     private readonly QfCommand _command;
     private readonly IFramework _framework;
@@ -82,8 +83,9 @@ public sealed class Plugin : IDalamudPlugin
         _host = new EngineHost(services, _traceSession, config);
         _responder = new SelectYesnoResponder(_host, addonLifecycle, gameGui, log);
         _difficultyResponder = new DifficultySelectResponder(_host, config, addonLifecycle, gameGui, log);
-        _tutorialResponder = new ContentsTutorialResponder(_host, addonLifecycle, log);
+        _tutorialResponder = new ContentsTutorialResponder(_host, addonLifecycle, gameGui, framework, log);
         _cutsceneSelectResponder = new CutSceneSelectStringResponder(_host, addonLifecycle, log);
+        _inputStringResponder = new InputStringResponder(_host, config, addonLifecycle, gameGui, framework, log);
         _host.SetRunStartCallback(_responder.TryAnswerOpenPopup);
 
         var questsDir = Path.Combine(pi.GetPluginConfigDirectory(), "quests");
@@ -99,7 +101,8 @@ public sealed class Plugin : IDalamudPlugin
             questData,
             new QuestForge.Engine.Scheduling.SchedulerOptions(
                 config.QuestPlaylist.Select(id => new QuestForge.Adapters.Types.QuestId(id)).ToList(),
-                config.EnableCraftGatherQuests, config.EnableSideQuests, config.EnableBlueQuests),
+                config.EnableCraftGatherQuests, config.EnableSideQuests, config.EnableBlueQuests,
+                UI.ConfigWindow.MapGrandCompanyChoice(config.ChosenGrandCompany)),
             new QuestForge.Plugin.Logging.DalamudLogger<QuestForge.Engine.Scheduling.QuestScheduler>(log),
             evaluateSkipIf: skipIfEvaluator.Evaluate);
 
@@ -208,6 +211,7 @@ public sealed class Plugin : IDalamudPlugin
         _difficultyResponder.Dispose();
         _tutorialResponder.Dispose();
         _cutsceneSelectResponder.Dispose();
+        _inputStringResponder.Dispose();
         _host.Dispose();
         _authoringHost.Dispose();
         _traceSession.OnPluginStop();

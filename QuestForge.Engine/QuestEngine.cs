@@ -948,6 +948,12 @@ public sealed class QuestEngine
 
         TeleportStep tp => new EngineAction.Teleport(new Adapters.Types.AetheryteId(tp.AetheryteId.Value), Origin: step),
 
+        UseItemStep useItem => new EngineAction.UseItem(
+            useItem.Kind, useItem.ItemId,
+            useItem.TargetNpcId is { } npcId ? new NpcId(npcId) : null,
+            useItem.TargetPosition,
+            Origin: step),
+
         _ => throw new NotSupportedException($"Phase 4 does not support step type {step.GetType().Name}")
     };
 
@@ -966,9 +972,6 @@ public sealed class QuestEngine
         ActiveResumeFragment resume, ZoneId? playerZone, UiState ui, WorldPosition? playerPos,
         CancellationToken ct)
     {
-        if (playerZone is { } pz && ZoneMatches(pz, resume.RequiredZone))
-            return (null, null, done: true);
-
         foreach (var fstep in resume.Steps)
         {
             if (resume.ConfirmedFragmentStepIds.Contains(fstep.Id))
@@ -990,6 +993,10 @@ public sealed class QuestEngine
 
             return (action, fstep.Id, done: false);
         }
+
+        // All steps confirmed or skipped — done if player reached the required zone.
+        if (playerZone is { } pz && ZoneMatches(pz, resume.RequiredZone))
+            return (null, null, done: true);
 
         return (new EngineAction.Wait(
             $"resume fragment '{resume.ForStepId}' exhausted but player not yet in zone {resume.RequiredZone}"),

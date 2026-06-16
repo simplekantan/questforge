@@ -15,7 +15,11 @@ public sealed record SchedulerOptions(
 
     // Tier-4 gate. Default false. When false, blue (feature unlock) quests are never selected.
     // "blue-urgent" quests are NOT gated by this — they run at Tier 1 unconditionally.
-    bool EnableBlueQuests
+    bool EnableBlueQuests,
+
+    // Which Grand Company the player wants to join at the MSQ branch point.
+    // UserDecides halts automation (AwaitingUser). Random picks one per evaluation.
+    GrandCompanyPreference GrandCompanyChoice = GrandCompanyPreference.UserDecides
 )
 {
     public static SchedulerOptions Default { get; } = new(

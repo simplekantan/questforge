@@ -131,7 +131,8 @@ public sealed class ResumePointTests
                 new TravelStep
                 {
                     Id = stepId,
-                    Destination = new TravelDestination(128, dest)
+                    Destination = new TravelDestination(128, dest),
+                    Expect = new PredicateExpect { Predicate = "playerZone() == 128" }
                 }
             ]
         };
@@ -293,17 +294,16 @@ public sealed class ResumePointTests
     // =========================================================================
 
     [Fact]
-    public async Task B4_ZoneGate_EndsSubLoop_EvenWithUnconfirmedFragmentStepsRemaining()
+    public async Task B4_AllStepsConfirmed_ThenZoneGate_EndsSubLoop()
     {
         /*
-         * AC B4 — Fragment has TWO travel steps (no expect on either).
-         *   Tick 1 (zone 130): Navigate(10,0,10) — fragment-a dispatches (fragment-b not yet reached).
-         *   Set zone to 128. Tick 2: zone matches → sub-loop terminates WITHOUT dispatching fragment-b
-         *                  → main step dispatches.
-         *   Proves zone match (not step exhaustion) ends the sub-loop.
+         * AC B4 — Fragment has TWO travel steps with expects.
+         *   Tick 1 (zone 130): Navigate(10,0,10) — fragment-a dispatches.
+         *   Set zone to 128. Tick 2: fragment-a confirmed (expect satisfied),
+         *     fragment-b confirmed (expect satisfied) → all steps done →
+         *     zone matches → resume done → main step dispatches.
          *
-         * RED: Will fail to compile until Builder adds ResumePointFragmentId to Step.
-         * RED: Will fail at runtime until Builder implements zone-gate-first termination in ProcessActiveResume.
+         * Proves the fragment runs all steps to completion before the zone gate fires.
          */
 
         // Arrange
@@ -319,14 +319,14 @@ public sealed class ResumePointTests
                 new TravelStep
                 {
                     Id = "fragment-a",
-                    Destination = new TravelDestination(130, new Position3(10f, 0f, 10f))
-                    // no expect
+                    Destination = new TravelDestination(130, new Position3(10f, 0f, 10f)),
+                    Expect = new PredicateExpect { Predicate = "playerZone() == 128" }
                 },
                 new TravelStep
                 {
                     Id = "fragment-b",
-                    Destination = new TravelDestination(128, new Position3(20f, 0f, 20f))
-                    // no expect — should NEVER be dispatched in this test
+                    Destination = new TravelDestination(128, new Position3(20f, 0f, 20f)),
+                    Expect = new PredicateExpect { Predicate = "playerZone() == 128" }
                 }
             ]
         };
@@ -348,14 +348,12 @@ public sealed class ResumePointTests
         var nav1 = Assert.IsType<EngineAction.Navigate>(action1);
         Assert.Equal(new WorldPosition(10f, 0f, 10f), nav1.Destination);
 
-        // Player arrives in RequiredZone before fragment-b runs
+        // Player arrives in RequiredZone
         harness.GameState.SetZone(new ZoneId(128));
 
-        // Tick 2 — zone matches → sub-loop ends → main step dispatches (NOT fragment-b)
+        // Tick 2 — both expects satisfied → all steps confirmed → zone matches → main step
         var action2 = await harness.Engine.Tick(CancellationToken.None);
         var nav2 = Assert.IsType<EngineAction.Navigate>(action2);
-        // Main step NPC at (999,0,999) — must NOT be (20,0,20) which is fragment-b
-        Assert.NotEqual(new WorldPosition(20f, 0f, 20f), nav2.Destination);
         Assert.Equal(new WorldPosition(999f, 0f, 999f), nav2.Destination);
     }
 
