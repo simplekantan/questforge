@@ -11,51 +11,68 @@ public sealed class InputStringResponder : IDisposable
     private readonly PluginConfig _config;
     private readonly IAddonLifecycle _addonLifecycle;
     private readonly IGameGui _gameGui;
+    private readonly IFramework _framework;
     private readonly IPluginLog _log;
+    private volatile bool _pendingSubmit;
 
     public InputStringResponder(
         EngineHost host, PluginConfig config,
-        IAddonLifecycle addonLifecycle, IGameGui gameGui, IPluginLog log)
+        IAddonLifecycle addonLifecycle, IGameGui gameGui,
+        IFramework framework, IPluginLog log)
     {
         _host = host;
         _config = config;
         _addonLifecycle = addonLifecycle;
         _gameGui = gameGui;
+        _framework = framework;
         _log = log;
 
-        _addonLifecycle.RegisterListener(AddonEvent.PostSetup, "InputString", OnSetup);
-        _addonLifecycle.RegisterListener(AddonEvent.PostRefresh, "InputString", OnSetup);
+        _addonLifecycle.RegisterListener(AddonEvent.PostSetup, "InputString", OnEvent);
+        _addonLifecycle.RegisterListener(AddonEvent.PostRefresh, "InputString", OnEvent);
+        _framework.Update += OnFrameworkUpdate;
     }
 
-    private void OnSetup(AddonEvent type, AddonArgs args) => TryAnswer(args.Addon);
-
-    private unsafe void TryAnswer(nint addonAddr)
+    private void OnEvent(AddonEvent type, AddonArgs args)
     {
+        if (_host.IsRunActive
+            && !string.IsNullOrEmpty(_config.ChocoboName)
+            && PluginConfig.IsValidChocoboName(_config.ChocoboName))
+        {
+            _pendingSubmit = true;
+        }
+    }
+
+    private unsafe void OnFrameworkUpdate(IFramework _)
+    {
+        if (!_pendingSubmit) return;
+        _pendingSubmit = false;
+
         if (!_host.IsRunActive) return;
 
         var name = _config.ChocoboName;
-        if (string.IsNullOrEmpty(name)) return;
-        if (!PluginConfig.IsValidChocoboName(name)) return;
+        if (string.IsNullOrEmpty(name) || !PluginConfig.IsValidChocoboName(name)) return;
 
-        var addon = (AtkUnitBase*)addonAddr;
-        if (addon == null || !addon->IsVisible) return;
+        var ptr = _gameGui.GetAddonByName("InputString");
+        if (ptr.IsNull || !ptr.IsReady) return;
 
-        var textInputNode = addon->GetNodeById(9);
-        if (textInputNode == null) return;
+        var addon = (AtkUnitBase*)ptr.Address;
+        if (!addon->IsVisible) return;
 
-        var componentNode = (AtkComponentNode*)textInputNode;
-        if (componentNode->Component == null) return;
-
-        var textInput = (AtkComponentTextInput*)componentNode->Component;
-        textInput->SetText(name);
-
-        _log.Debug($"[InputStringResponder] set text to \"{name}\", firing OK callback");
-        addon->FireCallbackInt(0);
+        _log.Debug($"[InputStringResponder] submitting \"{name}\" (deferred)");
+        var values = stackalloc AtkValue[1];
+        values[0] = new AtkValue { Type = AtkValueType.String };
+        var nameBytes = System.Text.Encoding.UTF8.GetBytes(name + '\0');
+        fixed (byte* namePtr = nameBytes)
+        {
+            values[0].String = namePtr;
+            addon->FireCallback(1, values, true);
+        }
     }
 
     public void Dispose()
     {
-        _addonLifecycle.UnregisterListener(AddonEvent.PostSetup, "InputString", OnSetup);
-        _addonLifecycle.UnregisterListener(AddonEvent.PostRefresh, "InputString", OnSetup);
+        _framework.Update -= OnFrameworkUpdate;
+        _addonLifecycle.UnregisterListener(AddonEvent.PostSetup, "InputString", OnEvent);
+        _addonLifecycle.UnregisterListener(AddonEvent.PostRefresh, "InputString", OnEvent);
     }
 }

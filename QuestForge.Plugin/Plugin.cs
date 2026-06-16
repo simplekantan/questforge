@@ -85,7 +85,7 @@ public sealed class Plugin : IDalamudPlugin
         _difficultyResponder = new DifficultySelectResponder(_host, config, addonLifecycle, gameGui, log);
         _tutorialResponder = new ContentsTutorialResponder(_host, addonLifecycle, gameGui, framework, log);
         _cutsceneSelectResponder = new CutSceneSelectStringResponder(_host, addonLifecycle, log);
-        _inputStringResponder = new InputStringResponder(_host, config, addonLifecycle, gameGui, log);
+        _inputStringResponder = new InputStringResponder(_host, config, addonLifecycle, gameGui, framework, log);
         _host.SetRunStartCallback(_responder.TryAnswerOpenPopup);
 
         var questsDir = Path.Combine(pi.GetPluginConfigDirectory(), "quests");
