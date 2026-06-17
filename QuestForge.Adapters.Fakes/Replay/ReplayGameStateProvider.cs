@@ -79,8 +79,15 @@ public sealed class ReplayGameStateProvider : IGameStateProvider
 
     public Task<Result<bool>> IsPlayerDead(CancellationToken ct)
     {
-        var obs = ScanNext(nameof(IsPlayerDead), null);
-        return Task.FromResult(Materialize<bool>(obs.Data.Value));
+        try
+        {
+            var obs = ScanNext(nameof(IsPlayerDead), null);
+            return Task.FromResult(Materialize<bool>(obs.Data.Value));
+        }
+        catch (ReplayObservationStarvationException)
+        {
+            return Task.FromResult<Result<bool>>(Result.Ok(false));
+        }
     }
 
     public Task<Result<JobId>> GetCurrentJob(CancellationToken ct)

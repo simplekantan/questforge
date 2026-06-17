@@ -76,6 +76,8 @@ public sealed class QuestEngine
     private readonly HashSet<string> _resumePointExecutedIds = new();
     private ActiveResumeFragment? _activeResumeFragment;
     private Step? _lastResolvedStep;
+    private bool _wasDeadLastTick;
+    private bool _deathRecoveryPending;
 
     private sealed record ActiveResumeFragment(
         string ForStepId,
@@ -365,6 +367,8 @@ public sealed class QuestEngine
         _lastKnownSequence = -1;
         _resumePointExecutedIds.Clear();
         _activeResumeFragment = null;
+        _wasDeadLastTick = false;
+        _deathRecoveryPending = false;
     }
 
     public void NotifyEquipBestGearComplete(string stepId)
@@ -550,6 +554,18 @@ public sealed class QuestEngine
         var zoneResult = await _gameState.GetPlayerZone(ct);
         var playerZone = zoneResult is Result<ZoneId>.Success { Value: var z } ? (ZoneId?)z : null;
 
+        // Dead-to-alive edge detection for open-world death recovery.
+        var deadResult = await _gameState.IsPlayerDead(ct);
+        var dead = deadResult is Result<bool>.Success { Value: true };
+        if (_wasDeadLastTick && !dead)
+        {
+            var ikResult = await _gameState.GetCurrentInstanceKind(ct);
+            var ik = ikResult is Result<InstanceKind>.Success { Value: var k } ? k : InstanceKind.None;
+            if (ik == InstanceKind.None)
+                _deathRecoveryPending = true;
+        }
+        _wasDeadLastTick = dead;
+
         // Read the active quest's work variables (V0–V5) once per tick.
         // WHY (no consumer yet): this read exists purely so the recording proxy
         // (RecordingQuestState) captures a GetQuestVariables observation — it dedups and
@@ -573,6 +589,8 @@ public sealed class QuestEngine
             _waitStepStartId = null;
             _lastActionFiredAt = null;
             _lastActionFiredStepId = null;
+            _wasDeadLastTick = false;
+            _deathRecoveryPending = false;
             await _combatController.ResetAsync(ct);
         }
         _lastKnownSequence = currentSeq;
@@ -613,12 +631,14 @@ public sealed class QuestEngine
                     // Objective met. Global defense (above) handles any remaining aggro.
                     // Confirm and continue — no in-combat check needed here.
                     _confirmedStepIds.Add(cs.Id);
+                    _deathRecoveryPending = false;
                     await _combatController.ResetAsync(ct);
                     continue;
                 }
 
                 // Non-combat steps: unchanged.
                 _confirmedStepIds.Add(step.Id);
+                _deathRecoveryPending = false;
                 continue;
             }
 
@@ -647,6 +667,25 @@ public sealed class QuestEngine
                 }
                 _activeResumeFragment = armed;
                 return (action!, stepId, playerPos);
+            }
+
+            // 4a. Clear death-recovery flag if current step's RequiredZone is satisfied.
+            if (_deathRecoveryPending && step.RequiredZone is not null
+                && ZoneAlreadySatisfied(playerZone, step.RequiredZone))
+                _deathRecoveryPending = false;
+
+            // 4b. Death-recovery teleport.
+            if (_deathRecoveryPending
+                && step.RequiredZone is { } deathRz
+                && !ZoneAlreadySatisfied(playerZone, deathRz)
+                && uint.TryParse(deathRz, out var deathZoneId)
+                && Travel.AetheryteZoneMap.TryGetAetheryteByZone(deathZoneId, out var deathAeId))
+            {
+                _logger.LogInformation(
+                    "Death recovery: teleporting to aetheryte {AetheryteId} for zone {Zone}.",
+                    deathAeId, deathRz);
+                return (new EngineAction.Teleport(new Adapters.Types.AetheryteId(deathAeId), Origin: step),
+                    step.Id, playerPos);
             }
 
             // 5. CombatStep async arm — step-gated so GetHostileActors is NEVER called on the

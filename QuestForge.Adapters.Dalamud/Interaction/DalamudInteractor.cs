@@ -284,20 +284,12 @@ public sealed class DalamudInteractor : IInteractor
         if (mgr == null)
             return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
 
-        // InventoryType.HandIn (2005) = the hand-over slot container (confirmed FFXIVClientStructs)
-        var container = mgr->GetInventoryContainer(InventoryType.KeyItems);
-        if (container == null)
-            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
-
         foreach (var itemId in items)
         {
-            for (var i = 0; i < container->Size; i++)
-            {
-                var slot = container->GetInventorySlot(i);
-                if (slot == null || slot->ItemId != itemId.Value) continue;
-                mgr->MoveItemSlot(InventoryType.KeyItems, (ushort)i, InventoryType.HandIn, (ushort)placedCount);
-                return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemPlaced));
-            }
+            var (srcType, srcSlot) = FindItemInInventory(mgr, itemId.Value);
+            if (srcSlot < 0) continue;
+            mgr->MoveItemSlot(srcType, (ushort)srcSlot, InventoryType.HandIn, (ushort)placedCount);
+            return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemPlaced));
         }
 
         return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
@@ -316,7 +308,9 @@ public sealed class DalamudInteractor : IInteractor
         var placedCount   = addon->AtkValues[0].Int;
         var requiredCount = (int)addon->AtkValues[3].UInt;
 
-        // Fill all empty slots in one pass
+        // Fill all empty slots from key items only — TryFillRequestAddon doesn't know
+        // which specific items the addon wants, so searching regular inventory would place
+        // wrong items and interfere with HandOverItem's targeted placement.
         if (placedCount < requiredCount)
         {
             var mgr = InventoryManager.Instance();
@@ -324,15 +318,15 @@ public sealed class DalamudInteractor : IInteractor
                 return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
 
             var container = mgr->GetInventoryContainer(InventoryType.KeyItems);
-            if (container == null)
-                return Task.FromResult<Result<HandOverOutcome>>(Result.Ok(HandOverOutcome.ItemNotFound));
-
-            for (var i = 0; i < container->Size && placedCount < requiredCount; i++)
+            if (container != null)
             {
-                var slot = container->GetInventorySlot(i);
-                if (slot == null || slot->ItemId == 0) continue;
-                mgr->MoveItemSlot(InventoryType.KeyItems, (ushort)i, InventoryType.HandIn, (ushort)placedCount);
-                placedCount++;
+                for (var i = 0; i < container->Size && placedCount < requiredCount; i++)
+                {
+                    var slot = container->GetInventorySlot(i);
+                    if (slot == null || slot->ItemId == 0) continue;
+                    mgr->MoveItemSlot(InventoryType.KeyItems, (ushort)i, InventoryType.HandIn, (ushort)placedCount);
+                    placedCount++;
+                }
             }
         }
 
@@ -347,6 +341,31 @@ public sealed class DalamudInteractor : IInteractor
 
         return Task.FromResult<Result<HandOverOutcome>>(
             Result.Ok(placedCount >= requiredCount ? HandOverOutcome.HandedOver : HandOverOutcome.ItemNotFound));
+    }
+
+    private static readonly InventoryType[] HandOverSearchOrder =
+    [
+        InventoryType.KeyItems,
+        InventoryType.Inventory1,
+        InventoryType.Inventory2,
+        InventoryType.Inventory3,
+        InventoryType.Inventory4,
+    ];
+
+    private static unsafe (InventoryType type, int slot) FindItemInInventory(InventoryManager* mgr, uint itemId)
+    {
+        foreach (var invType in HandOverSearchOrder)
+        {
+            var container = mgr->GetInventoryContainer(invType);
+            if (container == null) continue;
+            for (var i = 0; i < container->Size; i++)
+            {
+                var slot = container->GetInventorySlot(i);
+                if (slot != null && slot->ItemId == itemId)
+                    return (invType, i);
+            }
+        }
+        return (default, -1);
     }
 
     private Task<Result<Unit>> ClickAddonButton(
