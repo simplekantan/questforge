@@ -150,7 +150,7 @@ public sealed class Plugin : IDalamudPlugin
         // Hook the game's cutscene handler to press Escape when a run is active.
         // If another plugin (e.g. TextAdvance) already holds the hook, Init throws —
         // catch silently: IGameConfig skip-all and our SelectString confirmation still work.
-        try { AutoCutsceneSkipper.Init(_ => _host.IsRunActive); }
+        try { AutoCutsceneSkipper.Init(_ => _host.IsRunActive && !_host.IsJournalResultOpen); }
         catch { /* Hook already owned by another plugin — IGameConfig covers ESC */ }
 
         _dataUpdate = new DataUpdateService(pi, log, onDataUpdated: () =>

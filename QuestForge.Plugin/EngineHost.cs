@@ -161,6 +161,14 @@ public sealed class EngineHost : IDisposable
     }
 
     public bool IsRunActive => _engine is not null;
+    public bool IsJournalResultOpen
+    {
+        get
+        {
+            var ptr = _services.GameGui.GetAddonByName("JournalResult");
+            return !ptr.IsNull && ptr.IsReady;
+        }
+    }
     public string? ActiveRunId => _runId;
     public YesNoAnswer? CurrentYesNoAnswer => _engine?.CurrentYesNoAnswer;
 
@@ -361,6 +369,19 @@ public sealed class EngineHost : IDisposable
                 }
                 return;
             }
+        }
+
+        // Cutscene yield: when OccupiedInCutSceneEvent is true, skip the engine tick
+        // to prevent Navigate/Jump/UseReturn from firing during the cutscene-to-JournalResult
+        // transition. Instead, run quest completion helpers so we can interact with
+        // JournalResult when it appears on the black screen after cutscene skip.
+        if (_services.Condition[ConditionFlag.OccupiedInCutSceneEvent])
+        {
+            TryCutsceneSkipConfirm();
+            await _interactor.AdvanceDialogue(ct);
+            await TrySelectQuestReward(ct);
+            await _interactor.CompleteQuest(_currentQuestId, ct);
+            return;
         }
 
         EngineAction action;
@@ -1055,6 +1076,21 @@ public sealed class EngineHost : IDisposable
     private unsafe void TryCutsceneSkipConfirm()
     {
         if (!_services.Condition[ConditionFlag.OccupiedInCutSceneEvent]) return;
+
+        // Don't skip if JournalResult is open — the quest completion UI is active
+        // even though OccupiedInCutSceneEvent may still be set from the preceding cutscene.
+        // Temporarily restore cutscene settings to prevent ECommons AutoCutsceneSkipper
+        // from pressing Escape (which would close the JournalResult).
+        var journalResult = _services.GameGui.GetAddonByName("JournalResult");
+        if (!journalResult.IsNull && journalResult.IsReady)
+        {
+            RestoreCutsceneSkip();
+            return;
+        }
+        else if (_savedCutsceneSkipContents is null && IsRunActive)
+        {
+            EnableCutsceneSkip();
+        }
 
         var addonPtr = _services.GameGui.GetAddonByName("SelectString");
         if (addonPtr.IsNull || !addonPtr.IsReady) return;
