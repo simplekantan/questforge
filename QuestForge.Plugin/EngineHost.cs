@@ -620,8 +620,6 @@ public sealed class EngineHost : IDisposable
                 TryCutsceneSkipConfirm();
                 await _interactor.InteractWith(h.Target, ct);
                 await _interactor.AdvanceDialogue(ct);
-                // Places items in Request addon slots then clicks Hand Over button.
-                // Returns NoDialog if the addon is not yet open — engine will retry next tick.
                 await _interactor.HandOverItem(h.Items, h.Target, ct);
                 break;
 
@@ -759,8 +757,13 @@ public sealed class EngineHost : IDisposable
                     $" cfcId={espd.ContentFinderConditionId}" +
                     $" entryTarget={espd.EntryTargetId}" +
                     $" entryKind={entryKind}");
-                if (_activeSpdStepId == espd.Origin?.Id)
-                    break;
+                var spdAlreadyActive = _activeSpdStepId == espd.Origin?.Id;
+                if (spdAlreadyActive)
+                {
+                    var spdIkCheck = _gameStateInner.GetCurrentInstanceKind(ct).GetAwaiter().GetResult();
+                    if (spdIkCheck is Result<InstanceKind>.Success { Value: not InstanceKind.None })
+                        break;
+                }
                 if ((await _navigator.IsNavigating(ct)).ValueOrDefault)
                     await _navigator.Stop(ct);
                 _activeSpdStepId = espd.Origin?.Id;
