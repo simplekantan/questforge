@@ -25,6 +25,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ContentsTutorialResponder _tutorialResponder;
     private readonly CutSceneSelectStringResponder _cutsceneSelectResponder;
     private readonly InputStringResponder _inputStringResponder;
+    private readonly Class2JobHotbarResponder _class2JobHotbarResponder;
     private readonly AuthoringHost _authoringHost;
     private readonly QfCommand _command;
     private readonly IFramework _framework;
@@ -86,6 +87,7 @@ public sealed class Plugin : IDalamudPlugin
         _tutorialResponder = new ContentsTutorialResponder(_host, addonLifecycle, gameGui, framework, log);
         _cutsceneSelectResponder = new CutSceneSelectStringResponder(_host, addonLifecycle, log);
         _inputStringResponder = new InputStringResponder(_host, config, addonLifecycle, gameGui, framework, log);
+        _class2JobHotbarResponder = new Class2JobHotbarResponder(_host, addonLifecycle, gameGui, framework, log);
         _host.SetRunStartCallback(_responder.TryAnswerOpenPopup);
 
         var questsDir = Path.Combine(pi.GetPluginConfigDirectory(), "quests");
@@ -212,6 +214,7 @@ public sealed class Plugin : IDalamudPlugin
         _tutorialResponder.Dispose();
         _cutsceneSelectResponder.Dispose();
         _inputStringResponder.Dispose();
+        _class2JobHotbarResponder.Dispose();
         _host.Dispose();
         _authoringHost.Dispose();
         _traceSession.OnPluginStop();
