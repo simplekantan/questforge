@@ -6,6 +6,7 @@ namespace QuestForge.Engine.Authoring;
 public sealed class QuestDraft
 {
     private readonly List<DraftStep> _steps = new();
+    private readonly List<DraftStep> _epilogueSteps = new();
 
     public QuestId QuestId { get; }
     public string? QuestName { get; set; }
@@ -15,6 +16,7 @@ public sealed class QuestDraft
     public DateTimeOffset CreatedAt { get; }
     public DateTimeOffset LastModifiedAt { get; private set; }
     public IReadOnlyList<DraftStep> Steps => _steps;
+    public IReadOnlyList<DraftStep> EpilogueSteps => _epilogueSteps;
 
     public QuestDraft(QuestId questId, DateTimeOffset createdAt)
     {
@@ -116,6 +118,70 @@ public sealed class QuestDraft
         return indices;
     }
 
+    // ---- Epilogue step management ----
+
+    public void AddEpilogueStep(DraftStep step, DateTimeOffset now)
+    {
+        if (_epilogueSteps.Any(s => s.StepId == step.StepId))
+            throw new InvalidOperationException($"An epilogue step with id '{step.StepId}' already exists.");
+
+        _epilogueSteps.Add(step);
+        LastModifiedAt = now;
+    }
+
+    public bool RemoveEpilogueStep(string stepId, DateTimeOffset now)
+    {
+        var index = _epilogueSteps.FindIndex(s => s.StepId == stepId);
+        if (index < 0) return false;
+
+        _epilogueSteps.RemoveAt(index);
+        LastModifiedAt = now;
+        return true;
+    }
+
+    public bool ReplaceEpilogueStep(string stepId, DraftStep newStep, DateTimeOffset now)
+    {
+        var index = _epilogueSteps.FindIndex(s => s.StepId == stepId);
+        if (index < 0) return false;
+
+        _epilogueSteps[index] = newStep;
+        LastModifiedAt = now;
+        return true;
+    }
+
+    public bool MoveEpilogueStepUp(string stepId, DateTimeOffset now)
+    {
+        var index = _epilogueSteps.FindIndex(s => s.StepId == stepId);
+        if (index < 1) return false;
+
+        (_epilogueSteps[index], _epilogueSteps[index - 1]) = (_epilogueSteps[index - 1], _epilogueSteps[index]);
+        LastModifiedAt = now;
+        return true;
+    }
+
+    public bool MoveEpilogueStepDown(string stepId, DateTimeOffset now)
+    {
+        var index = _epilogueSteps.FindIndex(s => s.StepId == stepId);
+        if (index < 0 || index >= _epilogueSteps.Count - 1) return false;
+
+        (_epilogueSteps[index], _epilogueSteps[index + 1]) = (_epilogueSteps[index + 1], _epilogueSteps[index]);
+        LastModifiedAt = now;
+        return true;
+    }
+
+    public void InsertEpilogueStepAfter(string afterStepId, DraftStep step, DateTimeOffset now)
+    {
+        if (_epilogueSteps.Any(s => s.StepId == step.StepId))
+            throw new InvalidOperationException($"An epilogue step with id '{step.StepId}' already exists.");
+
+        var index = _epilogueSteps.FindIndex(s => s.StepId == afterStepId);
+        if (index < 0)
+            throw new InvalidOperationException($"Epilogue step '{afterStepId}' not found.");
+
+        _epilogueSteps.Insert(index + 1, step);
+        LastModifiedAt = now;
+    }
+
     /// <summary>
     /// Test-only escape hatch: construct a draft whose internal step list is
     /// not guarded by AddStep's uniqueness invariant. Required for E1 (duplicate
@@ -156,6 +222,10 @@ public sealed class QuestDraft
             })
             .ToArray();
 
+        var epilogue = _epilogueSteps.Count > 0
+            ? _epilogueSteps.Select(s => s.Raw!).ToArray()
+            : null;
+
         return new QuestDefinition
         {
             SchemaVersion = "1.0.0",
@@ -168,7 +238,8 @@ public sealed class QuestDraft
             LastVerifiedPatch = LastVerifiedPatch ?? "unknown",
             Requirements = new Requirements(),
             AcceptFrom = InferAcceptFrom(),
-            Sequences = grouped
+            Sequences = grouped,
+            Epilogue = epilogue
         };
     }
 

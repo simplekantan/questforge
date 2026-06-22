@@ -215,7 +215,10 @@ public sealed class StepEditModal : Window
                 DrawEditableEnum<SpdEntryKind>("entryKind", "Entry Kind", editable);
                 DrawEditableNullableUint("entryTargetId", "Entry Target ID", editable);
                 break;
-            // TalkStep, AcceptStep, TurnInStep, HandOverItemStep, EquipGearForQuestStep,
+            case HandOverItemStep:
+                DrawEditableUintArray("items", "Items", editable, "Item IDs to hand over.");
+                break;
+            // TalkStep, AcceptStep, TurnInStep, EquipGearForQuestStep,
             // FragmentStep, BranchStep, EquipBestGearStep, RegisterGearsetStep, OpenCoffersStep
             // have complex or no per-type fields — handled by Re-record or future Phase 3
         }
@@ -540,6 +543,98 @@ public sealed class StepEditModal : Window
         }
     }
 
+    private void DrawEditableUintArray(string jsonKey, string label, bool editable, string? tooltip)
+    {
+        var items = ReadRawUintArray(jsonKey);
+        ImGui.TextUnformatted($"{label}: [{items.Length}]");
+        if (tooltip is not null && ImGui.IsItemHovered())
+            ImGui.SetTooltip(tooltip);
+
+        for (int i = 0; i < items.Length; i++)
+        {
+            var editKey = $"{jsonKey}[{i}]";
+            if (_editingField == editKey)
+            {
+                ImGui.TextUnformatted($"  [{i}]");
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(120f);
+                ImGui.InputText($"##{editKey}", ref _editValue, 20);
+                if (uint.TryParse(_editValue, out var parsed))
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton($"Save##{editKey}"))
+                    {
+                        var updated = (uint[])items.Clone();
+                        updated[i] = parsed;
+                        ApplyUintArrayChange(jsonKey, updated);
+                        _editingField = null;
+                    }
+                }
+                else
+                {
+                    ImGui.SameLine();
+                    ImGui.TextUnformatted("(invalid)");
+                }
+                DrawCancelButton(editKey);
+            }
+            else
+            {
+                ImGui.TextUnformatted($"  [{i}] {items[i]}");
+                if (editable)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton($"Edit##{editKey}"))
+                    {
+                        _editingField = editKey;
+                        _editValue = items[i].ToString();
+                    }
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton($"Remove##{editKey}"))
+                    {
+                        var updated = items.Where((_, idx) => idx != i).ToArray();
+                        ApplyUintArrayChange(jsonKey, updated);
+                    }
+                }
+            }
+        }
+
+        if (editable)
+        {
+            var addKey = $"{jsonKey}_add";
+            if (_editingField == addKey)
+            {
+                ImGui.TextUnformatted("  [+]");
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(120f);
+                ImGui.InputText($"##{addKey}", ref _editValue, 20);
+                if (uint.TryParse(_editValue, out var parsed))
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton($"Add##{addKey}"))
+                    {
+                        var updated = items.Append(parsed).ToArray();
+                        ApplyUintArrayChange(jsonKey, updated);
+                        _editingField = null;
+                    }
+                }
+                else
+                {
+                    ImGui.SameLine();
+                    ImGui.TextUnformatted("(invalid)");
+                }
+                DrawCancelButton(addKey);
+            }
+            else
+            {
+                if (ImGui.SmallButton($"Add Item##{jsonKey}"))
+                {
+                    _editingField = addKey;
+                    _editValue = "";
+                }
+            }
+        }
+    }
+
     private void DrawEditableStringChoice(string jsonKey, string label, string? currentValue, bool editable, string[] options)
     {
         var current = currentValue ?? "";
@@ -663,7 +758,8 @@ public sealed class StepEditModal : Window
             var draft = _host.DraftManager.Get(questTarget, CancellationToken.None)
                 .GetAwaiter().GetResult();
             if (draft is null) return;
-            draft.ReplaceStep(_editingStep.StepId, updatedStep, DateTimeOffset.UtcNow);
+            if (!draft.ReplaceStep(_editingStep.StepId, updatedStep, DateTimeOffset.UtcNow))
+                draft.ReplaceEpilogueStep(_editingStep.StepId, updatedStep, DateTimeOffset.UtcNow);
             _host.DraftManager.MarkDirty(questTarget);
             _ = _host.DraftManager.SaveNow(questTarget, CancellationToken.None);
         }
@@ -749,6 +845,34 @@ public sealed class StepEditModal : Window
         var node = JsonNode.Parse(json);
         try { return node?[key]?.GetValue<bool>(); }
         catch { return null; }
+    }
+
+    private uint[] ReadRawUintArray(string key)
+    {
+        if (_editingStep?.Raw is null) return [];
+        var json = JsonSerializer.Serialize<Step>(_editingStep.Raw, QuestForgeJsonContext.QuestFileOptions);
+        var node = JsonNode.Parse(json);
+        if (node?[key] is not JsonArray arr) return [];
+        return arr.Select(n => n!.GetValue<uint>()).ToArray();
+    }
+
+    private void ApplyUintArrayChange(string jsonKey, uint[] values)
+    {
+        if (_editingStep is null) return;
+
+        var json = JsonSerializer.Serialize<Step>(_editingStep.Raw!, QuestForgeJsonContext.QuestFileOptions);
+        var node = JsonNode.Parse(json)!;
+        var arr = new JsonArray();
+        foreach (var v in values)
+            arr.Add(v);
+        node[jsonKey] = arr;
+
+        var updatedRaw = JsonSerializer.Deserialize<Step>(node.ToJsonString(), QuestForgeJsonContext.QuestFileOptions);
+        if (updatedRaw is null) return;
+
+        var updatedStep = _editingStep with { Raw = updatedRaw };
+        SaveUpdatedStep(updatedStep);
+        _saveStatus = $"{jsonKey} updated.";
     }
 
     private void RefreshRawJson()
