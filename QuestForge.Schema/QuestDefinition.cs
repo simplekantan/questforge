@@ -18,6 +18,8 @@ public record class QuestDefinition
     public string? Notes { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? SkipIf { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Step[]? Epilogue { get; init; }
     public QuestSequence[] Sequences { get; init; } = [];
 }
 

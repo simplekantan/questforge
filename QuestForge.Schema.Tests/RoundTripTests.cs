@@ -2306,4 +2306,154 @@ public class RoundTripTests
                 json, QuestForgeJsonContext.QuestFileOptions));
     }
 
+    // =========================================================================
+    // Epilogue round-trip tests (RED PHASE)
+    // Both tests fail to compile until Builder adds the Epilogue property
+    // (Step[]?) to QuestDefinition. That compile failure is the intended RED.
+    // Spec: docs/EPILOGUE_STEP_PLAN.md scenarios EP_T1 and EP_T2.
+    // =========================================================================
+
+    /// <summary>
+    /// EP_T1 -- QuestDefinition with Epilogue containing one EquipGearForQuestStep
+    /// serializes and deserializes correctly.
+    /// </summary>
+    [Fact]
+    public void QuestDefinition_WithEpilogue_RoundTrips_EP_T1()
+    {
+        /*
+         * RED: Will fail to compile -- QuestDefinition.Epilogue does not exist yet.
+         *
+         * CONTRACT: Given a QuestDefinition with Epilogue containing one
+         *               EquipGearForQuestStep (Id="equip-crystal", ItemIds=[4553]),
+         *           When serialized to JSON via QuestForgeJsonContext.QuestFileOptions,
+         *               then deserialized back,
+         *           Then result is QuestDefinition,
+         *                Epilogue is not null,
+         *                Epilogue.Length is 1,
+         *                Epilogue[0] is EquipGearForQuestStep,
+         *                ItemIds[0] is 4553,
+         *                Id is "equip-crystal".
+         *
+         * BUILDER GUIDANCE:
+         *   Add to QuestDefinition:
+         *     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+         *     public Step[]? Epilogue { get; init; }
+         */
+
+        // Arrange
+        var quest = new QuestDefinition
+        {
+            SchemaVersion = "1.0.0",
+            Id = 99901,
+            Name = "Epilogue RT Test",
+            Expansion = "arr",
+            Category = "class",
+            Enabled = true,
+            SupportStatus = new SupportStatus { Implementation = "complete", KnownIssues = [] },
+            LastVerifiedPatch = "7.4",
+            Requirements = new Requirements { MinLevel = 1, Prereqs = [] },
+            AcceptFrom = new NpcLocation(0u, 0, new Position3(0f, 0f, 0f)),
+            Epilogue =                                           // RED: property does not exist yet
+            [
+                new EquipGearForQuestStep
+                {
+                    Id = "equip-crystal",
+                    ItemIds = [4553u]
+                }
+            ],
+            Sequences =
+            [
+                new QuestSequence
+                {
+                    Sequence = 0,
+                    Steps =
+                    [
+                        new TalkStep
+                        {
+                            Id = "talk",
+                            Target = new NpcLocation(1000001, 182, new Position3(0, 0, 0)),
+                            Expect = new PredicateExpect { Predicate = "questSequence(99901) >= 1" }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        // Act
+        var json = System.Text.Json.JsonSerializer.Serialize(quest, QuestForgeJsonContext.QuestFileOptions);
+        var result = System.Text.Json.JsonSerializer.Deserialize<QuestDefinition>(
+            json, QuestForgeJsonContext.QuestFileOptions);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.NotNull(result!.Epilogue);                        // RED: property does not exist yet
+        Assert.Single(result.Epilogue!);
+        var equipStep = Assert.IsType<EquipGearForQuestStep>(result.Epilogue![0]);
+        Assert.Equal("equip-crystal", equipStep.Id);
+        Assert.Equal(4553u, equipStep.ItemIds[0]);
+    }
+
+    /// <summary>
+    /// EP_T2 -- QuestDefinition without Epilogue round-trips with null,
+    /// and the JSON does NOT contain the "epilogue" key.
+    /// </summary>
+    [Fact]
+    public void QuestDefinition_WithoutEpilogue_RoundTripsNull_EP_T2()
+    {
+        /*
+         * RED: Will fail to compile -- QuestDefinition.Epilogue does not exist yet.
+         *
+         * CONTRACT: Given a QuestDefinition with Epilogue set to null (the default),
+         *           When serialized to JSON then deserialized back,
+         *           Then Epilogue is null,
+         *           AND the JSON string does NOT contain the key "epilogue"
+         *               (omitted by [JsonIgnore(WhenWritingNull)]).
+         */
+
+        // Arrange
+        var quest = new QuestDefinition
+        {
+            SchemaVersion = "1.0.0",
+            Id = 99902,
+            Name = "No Epilogue RT Test",
+            Expansion = "arr",
+            Category = "side",
+            Enabled = true,
+            SupportStatus = new SupportStatus { Implementation = "complete", KnownIssues = [] },
+            LastVerifiedPatch = "7.4",
+            Requirements = new Requirements { MinLevel = 1, Prereqs = [] },
+            AcceptFrom = new NpcLocation(0u, 0, new Position3(0f, 0f, 0f)),
+            // Epilogue intentionally NOT set (defaults to null)
+            Sequences =
+            [
+                new QuestSequence
+                {
+                    Sequence = 0,
+                    Steps =
+                    [
+                        new TalkStep
+                        {
+                            Id = "talk",
+                            Target = new NpcLocation(1000001, 182, new Position3(0, 0, 0)),
+                            Expect = new PredicateExpect { Predicate = "questSequence(99902) >= 1" }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        // Act
+        var json = System.Text.Json.JsonSerializer.Serialize(quest, QuestForgeJsonContext.QuestFileOptions);
+        var result = System.Text.Json.JsonSerializer.Deserialize<QuestDefinition>(
+            json, QuestForgeJsonContext.QuestFileOptions);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Null(result!.Epilogue);                           // RED: property does not exist yet
+
+        // "epilogue" key must be absent from JSON (WhenWritingNull)
+        var compactJson = json.Replace(" ", "").Replace("\r", "").Replace("\n", "");
+        Assert.DoesNotContain("\"epilogue\"", compactJson, StringComparison.Ordinal);
+    }
+
 }

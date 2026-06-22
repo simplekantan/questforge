@@ -78,6 +78,9 @@ public sealed class QuestEngine
     private Step? _lastResolvedStep;
     private bool _wasDeadLastTick;
     private bool _deathRecoveryPending;
+    private Step[]? _epilogueSteps;
+    private bool _inEpilogue;
+    private readonly HashSet<string> _epilogueConfirmedStepIds = new();
 
     private sealed record ActiveResumeFragment(
         string ForStepId,
@@ -175,6 +178,10 @@ public sealed class QuestEngine
             SkipIf = seq.SkipIf,
             Steps = ExpandSteps(seq.Steps, fragments, usageCount).ToArray()
         }).ToArray();
+
+        _epilogueSteps = quest.Epilogue is { Length: > 0 }
+            ? ExpandSteps(quest.Epilogue, fragments, usageCount).ToArray()
+            : null;
 
         _quest = quest with { Sequences = rewrittenSequences };
     }
@@ -369,11 +376,16 @@ public sealed class QuestEngine
         _activeResumeFragment = null;
         _wasDeadLastTick = false;
         _deathRecoveryPending = false;
+        _inEpilogue = false;
+        _epilogueConfirmedStepIds.Clear();
     }
 
     public void NotifyEquipBestGearComplete(string stepId)
     {
-        _confirmedStepIds.Add(stepId);
+        if (_inEpilogue)
+            _epilogueConfirmedStepIds.Add(stepId);
+        else
+            _confirmedStepIds.Add(stepId);
     }
 
     public async Task<EngineAction> Tick(CancellationToken ct)
@@ -491,7 +503,15 @@ public sealed class QuestEngine
         {
             var completeResult = await _questState.IsQuestComplete(questId, ct);
             if (completeResult is Result<bool>.Success { Value: true })
+            {
+                if (_epilogueSteps is { Length: > 0 } && !_inEpilogue)
+                    _inEpilogue = true;
+
+                if (_inEpilogue)
+                    return await ResolveEpilogueAction(_epilogueSteps!, playerPos: null, ct);
+
                 return (new EngineAction.Done(), null, null);
+            }
         }
         // else: replay active and not suspended — skip the IsQuestComplete gate (bitmap lies)
         //       and fall through to the live-sequence loop below.
@@ -1091,6 +1111,9 @@ public sealed class QuestEngine
         foreach (var seq in _quest.Sequences)
             foreach (var step in seq.Steps)
                 if (step.Id == stepId) return step;
+        if (_epilogueSteps is not null)
+            foreach (var step in _epilogueSteps)
+                if (step.Id == stepId) return step;
         return null;
     }
 
@@ -1570,6 +1593,143 @@ public sealed class QuestEngine
             EntryTargetId: step.EntryTargetId,
             EntryPosition: step.EntryPosition,
             Origin: step);
+    }
+
+    private async Task<(EngineAction action, string? stepId, WorldPosition? playerPos)>
+        ResolveEpilogueAction(Step[] epilogueSteps, WorldPosition? playerPos, CancellationToken ct)
+    {
+        var uiResult = await _gameState.GetUiState(ct);
+        var ui = uiResult is Result<UiState>.Success { Value: var uiValue }
+            ? uiValue
+            : new UiState(false, false, false, false, false, false, false, false, null);
+
+        if (ui.LoadingZone)
+            return (new EngineAction.Wait("loading zone"), null, playerPos);
+
+        var posResult = await _gameState.GetPlayerPosition(ct);
+        playerPos = posResult is Result<WorldPosition>.Success { Value: var p }
+            ? p : (WorldPosition?)null;
+
+        foreach (var step in epilogueSteps)
+        {
+            if (_epilogueConfirmedStepIds.Contains(step.Id))
+                continue;
+
+            // TravelStep: distance-based confirmation (not Expect-first).
+            // The Expect on a TravelStep describes the postcondition (arrived at zone/position),
+            // but the engine must dispatch navigation first. Use player proximity to the destination
+            // as the implicit postcondition, matching how the main loop handles TravelStep.
+            if (step is TravelStep epilogueTravelStep
+                && epilogueTravelStep.Destination.Position is { } tsDest)
+            {
+                var tsTarget = new WorldPosition(tsDest.X, tsDest.Y, tsDest.Z);
+                var tsStop = step.StopDistance ?? DefaultStopDistance;
+                if (playerPos is not null && playerPos.Value.DistanceTo(tsTarget) <= tsStop)
+                {
+                    _epilogueConfirmedStepIds.Add(step.Id);
+                    continue;
+                }
+                _lastResolvedStep = step;
+                return (ResolveActionForStep(step, ui, playerPos), step.Id, playerPos);
+            }
+
+            if (step.Expect is not null && await _expectEvaluator.Evaluate(step.Expect, ct))
+            {
+                _epilogueConfirmedStepIds.Add(step.Id);
+                continue;
+            }
+
+            if (step.SkipIf is not null && await _expectEvaluator.Evaluate(step.SkipIf, ct))
+                continue;
+
+            if (step is EquipGearForQuestStep equipStep)
+            {
+                var equipAction = await ResolveEquipGear(equipStep, ct);
+                if (equipAction is null)
+                {
+                    _epilogueConfirmedStepIds.Add(step.Id);
+                    continue;
+                }
+                return (equipAction, step.Id, playerPos);
+            }
+
+            if (step is EquipBestGearStep bestGearStep)
+            {
+                var bestGearAction = await ResolveEquipBestGear(bestGearStep, ct);
+                return (bestGearAction, step.Id, playerPos);
+            }
+
+            if (step is ChangeJobStep changeJobStep)
+            {
+                var changeJobAction = await ResolveChangeJob(changeJobStep, ct);
+                if (changeJobAction is null)
+                {
+                    _epilogueConfirmedStepIds.Add(step.Id);
+                    continue;
+                }
+                return (changeJobAction, step.Id, playerPos);
+            }
+
+            if (step is RegisterGearsetStep registerGearsetStep)
+            {
+                if (_fireOnceDispatchedIds.Contains(step.Id))
+                {
+                    _epilogueConfirmedStepIds.Add(step.Id);
+                    continue;
+                }
+                var registerAction = await ResolveRegisterGearset(registerGearsetStep, ct);
+                if (registerAction is not EngineAction.Wait)
+                    _fireOnceDispatchedIds.Add(step.Id);
+                return (registerAction, step.Id, playerPos);
+            }
+
+            if (step is TeleportStep teleportStep)
+            {
+                var teleportAction = await ResolveTeleportAction(teleportStep, ct);
+                return (teleportAction, step.Id, playerPos);
+            }
+
+            if (step is OpenCoffersStep openCoffersStep)
+            {
+                var openCoffersAction = await ResolveOpenCoffers(openCoffersStep, ct);
+                return (openCoffersAction, step.Id, playerPos);
+            }
+
+            if (step is PurchaseItemStep purchaseStep)
+            {
+                var purchaseAction = await ResolvePurchaseAction(purchaseStep, playerPos, ct);
+                return (purchaseAction, step.Id, playerPos);
+            }
+
+            if (step is UseActionStep useActionStep)
+            {
+                var useAction = await ResolveUseAction(useActionStep, playerPos, ct);
+                return (useAction, step.Id, playerPos);
+            }
+
+            if (step is UseEmoteStep useEmoteStep)
+            {
+                var useEmote = await ResolveUseEmote(useEmoteStep, playerPos, ct);
+                return (useEmote, step.Id, playerPos);
+            }
+
+            if (step is UseItemStep useItemStep)
+            {
+                var useItem = await ResolveUseItem(useItemStep, ct);
+                return (useItem, step.Id, playerPos);
+            }
+
+            if (step is UseItemOnObjectStep useItemOnObjStep)
+            {
+                var useItemOnObj = await ResolveUseItemOnObject(useItemOnObjStep, playerPos, ct);
+                return (useItemOnObj, step.Id, playerPos);
+            }
+
+            _lastResolvedStep = step;
+            return (ResolveActionForStep(step, ui, playerPos), step.Id, playerPos);
+        }
+
+        return (new EngineAction.Done(), null, playerPos);
     }
 
     /// <summary>
