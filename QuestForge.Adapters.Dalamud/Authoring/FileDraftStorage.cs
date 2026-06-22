@@ -176,6 +176,21 @@ public sealed class FileDraftStorage : IDraftStorage
                     : null))
             .ToArray();
 
+        var epilogueDtos = draft.EpilogueSteps
+            .Select(s => new DraftStepFileDto(
+                StepId: s.StepId,
+                StepType: s.StepType,
+                SequenceNumber: s.SequenceNumber,
+                InferredFrom: s.InferredFrom.ToString(),
+                ObservedBefore: ToSnapshotDto(s.ObservedBefore),
+                ObservedAfter: ToSnapshotDto(s.ObservedAfter),
+                SuggestedExpect: s.SuggestedExpect,
+                Notes: s.Notes,
+                RawJson: s.Raw is not null
+                    ? JsonSerializer.Serialize(s.Raw, QuestForgeJsonContext.QuestFileOptions)
+                    : null))
+            .ToArray();
+
         return new DraftFileDto(
             DraftSchemaVersion: "1.0.0",
             QuestId: draft.QuestId.Value,
@@ -185,7 +200,8 @@ public sealed class FileDraftStorage : IDraftStorage
             LastVerifiedPatch: draft.LastVerifiedPatch,
             CreatedAt: draft.CreatedAt,
             LastModifiedAt: draft.LastModifiedAt,
-            Steps: stepDtos);
+            Steps: stepDtos,
+            EpilogueSteps: epilogueDtos.Length > 0 ? epilogueDtos : null);
     }
 
     private QuestDraft FromDto(DraftFileDto dto, QuestId questId)
@@ -235,6 +251,49 @@ public sealed class FileDraftStorage : IDraftStorage
             catch (InvalidOperationException ex)
             {
                 _log.Warning($"FileDraftStorage: duplicate stepId '{stepDto.StepId}' — skipping. {ex.Message}");
+            }
+        }
+
+        if (dto.EpilogueSteps is not null)
+        {
+            foreach (var stepDto in dto.EpilogueSteps)
+            {
+                Step? raw = null;
+                if (stepDto.RawJson is not null)
+                {
+                    try
+                    {
+                        raw = JsonSerializer.Deserialize<Step>(stepDto.RawJson, QuestForgeJsonContext.QuestFileOptions);
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Warning($"FileDraftStorage: failed to deserialize epilogue step '{stepDto.StepId}' Raw JSON — skipping. {ex.Message}");
+                        continue;
+                    }
+                }
+
+                if (!Enum.TryParse<InferredFrom>(stepDto.InferredFrom, out var inferredFrom))
+                    inferredFrom = InferredFrom.None;
+
+                var before = FromSnapshotDto(stepDto.ObservedBefore, questId);
+                var after = FromSnapshotDto(stepDto.ObservedAfter, questId);
+
+                var draftStep = new DraftStep(
+                    StepId: stepDto.StepId,
+                    StepType: stepDto.StepType,
+                    SequenceNumber: stepDto.SequenceNumber,
+                    InferredFrom: inferredFrom,
+                    ObservedBefore: before,
+                    ObservedAfter: after,
+                    SuggestedExpect: stepDto.SuggestedExpect,
+                    Notes: stepDto.Notes,
+                    Raw: raw);
+
+                try { draft.AddEpilogueStep(draftStep, dto.LastModifiedAt); }
+                catch (InvalidOperationException ex)
+                {
+                    _log.Warning($"FileDraftStorage: duplicate epilogue stepId '{stepDto.StepId}' — skipping. {ex.Message}");
+                }
             }
         }
 
@@ -297,7 +356,8 @@ internal sealed record DraftFileDto(
     string? LastVerifiedPatch,
     DateTimeOffset CreatedAt,
     DateTimeOffset LastModifiedAt,
-    DraftStepFileDto[] Steps);
+    DraftStepFileDto[] Steps,
+    DraftStepFileDto[]? EpilogueSteps = null);
 
 internal sealed record DraftStepFileDto(
     string StepId,

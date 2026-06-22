@@ -29,6 +29,7 @@ public sealed partial class AuthoringSessionPanel : Window
     private string? _fragmentModalError;
 
     // Insert fragment modal state
+    private bool _insertEpilogueFragmentOpen;
     private bool _insertFragmentModalOpen;
     private List<string>? _availableFragmentIds;
     private string? _selectedFragmentId;
@@ -366,6 +367,101 @@ public sealed partial class AuthoringSessionPanel : Window
 
         if (stepToEdit is not null)
             _editModal.OpenFor(stepToEdit);
+
+        // ---- Epilogue section ----
+        DrawEpilogueSection(draft, target.Value);
+    }
+
+    private void DrawEpilogueSection(QuestDraft draft, Adapters.Types.QuestId questId)
+    {
+        ImGui.Spacing();
+        var epilogueSteps = draft.EpilogueSteps;
+        if (!ImGui.CollapsingHeader($"Epilogue ({epilogueSteps.Count} steps)###epilogue"))
+            return;
+
+        if (epilogueSteps.Count == 0)
+            ImGui.TextUnformatted("  No epilogue steps. Add a fragment to run after quest completion.");
+
+        string? epiToDelete = null;
+        string? epiToMoveUp = null;
+        string? epiToMoveDown = null;
+        DraftStep? epiToEdit = null;
+        DraftStep? epiToDuplicate = null;
+
+        for (var i = 0; i < epilogueSteps.Count; i++)
+        {
+            var step = epilogueSteps[i];
+            ImGui.PushID(10000 + i);
+
+            ImGui.TextUnformatted($"  [{i + 1}] {step.StepType} | {step.StepId}");
+
+            ImGui.SameLine();
+            ImGui.BeginDisabled(i == 0);
+            if (ImGui.SmallButton("▲"))
+                epiToMoveUp = step.StepId;
+            ImGui.EndDisabled();
+
+            ImGui.SameLine();
+            ImGui.BeginDisabled(i == epilogueSteps.Count - 1);
+            if (ImGui.SmallButton("▼"))
+                epiToMoveDown = step.StepId;
+            ImGui.EndDisabled();
+
+            ImGui.SameLine();
+            if (ImGui.SmallButton("edit"))
+                epiToEdit = step;
+
+            ImGui.SameLine();
+            if (ImGui.SmallButton("duplicate"))
+                epiToDuplicate = step;
+
+            ImGui.SameLine();
+            if (ImGui.SmallButton("delete"))
+                epiToDelete = step.StepId;
+
+            ImGui.PopID();
+        }
+
+        if (ImGui.Button("+ Add Fragment to Epilogue"))
+        {
+            _insertEpilogueFragmentOpen = true;
+            _selectedFragmentId = null;
+            _fragmentFilterText = "";
+            _availableFragmentIds = ScanAvailableFragments();
+        }
+
+        var epiDirty = false;
+
+        if (epiToMoveUp is not null)
+            epiDirty = draft.MoveEpilogueStepUp(epiToMoveUp, DateTimeOffset.UtcNow);
+
+        if (epiToMoveDown is not null)
+            epiDirty = draft.MoveEpilogueStepDown(epiToMoveDown, DateTimeOffset.UtcNow);
+
+        if (epiToDuplicate is not null)
+        {
+            var newId = epiToDuplicate.StepId + "-copy";
+            var dupe = epiToDuplicate with { StepId = newId };
+            draft.InsertEpilogueStepAfter(epiToDuplicate.StepId, dupe, DateTimeOffset.UtcNow);
+            epiDirty = true;
+        }
+
+        if (epiToDelete is not null)
+        {
+            draft.RemoveEpilogueStep(epiToDelete, DateTimeOffset.UtcNow);
+            epiDirty = true;
+        }
+
+        if (epiDirty)
+        {
+            _host.DraftManager.MarkDirty(questId);
+            _ = _host.DraftManager.SaveNow(questId, CancellationToken.None);
+        }
+
+        if (epiToEdit is not null)
+            _editModal.OpenFor(epiToEdit);
+
+        DrawInsertEpilogueFragmentModal(draft, questId);
     }
 
     private List<string> ScanAvailableFragments()
@@ -502,6 +598,112 @@ public sealed partial class AuthoringSessionPanel : Window
             if (ImGui.Button("Cancel", new System.Numerics.Vector2(120, 0)))
             {
                 _insertFragmentModalOpen = false;
+                ImGui.CloseCurrentPopup();
+            }
+
+            ImGui.EndPopup();
+        }
+    }
+
+    private void DrawInsertEpilogueFragmentModal(QuestDraft draft, Adapters.Types.QuestId questId)
+    {
+        if (!_insertEpilogueFragmentOpen) return;
+
+        ImGui.OpenPopup("Add Epilogue Fragment");
+        var center = ImGui.GetMainViewport().GetCenter();
+        ImGui.SetNextWindowPos(center, ImGuiCond.Appearing, new System.Numerics.Vector2(0.5f, 0.5f));
+        ImGui.SetNextWindowSize(new System.Numerics.Vector2(400, 350), ImGuiCond.Appearing);
+
+        if (ImGui.BeginPopupModal("Add Epilogue Fragment", ref _insertEpilogueFragmentOpen, ImGuiWindowFlags.None))
+        {
+            if (_availableFragmentIds is null || _availableFragmentIds.Count == 0)
+            {
+                ImGui.TextUnformatted("No fragments found in fragments/ directory.");
+            }
+            else
+            {
+                ImGui.SetNextItemWidth(-1);
+                ImGui.InputTextWithHint("##epi-fragment-filter", "Search fragments...", ref _fragmentFilterText, 128);
+                ImGui.Spacing();
+
+                var filtered = string.IsNullOrEmpty(_fragmentFilterText)
+                    ? _availableFragmentIds
+                    : _availableFragmentIds.Where(id =>
+                        id.Contains(_fragmentFilterText, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                var availableHeight = ImGui.GetContentRegionAvail().Y - 32;
+                if (ImGui.BeginChild("##epi-fragment-list", new System.Numerics.Vector2(-1, availableHeight), true))
+                {
+                    string? lastGroup = null;
+                    foreach (var id in filtered)
+                    {
+                        var slashIdx = id.IndexOf('/');
+                        var group = slashIdx >= 0 ? id[..slashIdx] : "(ungrouped)";
+
+                        if (group != lastGroup)
+                        {
+                            if (lastGroup is not null) ImGui.Spacing();
+                            ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(0.6f, 0.8f, 1f, 1f));
+                            ImGui.TextUnformatted(group.ToUpperInvariant());
+                            ImGui.PopStyleColor();
+                            ImGui.Separator();
+                            lastGroup = group;
+                        }
+
+                        var label = slashIdx >= 0 ? id[(slashIdx + 1)..] : id;
+                        if (ImGui.Selectable($"  {label}###{id}", id == _selectedFragmentId))
+                            _selectedFragmentId = id;
+                    }
+
+                    if (filtered.Count == 0)
+                        ImGui.TextUnformatted("No matches.");
+                }
+                ImGui.EndChild();
+            }
+
+            ImGui.Spacing();
+            ImGui.BeginDisabled(_selectedFragmentId is null);
+            if (ImGui.Button("Add", new System.Numerics.Vector2(120, 0)))
+            {
+                var fragmentId = _selectedFragmentId!;
+                var stepId = $"epilogue-{fragmentId.Replace('/', '-')}";
+
+                var fragmentStep = new FragmentStep
+                {
+                    Id = stepId,
+                    Ref = fragmentId,
+                };
+                var emptySnapshot = new GameStateSnapshot(
+                    DateTimeOffset.UtcNow,
+                    default, default, null, 0, 0, false, false, null, null, null, null, 0, null);
+                var draftStep = new DraftStep(
+                    StepId: stepId,
+                    StepType: "fragment",
+                    SequenceNumber: 0,
+                    InferredFrom: InferredFrom.Manual,
+                    ObservedBefore: emptySnapshot,
+                    ObservedAfter: emptySnapshot,
+                    SuggestedExpect: null,
+                    Notes: null,
+                    Raw: fragmentStep);
+
+                var lastEpi = draft.EpilogueSteps.Count > 0 ? draft.EpilogueSteps[^1] : null;
+                if (lastEpi is not null)
+                    draft.InsertEpilogueStepAfter(lastEpi.StepId, draftStep, DateTimeOffset.UtcNow);
+                else
+                    draft.AddEpilogueStep(draftStep, DateTimeOffset.UtcNow);
+
+                _host.DraftManager.MarkDirty(questId);
+                _ = _host.DraftManager.SaveNow(questId, CancellationToken.None);
+
+                _insertEpilogueFragmentOpen = false;
+                ImGui.CloseCurrentPopup();
+            }
+            ImGui.EndDisabled();
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel", new System.Numerics.Vector2(120, 0)))
+            {
+                _insertEpilogueFragmentOpen = false;
                 ImGui.CloseCurrentPopup();
             }
 

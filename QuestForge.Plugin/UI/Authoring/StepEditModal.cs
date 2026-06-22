@@ -758,7 +758,8 @@ public sealed class StepEditModal : Window
             var draft = _host.DraftManager.Get(questTarget, CancellationToken.None)
                 .GetAwaiter().GetResult();
             if (draft is null) return;
-            draft.ReplaceStep(_editingStep.StepId, updatedStep, DateTimeOffset.UtcNow);
+            if (!draft.ReplaceStep(_editingStep.StepId, updatedStep, DateTimeOffset.UtcNow))
+                draft.ReplaceEpilogueStep(_editingStep.StepId, updatedStep, DateTimeOffset.UtcNow);
             _host.DraftManager.MarkDirty(questTarget);
             _ = _host.DraftManager.SaveNow(questTarget, CancellationToken.None);
         }
