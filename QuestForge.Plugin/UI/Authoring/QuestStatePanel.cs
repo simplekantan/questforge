@@ -1,5 +1,6 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using Dalamud.Plugin.Services;
 using QuestForge.Engine.Authoring;
 using QuestForge.Plugin.Authoring;
 
@@ -8,11 +9,15 @@ namespace QuestForge.Plugin.UI.Authoring;
 public sealed class QuestStatePanel : Window
 {
     private readonly AuthoringHost _host;
+    private readonly IPluginLog _log;
+    private int _prevSequence = -1;
+    private byte[]? _prevVariables;
 
-    public QuestStatePanel(AuthoringHost host)
+    public QuestStatePanel(AuthoringHost host, IPluginLog log)
         : base("QuestForge — Quest State", ImGuiWindowFlags.None)
     {
         _host = host;
+        _log = log;
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new System.Numerics.Vector2(280, 160),
@@ -46,6 +51,8 @@ public sealed class QuestStatePanel : Window
         ImGui.TextUnformatted($"Accepted: {snapshot.QuestAccepted}");
         ImGui.TextUnformatted($"Completed: {snapshot.QuestCompleted}");
 
+        DetectChanges(snapshot);
+
         if (snapshot.QuestVariables is { Count: 6 } vars)
         {
             ImGui.Separator();
@@ -75,6 +82,27 @@ public sealed class QuestStatePanel : Window
                 }
                 ImGui.EndTable();
             }
+        }
+    }
+
+    private void DetectChanges(GameStateSnapshot snapshot)
+    {
+        var seq = snapshot.QuestSequence;
+        if (_prevSequence != -1 && seq != _prevSequence)
+            _log.Debug($"[QuestState] sequence changed: {_prevSequence} -> {seq}");
+        _prevSequence = seq;
+
+        if (snapshot.QuestVariables is { Count: 6 } vars)
+        {
+            if (_prevVariables is not null)
+            {
+                for (int i = 0; i < 6; i++)
+                {
+                    if (vars[i] != _prevVariables[i])
+                        _log.Debug($"[QuestState] V{i} changed: {_prevVariables[i]} (0x{_prevVariables[i]:X2}) -> {vars[i]} (0x{vars[i]:X2})");
+                }
+            }
+            _prevVariables = [vars[0], vars[1], vars[2], vars[3], vars[4], vars[5]];
         }
     }
 }
